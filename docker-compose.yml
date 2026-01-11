@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  # 1. 图数据库 (Neo4j) - 负责显性逻辑与关系
+  neo4j:
+    image: neo4j:5.26.0  # 需要 5.18+ 支持向量函数
+    container_name: memory_graph_db
+    ports:
+      - "7474:7474" # 浏览器可视化界面端口
+      - "17687:7687" # Bolt 协议通信端口
+    environment:
+      - NEO4J_AUTH=neo4j/password123  # 【注意】这是你的数据库账号密码
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"] # 启用图数据科学插件
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+    volumes:
+      - ./neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. 向量数据库 (Qdrant) - 负责隐性语义
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: memory_vector_db
+    ports:
+      - "6333:6333" # API 端口
+    volumes:
+      - ./qdrant_data:/qdrant/storage
