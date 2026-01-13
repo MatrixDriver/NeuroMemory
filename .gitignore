@@ -18,7 +18,7 @@ qdrant_data/
 
 # Claude Code
 .claude/
-/tmpclaude-*.cwd
+tmpclaude-*
 
 # 临时文件
 nul
