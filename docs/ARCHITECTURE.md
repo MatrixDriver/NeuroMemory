@@ -104,6 +104,8 @@ NeuroMemory 采用**神经符号混合记忆系统 (Neuro-Symbolic Hybrid Memory
 | 语义记忆 | 大脑皮层 | Qdrant 向量 | 模糊搜索、非结构化理解 |
 | 情景流 | 工作记忆 | LLM 长窗口 | 短期上下文保持 `[📋 规划]` |
 
+![系统架构图](./assets/NeuroMemory架构图.png)
+
 ### 2.2 系统定位
 
 NeuroMemory 是一个**生产级记忆服务**，提供：

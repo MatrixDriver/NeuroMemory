@@ -9,7 +9,7 @@
 - **混合记忆架构**: 结合 Neo4j 知识图谱与 Qdrant 向量数据库，同时处理结构化逻辑和模糊语义
 - **多跳推理**: 通过图谱路径实现复杂的实体关系推理，如 `Demis → DeepMind → Gemini`
 - **自动知识提取**: 利用 LLM 自动从对话中提取实体关系并构建知识图谱
-- **灵活的模型切换**: 支持 DeepSeek / Gemini 作为推理引擎，本地 HuggingFace / Gemini 作为 Embedding
+- **灵活的模型切换**: 支持 DeepSeek / Gemini 作为推理引擎，本地 HuggingFace / Gemini / SiliconFlow 作为 Embedding
 - **记忆演化**: 知识图谱具有自我纠错能力，随使用时间形成致密的专家知识网络
 
 ## 架构设计
@@ -54,7 +54,7 @@
 | 组件 | 技术 | 说明 |
 |------|------|------|
 | LLM | DeepSeek / Gemini | 可切换，用于推理和实体提取 |
-| Embedding | HuggingFace / Gemini | 可切换，384/768 维向量 |
+| Embedding | HuggingFace / Gemini / SiliconFlow | 可切换，384/512/768 维向量 |
 | Vector DB | Qdrant | 高性能向量数据库 |
 | Graph DB | Neo4j 5.26.0 | 知识图谱存储 |
 | Framework | Mem0 + LangChain | 混合记忆管理 |
@@ -99,6 +99,7 @@ pip install -r requirements.txt
 ```env
 GOOGLE_API_KEY=your-gemini-api-key
 DEEPSEEK_API_KEY=your-deepseek-api-key
+SILICONFLOW_API_KEY=your-siliconflow-api-key
 ```
 
 ### 5. 启动数据库服务
@@ -125,8 +126,8 @@ python main.py
 # LLM 提供商: "gemini" 或 "deepseek"
 LLM_PROVIDER = "deepseek"
 
-# Embedding 提供商: "gemini" 或 "local" (本地 HuggingFace)
-EMBEDDING_PROVIDER = "local"
+# Embedding 提供商: "gemini", "local" (本地 HuggingFace), "siliconflow"
+EMBEDDING_PROVIDER = "siliconflow"
 
 # 是否启用图谱存储 (Neo4j)
 ENABLE_GRAPH_STORE = True
@@ -140,10 +141,10 @@ ENABLE_GRAPH_STORE = True
 | 温度 | 0.7 | 0.7 |
 | API | Google AI | OpenAI 兼容 |
 
-| 配置 | Local | Gemini |
-|------|-------|--------|
-| Embedding 模型 | paraphrase-multilingual-MiniLM-L12-v2 | text-embedding-004 |
-| 向量维度 | 384 | 768 |
+| 配置 | Local | SiliconFlow | Gemini |
+|------|-------|-------------|--------|
+| Embedding 模型 | paraphrase-multilingual-MiniLM-L12-v2 | BAAI/bge-m3 | text-embedding-004 |
+| 向量维度 | 384 | 512 | 768 |
 
 ## 使用示例
 

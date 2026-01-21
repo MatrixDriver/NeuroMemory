@@ -14,6 +14,7 @@ load_dotenv(Path(__file__).parent / ".env")
 # =============================================================================
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "")
 
 # 设置环境变量供 SDK 使用
 if GOOGLE_API_KEY:
@@ -28,8 +29,8 @@ if DEEPSEEK_API_KEY:
 # LLM 提供商选择: "gemini" 或 "deepseek"
 LLM_PROVIDER = "deepseek"
 
-# Embedding 提供商选择: "gemini", "local" (本地 HuggingFace 模型)
-EMBEDDING_PROVIDER = "local"
+# Embedding 提供商选择: "gemini", "local" (本地 HuggingFace), "siliconflow"
+EMBEDDING_PROVIDER = "siliconflow"
 
 # 是否启用图谱存储 (Neo4j)
 ENABLE_GRAPH_STORE = True
@@ -83,6 +84,17 @@ LOCAL_EMBEDDING_CONFIG = {
     },
 }
 
+# SiliconFlow Embedding 配置 (OpenAI 兼容接口)
+SILICONFLOW_EMBEDDING_CONFIG = {
+    "provider": "openai",
+    "config": {
+        "model": "BAAI/bge-m3",
+        "embedding_dims": 1024,  # bge-m3 实际维度为 1024
+        "openai_base_url": "https://api.siliconflow.cn/v1",
+        "api_key": SILICONFLOW_API_KEY,
+    },
+}
+
 # =============================================================================
 # 根据开关生成最终配置
 # =============================================================================
@@ -103,6 +115,8 @@ def _get_embedder_config() -> dict:
         return GEMINI_CONFIG["embedder"]
     elif EMBEDDING_PROVIDER == "local":
         return LOCAL_EMBEDDING_CONFIG
+    elif EMBEDDING_PROVIDER == "siliconflow":
+        return SILICONFLOW_EMBEDDING_CONFIG
     else:
         raise ValueError(f"未知的 Embedding 提供商: {EMBEDDING_PROVIDER}")
 
@@ -123,6 +137,7 @@ MEM0_CONFIG: dict = {
             "host": "localhost",
             "port": 6333,
             "collection_name": _get_collection_name(),
+            "embedding_model_dims": _get_embedder_config()["config"]["embedding_dims"],  # 明确指定向量维度
         },
     },
     "llm": _get_llm_config(),

@@ -15,7 +15,7 @@ NeuroMemory 是一个神经符号混合记忆系统（Neuro-Symbolic Hybrid Memo
 | 组件 | 技术 | 说明 |
 |------|------|------|
 | LLM | DeepSeek / Gemini | 可切换，用于推理和实体提取 |
-| Embedding | 本地 HuggingFace / Gemini | 可切换，384/768 维向量 |
+| Embedding | 本地 HuggingFace / SiliconFlow / Gemini | 可切换，384/512/768 维向量 |
 | Vector DB | Qdrant | localhost:6333 |
 | Graph DB | Neo4j 5.26.0 | localhost:7474 (Web), localhost:17687 (Bolt) |
 | Framework | Mem0 + LangGraph | 混合记忆管理 |
@@ -50,6 +50,7 @@ python main.py
 ```
 GOOGLE_API_KEY=your-gemini-api-key
 DEEPSEEK_API_KEY=your-deepseek-api-key
+SILICONFLOW_API_KEY=your-siliconflow-api-key
 ```
 
 ## 模型切换配置
@@ -60,8 +61,8 @@ DEEPSEEK_API_KEY=your-deepseek-api-key
 # LLM 提供商: "gemini" 或 "deepseek"
 LLM_PROVIDER = "deepseek"
 
-# Embedding 提供商: "gemini" 或 "local" (本地 HuggingFace)
-EMBEDDING_PROVIDER = "local"
+# Embedding 提供商: "gemini", "local" (本地 HuggingFace), "siliconflow"
+EMBEDDING_PROVIDER = "siliconflow"
 
 # 是否启用图谱存储
 ENABLE_GRAPH_STORE = True

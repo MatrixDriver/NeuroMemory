@@ -1,0 +1,13 @@
+[project]
+name = "neuromemory"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain-google-genai==4.2.0",
+    "langchain-neo4j==0.7.0",
+    "langchain-openai==1.1.7",
+    "mem0ai[graph]>=1.0.2",
+    "python-dotenv==1.2.1",
+]
