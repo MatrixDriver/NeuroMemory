@@ -1,0 +1,19 @@
+﻿# Cursor Rules
+
+## Windows PowerShell 注意事项
+
+### Heredoc 不可用
+
+Bash 的 heredoc 语法 `$(cat <<'EOF' ... EOF)` 在 PowerShell 中无效。
+
+替代方案：
+- 简单提交：直接用 `git commit -m "message"`
+- 多行内容：使用 PowerShell here-string `@"..."@` 或 `--body-file` 参数
+
+### 其他常见差异
+
+| Bash | PowerShell |
+|------|------------|
+| `$VAR` | `$env:VAR` |
+| `&&` | `;` 或 PowerShell 7+ 支持 `&&` |
+| `export VAR=x` | `$env:VAR = "x"` |
