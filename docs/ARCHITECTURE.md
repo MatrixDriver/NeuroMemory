@@ -11,11 +11,13 @@
 | 文档 | 说明 |
 |------|------|
 | **本文档** | 系统概述、架构设计、项目目标 |
+| [工作原理](HOW_IT_WORKS.md) | 场景演示、数据流、多跳推理详解 |
 | [快速开始](GETTING_STARTED.md) | 环境搭建、安装运行 |
 | [配置参考](CONFIGURATION.md) | 环境变量、模型切换、数据库配置 |
 | [接口设计](API.md) | Python SDK、REST API、CLI |
 | [数据模型](DATA_MODEL.md) | 向量存储、图谱存储、用户隔离 |
 | [核心组件](COMPONENTS.md) | 配置模块、认知引擎、Mem0 集成 |
+| [Mem0 深度解析](MEM0_DEEP_DIVE.md) | Mem0 框架原理、API 详解、价值分析 |
 | [部署架构](DEPLOYMENT.md) | 本地开发、生产部署 |
 | [可观测性](OBSERVABILITY.md) | Metrics、Tracing、Logging |
 | [技术决策](ADR.md) | 架构决策记录 (ADR) |
@@ -111,6 +113,7 @@ NeuroMemory 采用**神经符号混合记忆系统 (Neuro-Symbolic Hybrid Memory
 | 情景流 | 工作记忆 | LLM 长窗口 | 短期上下文保持 `[📋 规划]` |
 
 ![系统架构图](./assets/NeuroMemory架构图.png)
+![系统架构图_detail](./assets/NeuroMemory架构图_detail.png)
 
 ### 2.2 系统定位
 
