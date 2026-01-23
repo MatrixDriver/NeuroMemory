@@ -22,11 +22,11 @@ services:
       EMBEDDING_PROVIDER: siliconflow
       SiliconFlowApiKey: # 在 ZeaBur 控制台添加此变量
 
-      # 数据库连接配置（使用 ZeaBur 服务发现）
-      NEO4J_URL: neo4j://{{ neo4j-neuromemory.host }}:17687
+      # 数据库连接：依赖 neo4j-neuromemory / qdrant-neuromemory 后，ZeaBur 会注入
+      # NEO4J_NEUROMEMORY_HOST、QDRANT_NEUROMEMORY_HOST；config.py 会自动使用。
+      # 若需覆盖，可在控制台设置 NEO4J_URL、QDRANT_HOST。
       NEO4J_USERNAME: neo4j
       Neo4jPassword: # 在 ZeaBur 控制台添加此变量
-      QDRANT_HOST: {{ qdrant-neuromemory.host }}
       QDRANT_PORT: 6400
 
       # Session 管理配置

@@ -139,12 +139,17 @@ def _get_collection_name() -> str:
 
 
 # Mem0 混合存储配置
+# Qdrant：Zeabur 链接 qdrant-neuromemory 后会注入 QDRANT_NEUROMEMORY_HOST；若 QDRANT_HOST 含未解析的 {{ }}，则用其回退
+_qh = os.getenv("QDRANT_HOST") or os.getenv("QDRANT_NEUROMEMORY_HOST") or "localhost"
+qdrant_host = _qh if "{{" not in str(_qh) else (os.getenv("QDRANT_NEUROMEMORY_HOST") or "localhost")
+qdrant_port = int(os.getenv("QDRANT_PORT", "6400"))
+
 MEM0_CONFIG: dict = {
     "vector_store": {
         "provider": "qdrant",
         "config": {
-            "host": os.getenv("QDRANT_HOST", "localhost"),
-            "port": int(os.getenv("QDRANT_PORT", "6400")),
+            "host": qdrant_host,
+            "port": qdrant_port,
             "collection_name": _get_collection_name(),
             "embedding_model_dims": _get_embedder_config()["config"]["embedding_dims"],  # 明确指定向量维度
         },
@@ -156,7 +161,15 @@ MEM0_CONFIG: dict = {
 # 图谱存储配置
 if ENABLE_GRAPH_STORE:
     # Neo4j 连接配置（支持环境变量）
-    neo4j_url = os.getenv("NEO4J_URL", "neo4j://localhost:17687")
+    # Zeabur：链接 neo4j-neuromemory 后会注入 NEO4J_NEUROMEMORY_HOST；若 NEO4J_URL 含未解析的 {{ }}，则用 _HOST 回退
+    _neo4j_url_raw = os.getenv("NEO4J_URL", "")
+    if _neo4j_url_raw and "{{" not in _neo4j_url_raw:
+        neo4j_url = _neo4j_url_raw
+    else:
+        _h = os.getenv("NEO4J_NEUROMEMORY_HOST") or os.getenv("NEO4J_HOST") or "localhost"
+        _p = int(os.getenv("NEO4J_BOLT_PORT", "17687"))
+        neo4j_url = f"neo4j://{_h}:{_p}"
+
     neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
     neo4j_password = _get_env_var("NEO4J_PASSWORD", "Neo4jPassword", default="password123")
 

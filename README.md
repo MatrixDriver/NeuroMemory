@@ -61,6 +61,18 @@
 | Graph DB | Neo4j 5.26.0 | 知识图谱存储 |
 | Framework | Mem0 + LangChain | 混合记忆管理 |
 
+## 在线演示（ZeaBur 部署）
+
+项目已部署在 [ZeaBur](https://zeabur.com)，可远程访问：
+
+- **REST API**: https://neuromemory.zeabur.app/
+- **API 文档 (Swagger)**: https://neuromemory.zeabur.app/docs
+- **健康检查**: https://neuromemory.zeabur.app/health
+- **Neo4j Browser**: https://neo4j-neuromemory.zeabur.app（图库 Web 管理；凭证见 ZeaBur 或 `CREDENTIALS.local.md`）
+- **Qdrant Web UI**: https://qdrant-neuromemory.zeabur.app（向量库管理；当前无需认证）
+
+---
+
 ## 快速开始
 
 ### 环境要求

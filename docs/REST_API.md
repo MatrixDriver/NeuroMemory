@@ -36,7 +36,8 @@ NeuroMemory REST API 提供了一个高性能的记忆服务接口，基于 Fast
 
 | 项目 | 说明 |
 |------|------|
-| **Base URL** | `http://localhost:8765` |
+| **Base URL（本地）** | `http://localhost:8765` |
+| **Base URL（ZeaBur 远程）** | `https://neuromemory.zeabur.app` |
 | **协议** | HTTP/HTTPS |
 | **数据格式** | JSON |
 | **认证** | 无（建议在生产环境中通过网关添加认证） |
@@ -612,12 +613,12 @@ NeuroMemory 可以作为 DIFY 工作流的外部 HTTP 节点使用，为对话�
 
 ## 交互式文档
 
-服务启动后，可以通过以下地址访问交互式 API 文档：
+**本地**：服务启动后可通过以下地址访问；**ZeaBur 远程**：可直接使用下述在线地址。
 
-| 文档类型 | 地址 |
-|----------|------|
-| **Swagger UI** | `http://localhost:8765/docs` |
-| **ReDoc** | `http://localhost:8765/redoc` |
+| 文档类型 | 本地 | ZeaBur 远程 |
+|----------|------|-------------|
+| **Swagger UI** | `http://localhost:8765/docs` | https://neuromemory.zeabur.app/docs |
+| **ReDoc** | `http://localhost:8765/redoc` | https://neuromemory.zeabur.app/redoc |
 
 这些文档提供了在线测试接口的功能，方便快速验证 API 行为。
 

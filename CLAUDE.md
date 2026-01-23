@@ -66,10 +66,17 @@ pytest tests/test_cognitive.py::TestPrivacyFilter  # 运行特定测试类
 
 ## 服务访问
 
+**本地：**
 - Neo4j Browser: http://localhost:7474 (用户名: `neo4j`, 密码: `password123`)
 - Qdrant API: http://localhost:6400
 - REST API: http://localhost:8765 (需手动启动)
 - API 文档: http://localhost:8765/docs (Swagger UI)
+
+**ZeaBur 远程：**  
+- REST API: https://neuromemory.zeabur.app/ ；API 文档: https://neuromemory.zeabur.app/docs  
+- Neo4j Browser: https://neo4j-neuromemory.zeabur.app/  
+- Qdrant Web UI: https://qdrant-neuromemory.zeabur.app  
+（Neo4j 密码见 ZeaBur 变量 `Neo4jPassword` 或本地 `CREDENTIALS.local.md`；Bolt 端口 7687）
 
 ## 核心模块
 

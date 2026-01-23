@@ -7,6 +7,7 @@
 ## 目录
 
 - [本地开发部署](#本地开发部署)
+- [ZeaBur 云部署](#zeabur-云部署-已上线)
 - [生产部署架构](#生产部署架构)
 
 ---
@@ -68,6 +69,69 @@ docker-compose ps
 |------|----------|----------|
 | Neo4j | `./neo4j_data` | `/data` |
 | Qdrant | `./qdrant_data` | `/qdrant/storage` |
+
+---
+
+## ZeaBur 云部署 `[✅ 已上线]`
+
+项目已在 [ZeaBur](https://zeabur.com) 上部署，可通过以下地址远程访问。
+
+### 服务与数据库管理界面
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| **REST API 根路径** | https://neuromemory.zeabur.app/ | 主接口 |
+| **API 文档 (Swagger UI)** | https://neuromemory.zeabur.app/docs | 在线调试 |
+| **健康检查** | https://neuromemory.zeabur.app/health | 存活探测 |
+| **Neo4j Browser** | https://neo4j-neuromemory.zeabur.app/ | 图数据库 Web 管理界面 |
+| **Qdrant Web UI** | https://qdrant-neuromemory.zeabur.app | 向量数据库 Web 管理界面 |
+
+### Neo4j（ZeaBur，当前部署）
+
+| 项目 | 值 |
+|------|-----|
+| 用户名 | `neo4j` |
+| 密码 | 在 ZeaBur 的应用或 Neo4j 服务变量 `Neo4jPassword` 中配置；可集中记录于 `CREDENTIALS.local.md`（已加入 .gitignore，不提交）。*当前部署示例：`zeabur2025`* |
+| Bolt 端口（应用连接） | **7687**（ZeaBur 标准 Neo4j） |
+| 内部地址 | 由 ZeaBur 注入，如 `service-xxx:7687` |
+| Neo4j Browser (7474) | https://neo4j-neuromemory.zeabur.app/ |
+
+**访问步骤（Neo4j Browser）：** 打开 https://neo4j-neuromemory.zeabur.app/ → 输入用户名 `neo4j` → 输入密码（见上）→ 点击 **Connect**。
+
+### Qdrant Web UI（ZeaBur）
+
+| 项目 | 值 |
+|------|-----|
+| URL | https://qdrant-neuromemory.zeabur.app |
+| 认证 | 无（当前未启用） |
+| HTTP 端口（服务间） | `6400` |
+| gRPC 端口（服务间） | `6334` |
+
+**访问步骤：** 打开上述 URL，直接进入管理界面，无需认证。
+
+部署配置见项目根目录 `zeabur-deploy.yaml`，包含主应用、Neo4j 与 Qdrant 的完整编排。各环境账号与密码可集中记录于 `CREDENTIALS.local.md`（已加入 .gitignore，不纳入版本库）。
+
+### ZeaBur 数据库连接与排错
+
+**`[Errno 111] Connection refused`（Neo4j / Qdrant 连不上）**
+
+- **原因**：应用未拿到正确的数据库 host，或 Neo4j/Qdrant 未与 API 服务正确链接。
+- **处理**：
+  1. 在 ZeaBur 项目中确保 `neuromemory-api` 的 **depends_on / 链接** 包含 `neo4j-neuromemory`、`qdrant-neuromemory`，ZeaBur 会注入 `NEO4J_NEUROMEMORY_HOST`、`QDRANT_NEUROMEMORY_HOST`；`config.py` 会自动使用。
+  2. 在 **Networking → Private** 中查看 Neo4j、Qdrant 的 host。若未注入，可在 API 服务的 **Variables** 中手动添加：  
+     `NEO4J_URL=neo4j://<Neo4j host>:7687`（ZeaBur 标准 Neo4j 使用 Bolt **7687**），`QDRANT_HOST=<Qdrant host>`，`QDRANT_PORT=6400`。
+  3. 确认 `Neo4jPassword` 已设且与 Neo4j 服务的 `NEO4J_AUTH` 一致（如 `zeabur2025`）。
+
+**`422 Unprocessable Content`（POST /process）**
+
+- **原因**：请求体 JSON 格式错误或字段缺失（例如 PowerShell 下 `curl -d` 引号转义不当）。
+- **处理**：用 `Content-Type: application/json` 发送合法 JSON，必须包含 `input`、`user_id`。示例（PowerShell）：  
+  `$body = '{"input":"我女儿叫灿灿","user_id":"u1"}; Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/process" -Method POST -Body $body -ContentType "application/json"`
+
+**健康检查**
+
+- `GET /health`：仅表示进程就绪，用于 ZeaBur 存活探测。
+- `GET /api/v1/health`：返回 `components: {neo4j, qdrant, llm}`，用于排查数据库与 LLM 配置。
 
 ---
 

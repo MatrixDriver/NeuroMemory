@@ -22,6 +22,7 @@ neuromemory = "neuromemory.cli:app"
 dev = [
     "pytest>=8.0.0",
     "pytest-timeout>=2.1.0",
+    "httpx>=0.24.0",  # 用于 ZeaBur 远程 API 测试
 ]
 
 [tool.setuptools]
@@ -43,4 +44,5 @@ testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "requires_db: marks tests that require database services (Qdrant/Neo4j)",
+    "zeabur: marks tests for ZeaBur remote deployment (requires ZEABUR_BASE_URL)",
 ]

@@ -59,11 +59,12 @@ def check_qdrant() -> bool:
 def check_llm_config() -> bool:
     """
     检查当前 LLM 提供商所需的 API 密钥是否已配置。
+    兼容 ZeaBur 驼峰命名（如 DeepSeekApiKey）。
     """
     if LLM_PROVIDER == "gemini":
-        return bool(os.getenv("GOOGLE_API_KEY", "").strip())
+        return bool((os.getenv("GOOGLE_API_KEY") or os.getenv("GoogleApiKey") or "").strip())
     if LLM_PROVIDER == "deepseek":
-        return bool(os.getenv("DEEPSEEK_API_KEY", "").strip())
+        return bool((os.getenv("DEEPSEEK_API_KEY") or os.getenv("DeepSeekApiKey") or os.getenv("OPENAI_API_KEY") or "").strip())
     if LLM_PROVIDER == "openai":
-        return bool(os.getenv("OPENAI_API_KEY", "").strip())
+        return bool((os.getenv("OPENAI_API_KEY") or "").strip())
     return False

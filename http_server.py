@@ -311,6 +311,7 @@ async def health_check() -> HealthResponse:
     健康检查端点。
     
     用于负载均衡器、容器编排等场景的健康探测。
+    仅表示进程就绪；依赖（Neo4j、Qdrant、LLM）状态请用 GET /api/v1/health。
     """
     return HealthResponse(status="healthy", service="neuro-memory")
 

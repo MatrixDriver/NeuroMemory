@@ -6,6 +6,7 @@ __pycache__/
 
 # 环境配置
 .env
+CREDENTIALS.local.md
 
 # 数据库持久化
 neo4j_data/

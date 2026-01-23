@@ -809,6 +809,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-timeout" },
 ]
@@ -816,6 +817,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.100.0" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.24.0" },
     { name = "langchain-google-genai", specifier = "==4.2.0" },
     { name = "langchain-neo4j", specifier = "==0.7.0" },
     { name = "langchain-openai", specifier = "==1.1.7" },
