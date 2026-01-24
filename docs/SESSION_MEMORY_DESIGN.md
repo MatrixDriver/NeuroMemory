@@ -911,7 +911,7 @@ class MemoryStrategy(ABC):
 | 1 | 编写 SessionManager 单元测试 |
 | 2 | 编写指代消解单元测试（规则 + LLM） |
 | 3 | 编写 Session 整合集成测试 |
-| 4 | 更新 `REST_API.md` 文档（v3 格式） |
+| 4 | 更新 `USER_API.md` 文档（v3 格式） |
 | 5 | 更新 `ARCHITECTURE.md` 为 v3 版本 |
 
 ### 9.6 后续阶段（可选）

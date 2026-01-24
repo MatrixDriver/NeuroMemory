@@ -1,9 +1,11 @@
-# NeuroMemory REST API 文档
+# NeuroMemory 用户接口文档
 
-> 基于 [v2.0 架构](ARCHITECTURE_V2.md) | 返回 [主架构文档](ARCHITECTURE.md)
+> 面向普通客户的用户接口文档 | 基于 [v2.0 架构](ARCHITECTURE_V2.md) | 返回 [主架构文档](ARCHITECTURE.md)
 >
 > **版本**: v3.0  
-> **最后更新**: 2026-01-23
+> **最后更新**: 2026-01-24
+>
+> **注意**：本文档面向普通客户和集成开发者。如需高级接口（如 `/api/v1/*`），请参考 [开发者接口文档](DEVELOPER_API.md)。
 
 ---
 
@@ -27,10 +29,15 @@
 
 ## 概述
 
-NeuroMemory REST API 提供了一个高性能的记忆服务接口，基于 FastAPI 构建。该服务将用户输入视为"刺激"，通过 Y 型分流架构同时执行：
+NeuroMemory 用户接口提供了简单易用的记忆服务接口，基于 FastAPI 构建。该服务将用户输入视为"刺激"，通过 Y 型分流架构同时执行：
 
 - **同步路径**: 立即检索相关记忆，返回结构化上下文
 - **异步路径**: 后台进行隐私分类和记忆存储
+
+**核心特点**：
+- **统一接口**：`POST /process` 接口自动判断是查询还是存储，无需区分
+- **智能处理**：系统内部自动进行隐私分类、指代消解、记忆整合
+- **即插即用**：适合集成到 DIFY、LangChain 等 LLM 工作流中
 
 ### 基本信息
 
@@ -64,7 +71,7 @@ curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
-# 查询记忆
+# 查询记忆（同样使用 /process 接口）
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
@@ -83,6 +90,8 @@ curl http://localhost:8765/graph/user_001
 ### 1. 处理记忆（生产模式）
 
 处理用户输入，检索相关记忆并异步存储。返回结构化 JSON，适合注入到 LLM prompt 中。
+
+**这是核心接口**，系统内部自动判断是查询还是存储，无需区分。
 
 #### 请求
 
@@ -629,6 +638,8 @@ NeuroMemory 可以作为 DIFY 工作流的外部 HTTP 节点使用，为对话�
 - [v2.0 架构设计](ARCHITECTURE_V2.md) - 了解系统架构
 - [快速开始](GETTING_STARTED.md) - 环境配置和启动
 - [测试指南](TESTING.md) - 测试用例和方法
+- [接口总览](API.md) - 查看所有接口类型（Python SDK、REST API、CLI）
+- [开发者接口文档](DEVELOPER_API.md) - 高级接口（`/api/v1/*`）文档
 
 ---
 
