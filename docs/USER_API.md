@@ -67,22 +67,32 @@ uvicorn http_server:app --host 0.0.0.0 --port 8765 --workers 4
 
 **Bash / Git Bash：**
 ```bash
-# 本地 - 存储记忆（系统会自动判断是否为私有数据）
+# 步骤1: 本地 - 存储记忆（系统会自动判断是否为私有数据）
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
-# 远程 - 存储记忆
+# 步骤1: 远程 - 存储记忆
 curl -X POST https://neuromemory.zeabur.app/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
-# 本地 - 查询记忆（同样使用 /process 接口）
+# 步骤2: 本地 - 结束会话（⚠️ 必须调用此接口触发存储，否则需等30分钟超时）
+curl -X POST http://localhost:8765/end-session \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user_001"}'
+
+# 步骤2: 远程 - 结束会话
+curl -X POST https://neuromemory.zeabur.app/end-session \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user_001"}'
+
+# 步骤3: 本地 - 查询记忆（现在可以查询到刚才存储的记忆）
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 
-# 远程 - 查询记忆
+# 步骤3: 远程 - 查询记忆
 curl -X POST https://neuromemory.zeabur.app/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
@@ -90,30 +100,40 @@ curl -X POST https://neuromemory.zeabur.app/process \
 
 **PowerShell 7：**
 ```powershell
-# 本地 - 存储记忆
+# 步骤1: 本地 - 存储记忆
 $body = @{
     input = "我女儿叫灿灿，今年5岁了"
     user_id = "user_001"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:8765/process" -Method Post -ContentType "application/json" -Body $body
 
-# 远程 - 存储记忆
+# 步骤1: 远程 - 存储记忆
 $body = @{
     input = "我女儿叫灿灿，今年5岁了"
     user_id = "user_001"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/process" -Method Post -ContentType "application/json" -Body $body
 
-# 本地 - 查询记忆（使用 curl.exe）
+# 步骤2: 本地 - 结束会话（⚠️ 必须调用此接口触发存储，否则需等30分钟超时）
+$body = @{ user_id = "user_001" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8765/end-session" -Method Post -ContentType "application/json" -Body $body
+
+# 步骤2: 远程 - 结束会话
+$body = @{ user_id = "user_001" } | ConvertTo-Json
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/end-session" -Method Post -ContentType "application/json" -Body $body
+
+# 步骤3: 本地 - 查询记忆（使用 curl.exe）
 curl.exe -X POST http://localhost:8765/process `
   -H "Content-Type: application/json" `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 
-# 远程 - 查询记忆（使用 curl.exe）
+# 步骤3: 远程 - 查询记忆（使用 curl.exe）
 curl.exe -X POST https://neuromemory.zeabur.app/process `
   -H "Content-Type: application/json" `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```
+
+> **重要提示**：`/process` 接口的记忆存储是异步的。必须显式调用 `/end-session` 接口才能触发系统将短期记忆整合为长期记忆。如果不调用此接口，需要等待 30 分钟会话超时后才能查询到结果。
 
 ### 2. 查看用户知识图谱
 
@@ -530,6 +550,16 @@ curl -X POST https://neuromemory.zeabur.app/process \
     "user_id": "user_001"
   }'
 
+# ⚠️ 重要：结束会话（触发记忆持久化，否则需等30分钟超时）
+# 本地
+curl -X POST http://localhost:8765/end-session \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user_001"}'
+# 远程
+curl -X POST https://neuromemory.zeabur.app/end-session \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user_001"}'
+
 # 本地 - 调试模式
 curl -X POST http://localhost:8765/debug \
   -H "Content-Type: application/json" \
@@ -551,16 +581,6 @@ curl http://localhost:8765/graph/user_001
 
 # 远程 - 获取知识图谱
 curl https://neuromemory.zeabur.app/graph/user_001
-
-# 本地 - 结束会话
-curl -X POST http://localhost:8765/end-session \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "user_001"}'
-
-# 远程 - 结束会话
-curl -X POST https://neuromemory.zeabur.app/end-session \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "user_001"}'
 
 # 本地 - 获取会话状态
 curl http://localhost:8765/session-status/user_001
@@ -591,6 +611,14 @@ $body = @{
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/process" -Method Post -ContentType "application/json" -Body $body
 
+# ⚠️ 重要：结束会话（触发记忆持久化，否则需等30分钟超时）
+# 本地
+$body = @{ user_id = "user_001" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8765/end-session" -Method Post -ContentType "application/json" -Body $body
+# 远程
+$body = @{ user_id = "user_001" } | ConvertTo-Json
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/end-session" -Method Post -ContentType "application/json" -Body $body
+
 # 本地 - 调试模式
 $body = @{
     input = "我喜欢什么颜色？"
@@ -611,14 +639,6 @@ Invoke-RestMethod -Uri "http://localhost:8765/graph/user_001" -Method Get
 # 远程 - 获取知识图谱
 Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/graph/user_001" -Method Get
 
-# 本地 - 结束会话
-$body = @{ user_id = "user_001" } | ConvertTo-Json
-Invoke-RestMethod -Uri "http://localhost:8765/end-session" -Method Post -ContentType "application/json" -Body $body
-
-# 远程 - 结束会话
-$body = @{ user_id = "user_001" } | ConvertTo-Json
-Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/end-session" -Method Post -ContentType "application/json" -Body $body
-
 # 本地 - 获取会话状态
 Invoke-RestMethod -Uri "http://localhost:8765/session-status/user_001" -Method Get
 
@@ -632,7 +652,7 @@ Invoke-RestMethod -Uri "http://localhost:8765/health" -Method Get
 Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/health" -Method Get
 ```
 
-### Python (requests)
+### Python (requests) - 完整工作流示例
 
 ```python
 import requests
@@ -641,7 +661,6 @@ import requests
 # 远程: https://neuromemory.zeabur.app
 BASE_URL = "http://localhost:8765"
 
-# 处理记忆
 def process_memory(input_text: str, user_id: str) -> dict:
     response = requests.post(
         f"{BASE_URL}/process",
@@ -649,8 +668,27 @@ def process_memory(input_text: str, user_id: str) -> dict:
     )
     return response.json()
 
-# 使用示例
-result = process_memory("我女儿灿灿今年5岁了", "user_001")
+def end_session(user_id: str) -> dict:
+    """结束会话，触发记忆持久化（必须调用）"""
+    response = requests.post(
+        f"{BASE_URL}/end-session",
+        json={"user_id": user_id}
+    )
+    return response.json()
+
+# 使用示例 - 完整流程
+user_id = "user_001"
+
+# 1. 存储记忆
+result = process_memory("我女儿灿灿今年5岁了", user_id)
+print(f"处理结果: {result['status']}")
+
+# 2. ⚠️ 重要：结束会话触发记忆持久化
+session_result = end_session(user_id)
+print(f"会话结束: {session_result['message']}")
+
+# 3. 查询记忆（现在可以查询到结果）
+result = process_memory("我女儿叫什么名字？", user_id)
 
 if result["metadata"]["has_memory"]:
     print("找到相关记忆:")
@@ -662,7 +700,7 @@ else:
     print("没有找到相关记忆")
 ```
 
-### Python (httpx async)
+### Python (httpx async) - 完整工作流示例
 
 ```python
 import httpx
@@ -680,15 +718,35 @@ async def process_memory_async(input_text: str, user_id: str) -> dict:
         )
         return response.json()
 
-# 使用示例
+async def end_session_async(user_id: str) -> dict:
+    """结束会话，触发记忆持久化（必须调用）"""
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{BASE_URL}/end-session",
+            json={"user_id": user_id}
+        )
+        return response.json()
+
+# 使用示例 - 完整流程
 async def main():
-    result = await process_memory_async("小朱的儿子叫什么？", "user_001")
-    print(result)
+    user_id = "user_001"
+
+    # 1. 存储记忆
+    result = await process_memory_async("小朱的儿子叫帅帅", user_id)
+    print(f"处理结果: {result['status']}")
+
+    # 2. ⚠️ 重要：结束会话触发记忆持久化
+    session_result = await end_session_async(user_id)
+    print(f"会话结束: {session_result['message']}")
+
+    # 3. 查询记忆（现在可以查询到结果）
+    result = await process_memory_async("小朱的儿子叫什么？", user_id)
+    print(f"查询结果: {result}")
 
 asyncio.run(main())
 ```
 
-### JavaScript (fetch)
+### JavaScript (fetch) - 完整工作流示例
 
 ```javascript
 // 本地: http://localhost:8765
@@ -709,11 +767,38 @@ async function processMemory(input, userId) {
     return response.json();
 }
 
-// 使用示例
-processMemory('我喜欢吃苹果', 'user_001')
-    .then(result => {
-        console.log('记忆处理结果:', result);
+async function endSession(userId) {
+    // ⚠️ 重要：结束会话触发记忆持久化（必须调用）
+    const response = await fetch(`${BASE_URL}/end-session`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            user_id: userId
+        })
     });
+    return response.json();
+}
+
+// 使用示例 - 完整流程
+async function main() {
+    const userId = 'user_001';
+
+    // 1. 存储记忆
+    const result1 = await processMemory('我儿子今年3岁', userId);
+    console.log('处理结果:', result1);
+
+    // 2. ⚠️ 重要：结束会话触发记忆持久化
+    const sessionResult = await endSession(userId);
+    console.log('会话结束:', sessionResult);
+
+    // 3. 查询记忆（现在可以查询到结果）
+    const result2 = await processMemory('我儿子几岁了？', userId);
+    console.log('查询结果:', result2);
+}
+
+main();
 ```
 
 ---
@@ -732,7 +817,14 @@ NeuroMemory 可以作为 DIFY 工作流的外部 HTTP 节点使用，为对话�
    - URL（远程）：`https://neuromemory.zeabur.app/process`
    - Headers：`Content-Type: application/json`
 
-2. **配置请求体**
+2. **添加结束会话节点**（⚠️ 必须添加）
+   - 方法：`POST`
+   - URL（本地）：`http://localhost:8765/end-session`
+   - URL（远程）：`https://neuromemory.zeabur.app/end-session`
+   - Headers：`Content-Type: application/json`
+   - Body：`{"user_id": "{{user_id}}"}`
+
+3. **配置请求体**
 
 ```json
 {
@@ -741,7 +833,7 @@ NeuroMemory 可以作为 DIFY 工作流的外部 HTTP 节点使用，为对话�
 }
 ```
 
-3. **处理响应**
+4. **处理响应**
 
 在后续的 LLM 节点中，使用返回的记忆上下文：
 
@@ -769,7 +861,13 @@ NeuroMemory 可以作为 DIFY 工作流的外部 HTTP 节点使用，为对话�
 用户输入 → [NeuroMemory] → 记忆上下文 → [LLM] → 回复用户
                 ↓
         (异步存储新记忆)
+
+用户结束对话 → [end-session] → 触发记忆持久化
+                ↓
+        (短期记忆整合为长期记忆)
 ```
+
+> **重要**：确保在用户对话结束时调用 `/end-session` 接口，否则记忆需等待 30 分钟会话超时后才能持久化。
 
 ---
 

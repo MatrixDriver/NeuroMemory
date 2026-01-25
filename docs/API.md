@@ -38,22 +38,32 @@ NeuroMemory 提供两类 REST API 接口：
 
 **Bash / Git Bash：**
 ```bash
-# 本地
+# 步骤1: 本地 - 存储记忆
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
-# 远程 (ZeaBur)
+# 步骤1: 远程 - 存储记忆
 curl -X POST https://neuromemory.zeabur.app/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
-# 本地查询
+# 步骤2: 本地 - 结束会话（⚠️ 必须调用触发存储，否则需等30分钟超时）
+curl -X POST http://localhost:8765/end-session \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user_001"}'
+
+# 步骤2: 远程 - 结束会话
+curl -X POST https://neuromemory.zeabur.app/end-session \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user_001"}'
+
+# 步骤3: 本地查询（现在可以查询到结果）
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 
-# 远程查询
+# 步骤3: 远程查询
 curl -X POST https://neuromemory.zeabur.app/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
@@ -61,30 +71,40 @@ curl -X POST https://neuromemory.zeabur.app/process \
 
 **PowerShell 7：**
 ```powershell
-# 本地 - 存储记忆
+# 步骤1: 本地 - 存储记忆
 $body = @{
     input = "我女儿叫灿灿，今年5岁了"
     user_id = "user_001"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:8765/process" -Method Post -ContentType "application/json" -Body $body
 
-# 远程 - 存储记忆
+# 步骤1: 远程 - 存储记忆
 $body = @{
     input = "我女儿叫灿灿，今年5岁了"
     user_id = "user_001"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/process" -Method Post -ContentType "application/json" -Body $body
 
-# 本地 - 查询记忆（使用 curl.exe）
+# 步骤2: 本地 - 结束会话（⚠️ 必须调用触发存储，否则需等30分钟超时）
+$body = @{ user_id = "user_001" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8765/end-session" -Method Post -ContentType "application/json" -Body $body
+
+# 步骤2: 远程 - 结束会话
+$body = @{ user_id = "user_001" } | ConvertTo-Json
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/end-session" -Method Post -ContentType "application/json" -Body $body
+
+# 步骤3: 本地 - 查询记忆（使用 curl.exe）
 curl.exe -X POST http://localhost:8765/process `
   -H "Content-Type: application/json" `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 
-# 远程 - 查询记忆（使用 curl.exe）
+# 步骤3: 远程 - 查询记忆（使用 curl.exe）
 curl.exe -X POST https://neuromemory.zeabur.app/process `
   -H "Content-Type: application/json" `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```
+
+> **重要提示**：调用 `/process` 后，记忆存储是异步的。必须显式调用 `/end-session` 才能触发系统将短期记忆整合为长期记忆，否则需等待 30 分钟会话超时后才能查询到结果。
 
 **响应格式（v3）**：
 ```json
@@ -105,8 +125,8 @@ curl.exe -X POST https://neuromemory.zeabur.app/process `
 ```
 
 **其他用户接口**：
+- `POST /end-session` - **结束会话（触发记忆存储）** ⚠️ 重要：调用 `/process` 后需显式调用此接口才能将记忆持久化，否则需等 30 分钟超时
 - `GET /graph/{user_id}` - 获取用户知识图谱
-- `POST /end-session` - 结束会话（触发记忆整合）
 - `GET /session-status/{user_id}` - 获取会话状态
 - `GET /health` - 基础健康检查
 
