@@ -238,9 +238,8 @@ class SessionManager:
             if session.status == SessionStatus.ENDED:
                 return []
             
-            # 返回最近的事件（从早到晚）
-            events = session.events[-limit:] if len(session.events) > limit else session.events
-            return events
+            # 返回最近的事件（从早到晚），列表切片自动处理越界
+            return session.events[-limit:]
     
     async def end_session(self, user_id: str) -> Optional[SessionSummary]:
         """

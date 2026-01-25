@@ -108,26 +108,31 @@ SILICONFLOW_EMBEDDING_CONFIG = {
 # 根据开关生成最终配置
 # =============================================================================
 
+# 配置映射表
+_LLM_CONFIG_MAP = {
+    "gemini": lambda: GEMINI_CONFIG["llm"],
+    "deepseek": lambda: DEEPSEEK_CONFIG["llm"],
+}
+
+_EMBEDDER_CONFIG_MAP = {
+    "gemini": lambda: GEMINI_CONFIG["embedder"],
+    "local": lambda: LOCAL_EMBEDDING_CONFIG,
+    "siliconflow": lambda: SILICONFLOW_EMBEDDING_CONFIG,
+}
+
+
 def _get_llm_config() -> dict:
     """根据 LLM_PROVIDER 返回对应的 LLM 配置"""
-    if LLM_PROVIDER == "gemini":
-        return GEMINI_CONFIG["llm"]
-    elif LLM_PROVIDER == "deepseek":
-        return DEEPSEEK_CONFIG["llm"]
-    else:
-        raise ValueError(f"未知的 LLM 提供商: {LLM_PROVIDER}")
+    if LLM_PROVIDER not in _LLM_CONFIG_MAP:
+        raise ValueError(f"未知的 LLM 提供商: {LLM_PROVIDER}，支持: {list(_LLM_CONFIG_MAP.keys())}")
+    return _LLM_CONFIG_MAP[LLM_PROVIDER]()
 
 
 def _get_embedder_config() -> dict:
     """根据 EMBEDDING_PROVIDER 返回对应的 Embedding 配置"""
-    if EMBEDDING_PROVIDER == "gemini":
-        return GEMINI_CONFIG["embedder"]
-    elif EMBEDDING_PROVIDER == "local":
-        return LOCAL_EMBEDDING_CONFIG
-    elif EMBEDDING_PROVIDER == "siliconflow":
-        return SILICONFLOW_EMBEDDING_CONFIG
-    else:
-        raise ValueError(f"未知的 Embedding 提供商: {EMBEDDING_PROVIDER}")
+    if EMBEDDING_PROVIDER not in _EMBEDDER_CONFIG_MAP:
+        raise ValueError(f"未知的 Embedding 提供商: {EMBEDDING_PROVIDER}，支持: {list(_EMBEDDER_CONFIG_MAP.keys())}")
+    return _EMBEDDER_CONFIG_MAP[EMBEDDING_PROVIDER]()
 
 
 def _get_collection_name() -> str:
@@ -187,28 +192,34 @@ if ENABLE_GRAPH_STORE:
 # =============================================================================
 
 
-def create_chat_llm():
+def create_chat_llm(temperature: float | None = None):
     """
-    根据 get_chat_config() 创建对话用 LLM 实例。
-    与 coreference._create_coreference_llm 模式一致，供 ask、main 等使用。
+    根据 LLM_PROVIDER 创建 LLM 实例。
+
+    Args:
+        temperature: 温度参数（0.0-1.0）。若为 None，使用配置默认值（0.7）。
+                     指代消解、隐私分类等需要确定性输出的场景建议传 0.0。
+
+    Returns:
+        LangChain ChatModel 实例（ChatOpenAI 或 ChatGoogleGenerativeAI）
     """
     from langchain_openai import ChatOpenAI
 
     cfg = get_chat_config()
     model = cfg["model"]
-    temperature = cfg.get("temperature", 0.7)
+    temp = temperature if temperature is not None else cfg.get("temperature", 0.7)
     provider = cfg.get("provider", "openai")
     if provider == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(
             model=model,
-            temperature=temperature,
+            temperature=temp,
             google_api_key=GOOGLE_API_KEY or None,
         )
     return ChatOpenAI(
         model=model,
-        temperature=temperature,
+        temperature=temp,
         base_url=cfg.get("base_url") or DEEPSEEK_CONFIG["base_url"],
         api_key=DEEPSEEK_API_KEY or os.getenv("OPENAI_API_KEY"),
     )

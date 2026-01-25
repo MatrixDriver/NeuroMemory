@@ -12,40 +12,11 @@ import re
 import logging
 from typing import Optional
 
-from langchain_openai import ChatOpenAI
-
-from config import (
-    COREFERENCE_CONTEXT_SIZE,
-    DEEPSEEK_API_KEY,
-    DEEPSEEK_CONFIG,
-    GOOGLE_API_KEY,
-    LLM_PROVIDER,
-    get_chat_config,
-)
+from config import COREFERENCE_CONTEXT_SIZE, LLM_PROVIDER, create_chat_llm
 from session_manager import Event
+from utils import extract_json_from_response
 
 logger = logging.getLogger("neuro_memory.coreference")
-
-
-def _create_coreference_llm():
-    """按 LLM_PROVIDER 创建用于指代消解的 LLM，与 get_chat_config 对齐"""
-    cfg = get_chat_config()
-    model = cfg["model"]
-    temperature = cfg.get("temperature", 0.0)
-    provider = cfg.get("provider", "openai")
-    if provider == "gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(
-            model=model,
-            temperature=temperature,
-            google_api_key=GOOGLE_API_KEY or None,
-        )
-    return ChatOpenAI(
-        model=model,
-        temperature=temperature,
-        base_url=cfg.get("base_url") or DEEPSEEK_CONFIG["base_url"],
-        api_key=DEEPSEEK_API_KEY,
-    )
 
 
 class CoreferenceResolver:
@@ -53,7 +24,7 @@ class CoreferenceResolver:
     
     def __init__(self):
         """初始化指代消解器（按 LLM_PROVIDER 选择 DeepSeek 或 Gemini）"""
-        self.llm = _create_coreference_llm()
+        self.llm = create_chat_llm(temperature=0.0)
         logger.info("CoreferenceResolver 初始化完成 (LLM_PROVIDER=%s)", LLM_PROVIDER)
     
     def resolve_query(self, query: str, context_events: list[Event]) -> str:
@@ -194,14 +165,8 @@ class CoreferenceResolver:
             response = self.llm.invoke(prompt)
             content = response.content.strip()
             
-            # 提取 JSON
-            json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', content, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                json_str = content
-            
-            # 解析 JSON
+            # 提取并解析 JSON
+            json_str = extract_json_from_response(content)
             memories = json.loads(json_str)
             
             # 确保返回列表

@@ -281,9 +281,7 @@ async def get_session_status(user_id: str) -> dict:
     logger.info(f"[/session-status] user_id={user_id}")
     
     try:
-        from session_manager import get_session_manager
-        session_manager = get_session_manager()
-        status = session_manager.get_session_status(user_id)
+        status = get_session_manager().get_session_status(user_id)
         
         if status is None:
             return {
