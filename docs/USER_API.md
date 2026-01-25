@@ -65,6 +65,7 @@ uvicorn http_server:app --host 0.0.0.0 --port 8765 --workers 4
 
 ### 1. 存储一条记忆并查询
 
+**Bash / Git Bash：**
 ```bash
 # 存储记忆（系统会自动判断是否为私有数据）
 curl -X POST http://localhost:8765/process \
@@ -77,10 +78,31 @@ curl -X POST http://localhost:8765/process \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```
 
+**PowerShell 7：**
+```powershell
+# 存储记忆
+$body = @{
+    input = "我女儿叫灿灿，今年5岁了"
+    user_id = "user_001"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8765/process" -Method Post -ContentType "application/json" -Body $body
+
+# 查询记忆（使用 curl.exe）
+curl.exe -X POST http://localhost:8765/process `
+  -H "Content-Type: application/json" `
+  -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
+```
+
 ### 2. 查看用户知识图谱
 
+**Bash / Git Bash：**
 ```bash
 curl http://localhost:8765/graph/user_001
+```
+
+**PowerShell 7：**
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8765/graph/user_001" -Method Get
 ```
 
 ---
@@ -460,6 +482,7 @@ NeuroMemory 采用**静默降级**策略，确保不影响主流程 LLM 的运�
 
 ### cURL
 
+**Bash / Git Bash：**
 ```bash
 # 处理记忆（生产模式）
 curl -X POST http://localhost:8765/process \
@@ -490,6 +513,36 @@ curl http://localhost:8765/session-status/user_001
 
 # 健康检查
 curl http://localhost:8765/health
+```
+
+**PowerShell 7：**
+```powershell
+# 处理记忆（生产模式）
+$body = @{
+    input = "我最喜欢的颜色是蓝色"
+    user_id = "user_001"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8765/process" -Method Post -ContentType "application/json" -Body $body
+
+# 调试模式
+$body = @{
+    input = "我喜欢什么颜色？"
+    user_id = "user_001"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8765/debug" -Method Post -ContentType "application/json" -Body $body
+
+# 获取知识图谱
+Invoke-RestMethod -Uri "http://localhost:8765/graph/user_001" -Method Get
+
+# 结束会话
+$body = @{ user_id = "user_001" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8765/end-session" -Method Post -ContentType "application/json" -Body $body
+
+# 获取会话状态
+Invoke-RestMethod -Uri "http://localhost:8765/session-status/user_001" -Method Get
+
+# 健康检查
+Invoke-RestMethod -Uri "http://localhost:8765/health" -Method Get
 ```
 
 ### Python (requests)

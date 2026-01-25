@@ -139,8 +139,14 @@ GET /api/v1/memory/search
 
 #### 请求示例
 
+**Bash / Git Bash：**
 ```bash
 curl "http://localhost:8765/api/v1/memory/search?query=张三管理什么&user_id=test_user&limit=5"
+```
+
+**PowerShell 7：**
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8765/api/v1/memory/search?query=张三管理什么&user_id=test_user&limit=5" -Method Get
 ```
 
 #### 响应示例
@@ -276,8 +282,14 @@ GET /api/v1/graph
 
 #### 请求示例
 
+**Bash / Git Bash：**
 ```bash
 curl "http://localhost:8765/api/v1/graph?user_id=test_user&depth=2"
+```
+
+**PowerShell 7：**
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8765/api/v1/graph?user_id=test_user&depth=2" -Method Get
 ```
 
 #### 响应示例
