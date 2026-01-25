@@ -35,6 +35,8 @@ NeuroMemory 提供两类 REST API 接口：
 - **适用场景**：DIFY 集成、生产环境、普通用户使用
 
 **请求示例**：
+
+**Bash / Git Bash：**
 ```bash
 # 存储记忆（系统会自动判断是否为私有数据）
 curl -X POST http://localhost:8765/process \
@@ -44,6 +46,21 @@ curl -X POST http://localhost:8765/process \
 # 查询记忆（同样使用 /process 接口）
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
+  -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
+```
+
+**PowerShell 7：**
+```powershell
+# 存储记忆
+$body = @{
+    input = "我女儿叫灿灿，今年5岁了"
+    user_id = "user_001"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:8765/process" -Method Post -ContentType "application/json" -Body $body
+
+# 查询记忆（使用 curl.exe）
+curl.exe -X POST http://localhost:8765/process `
+  -H "Content-Type: application/json" `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```
 
