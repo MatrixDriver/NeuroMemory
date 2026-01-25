@@ -1,32 +1,52 @@
 version: '3.8'
 
 services:
-  # 1. 图数据库 (Neo4j) - 负责显性逻辑与关系
+  app:
+    build: .
+    container_name: neuromemory_app
+    # 兼容策略 1: 本地开发时，我们可能想挂载代码进去实时修改，不用每次改代码都重新 build
+    # 在 ZeaBur 上这一行会被忽略或无害
+    volumes:
+      - .:/app
+    environment:
+      # 兼容策略 2: 让代码知道数据库在哪里
+      # 在 Docker 内部互联，必须用服务名 'neo4j'，不能用 localhost
+      - NEO4J_URI=bolt://neo4j:7687
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # 其他变量建议通过 .env 文件管理，不要写死在这里
+    depends_on:
+      - neo4j
+      - qdrant
+    ports:
+      - "8765:8765"
+
   neo4j:
-    image: neo4j:5.26.0  # 需要 5.18+ 支持向量函数
+    image: neo4j:5.26.0
     container_name: memory_graph_db
     ports:
-      - "7474:7474" # 浏览器可视化界面端口
-      - "17687:7687" # Bolt 协议通信端口
+      # 兼容策略 3: 保留你的本地偏好端口
+      # 格式是 "宿主机端口:容器端口"
+      # 本地访问用 17687，ZeaBur 内部互联依然认 7687，互不干扰
+      - "17687:7687" 
+      - "7474:7474"
     environment:
-      - NEO4J_AUTH=neo4j/password123  # 【注意】这是你的数据库账号密码
-      - NEO4J_PLUGINS=["apoc", "graph-data-science"] # 启用图数据科学插件
+      - NEO4J_AUTH=neo4j/password123
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
     volumes:
-      - ./neo4j_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:7474 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - neo4j_data:/data
+    # ... healthcheck ...
 
-  # 2. 向量数据库 (Qdrant) - 负责隐性语义
   qdrant:
     image: qdrant/qdrant:latest
     container_name: memory_vector_db
     ports:
-      - "6400:6333" # API 端口（使用 6400 避免 Windows 保留端口冲突，6333 在保留范围 6296-6395 内）
+      # 兼容策略 4: 同理，本地用 6400，容器内部依然是 6333
+      - "6400:6333"
     volumes:
-      - ./qdrant_data:/qdrant/storage
-    # 官方镜像内无 curl/wget，暂不配置 healthcheck；依赖启动顺序与应用层调用失败做容错
+      - qdrant_data:/qdrant/storage
 
+volumes:
+  neo4j_data:
+  qdrant_data:
