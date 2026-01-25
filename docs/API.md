@@ -38,28 +38,50 @@ NeuroMemory 提供两类 REST API 接口：
 
 **Bash / Git Bash：**
 ```bash
-# 存储记忆（系统会自动判断是否为私有数据）
+# 本地
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
-# 查询记忆（同样使用 /process 接口）
+# 远程 (ZeaBur)
+curl -X POST https://neuromemory.zeabur.app/process \
+  -H "Content-Type: application/json" \
+  -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
+
+# 本地查询
 curl -X POST http://localhost:8765/process \
+  -H "Content-Type: application/json" \
+  -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
+
+# 远程查询
+curl -X POST https://neuromemory.zeabur.app/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```
 
 **PowerShell 7：**
 ```powershell
-# 存储记忆
+# 本地 - 存储记忆
 $body = @{
     input = "我女儿叫灿灿，今年5岁了"
     user_id = "user_001"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:8765/process" -Method Post -ContentType "application/json" -Body $body
 
-# 查询记忆（使用 curl.exe）
+# 远程 - 存储记忆
+$body = @{
+    input = "我女儿叫灿灿，今年5岁了"
+    user_id = "user_001"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/process" -Method Post -ContentType "application/json" -Body $body
+
+# 本地 - 查询记忆（使用 curl.exe）
 curl.exe -X POST http://localhost:8765/process `
+  -H "Content-Type: application/json" `
+  -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
+
+# 远程 - 查询记忆（使用 curl.exe）
+curl.exe -X POST https://neuromemory.zeabur.app/process `
   -H "Content-Type: application/json" `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```

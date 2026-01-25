@@ -67,28 +67,50 @@ uvicorn http_server:app --host 0.0.0.0 --port 8765 --workers 4
 
 **Bash / Git Bash：**
 ```bash
-# 存储记忆（系统会自动判断是否为私有数据）
+# 本地 - 存储记忆（系统会自动判断是否为私有数据）
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
-# 查询记忆（同样使用 /process 接口）
+# 远程 - 存储记忆
+curl -X POST https://neuromemory.zeabur.app/process \
+  -H "Content-Type: application/json" \
+  -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
+
+# 本地 - 查询记忆（同样使用 /process 接口）
 curl -X POST http://localhost:8765/process \
+  -H "Content-Type: application/json" \
+  -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
+
+# 远程 - 查询记忆
+curl -X POST https://neuromemory.zeabur.app/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```
 
 **PowerShell 7：**
 ```powershell
-# 存储记忆
+# 本地 - 存储记忆
 $body = @{
     input = "我女儿叫灿灿，今年5岁了"
     user_id = "user_001"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:8765/process" -Method Post -ContentType "application/json" -Body $body
 
-# 查询记忆（使用 curl.exe）
+# 远程 - 存储记忆
+$body = @{
+    input = "我女儿叫灿灿，今年5岁了"
+    user_id = "user_001"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/process" -Method Post -ContentType "application/json" -Body $body
+
+# 本地 - 查询记忆（使用 curl.exe）
 curl.exe -X POST http://localhost:8765/process `
+  -H "Content-Type: application/json" `
+  -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
+
+# 远程 - 查询记忆（使用 curl.exe）
+curl.exe -X POST https://neuromemory.zeabur.app/process `
   -H "Content-Type: application/json" `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```
@@ -97,12 +119,20 @@ curl.exe -X POST http://localhost:8765/process `
 
 **Bash / Git Bash：**
 ```bash
+# 本地
 curl http://localhost:8765/graph/user_001
+
+# 远程
+curl https://neuromemory.zeabur.app/graph/user_001
 ```
 
 **PowerShell 7：**
 ```powershell
+# 本地
 Invoke-RestMethod -Uri "http://localhost:8765/graph/user_001" -Method Get
+
+# 远程
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/graph/user_001" -Method Get
 ```
 
 ---
@@ -484,7 +514,7 @@ NeuroMemory 采用**静默降级**策略，确保不影响主流程 LLM 的运�
 
 **Bash / Git Bash：**
 ```bash
-# 处理记忆（生产模式）
+# 本地 - 处理记忆（生产模式）
 curl -X POST http://localhost:8765/process \
   -H "Content-Type: application/json" \
   -d '{
@@ -492,7 +522,15 @@ curl -X POST http://localhost:8765/process \
     "user_id": "user_001"
   }'
 
-# 调试模式
+# 远程 - 处理记忆
+curl -X POST https://neuromemory.zeabur.app/process \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "我最喜欢的颜色是蓝色",
+    "user_id": "user_001"
+  }'
+
+# 本地 - 调试模式
 curl -X POST http://localhost:8765/debug \
   -H "Content-Type: application/json" \
   -d '{
@@ -500,49 +538,98 @@ curl -X POST http://localhost:8765/debug \
     "user_id": "user_001"
   }'
 
-# 获取知识图谱
+# 远程 - 调试模式
+curl -X POST https://neuromemory.zeabur.app/debug \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "我喜欢什么颜色？",
+    "user_id": "user_001"
+  }'
+
+# 本地 - 获取知识图谱
 curl http://localhost:8765/graph/user_001
 
-# 结束会话
+# 远程 - 获取知识图谱
+curl https://neuromemory.zeabur.app/graph/user_001
+
+# 本地 - 结束会话
 curl -X POST http://localhost:8765/end-session \
   -H "Content-Type: application/json" \
   -d '{"user_id": "user_001"}'
 
-# 获取会话状态
+# 远程 - 结束会话
+curl -X POST https://neuromemory.zeabur.app/end-session \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user_001"}'
+
+# 本地 - 获取会话状态
 curl http://localhost:8765/session-status/user_001
 
-# 健康检查
+# 远程 - 获取会话状态
+curl https://neuromemory.zeabur.app/session-status/user_001
+
+# 本地 - 健康检查
 curl http://localhost:8765/health
+
+# 远程 - 健康检查
+curl https://neuromemory.zeabur.app/health
 ```
 
 **PowerShell 7：**
 ```powershell
-# 处理记忆（生产模式）
+# 本地 - 处理记忆（生产模式）
 $body = @{
     input = "我最喜欢的颜色是蓝色"
     user_id = "user_001"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:8765/process" -Method Post -ContentType "application/json" -Body $body
 
-# 调试模式
+# 远程 - 处理记忆
+$body = @{
+    input = "我最喜欢的颜色是蓝色"
+    user_id = "user_001"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/process" -Method Post -ContentType "application/json" -Body $body
+
+# 本地 - 调试模式
 $body = @{
     input = "我喜欢什么颜色？"
     user_id = "user_001"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:8765/debug" -Method Post -ContentType "application/json" -Body $body
 
-# 获取知识图谱
+# 远程 - 调试模式
+$body = @{
+    input = "我喜欢什么颜色？"
+    user_id = "user_001"
+} | ConvertTo-Json
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/debug" -Method Post -ContentType "application/json" -Body $body
+
+# 本地 - 获取知识图谱
 Invoke-RestMethod -Uri "http://localhost:8765/graph/user_001" -Method Get
 
-# 结束会话
+# 远程 - 获取知识图谱
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/graph/user_001" -Method Get
+
+# 本地 - 结束会话
 $body = @{ user_id = "user_001" } | ConvertTo-Json
 Invoke-RestMethod -Uri "http://localhost:8765/end-session" -Method Post -ContentType "application/json" -Body $body
 
-# 获取会话状态
+# 远程 - 结束会话
+$body = @{ user_id = "user_001" } | ConvertTo-Json
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/end-session" -Method Post -ContentType "application/json" -Body $body
+
+# 本地 - 获取会话状态
 Invoke-RestMethod -Uri "http://localhost:8765/session-status/user_001" -Method Get
 
-# 健康检查
+# 远程 - 获取会话状态
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/session-status/user_001" -Method Get
+
+# 本地 - 健康检查
 Invoke-RestMethod -Uri "http://localhost:8765/health" -Method Get
+
+# 远程 - 健康检查
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/health" -Method Get
 ```
 
 ### Python (requests)
@@ -550,6 +637,8 @@ Invoke-RestMethod -Uri "http://localhost:8765/health" -Method Get
 ```python
 import requests
 
+# 本地: http://localhost:8765
+# 远程: https://neuromemory.zeabur.app
 BASE_URL = "http://localhost:8765"
 
 # 处理记忆
@@ -579,10 +668,14 @@ else:
 import httpx
 import asyncio
 
+# 本地: http://localhost:8765
+# 远程: https://neuromemory.zeabur.app
+BASE_URL = "http://localhost:8765"
+
 async def process_memory_async(input_text: str, user_id: str) -> dict:
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            "http://localhost:8765/process",
+            f"{BASE_URL}/process",
             json={"input": input_text, "user_id": user_id}
         )
         return response.json()
@@ -598,8 +691,12 @@ asyncio.run(main())
 ### JavaScript (fetch)
 
 ```javascript
+// 本地: http://localhost:8765
+// 远程: https://neuromemory.zeabur.app
+const BASE_URL = "http://localhost:8765";
+
 async function processMemory(input, userId) {
-    const response = await fetch('http://localhost:8765/process', {
+    const response = await fetch(`${BASE_URL}/process`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -631,7 +728,8 @@ NeuroMemory 可以作为 DIFY 工作流的外部 HTTP 节点使用，为对话�
 
 1. **添加 HTTP 请求节点**
    - 方法：`POST`
-   - URL：`http://your-server:8765/process`
+   - URL（本地）：`http://localhost:8765/process`
+   - URL（远程）：`https://neuromemory.zeabur.app/process`
    - Headers：`Content-Type: application/json`
 
 2. **配置请求体**

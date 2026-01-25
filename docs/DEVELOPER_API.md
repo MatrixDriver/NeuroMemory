@@ -141,12 +141,20 @@ GET /api/v1/memory/search
 
 **Bash / Git Bash：**
 ```bash
+# 本地
 curl "http://localhost:8765/api/v1/memory/search?query=张三管理什么&user_id=test_user&limit=5"
+
+# 远程
+curl "https://neuromemory.zeabur.app/api/v1/memory/search?query=张三管理什么&user_id=test_user&limit=5"
 ```
 
 **PowerShell 7：**
 ```powershell
+# 本地
 Invoke-RestMethod -Uri "http://localhost:8765/api/v1/memory/search?query=张三管理什么&user_id=test_user&limit=5" -Method Get
+
+# 远程
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/api/v1/memory/search?query=张三管理什么&user_id=test_user&limit=5" -Method Get
 ```
 
 #### 响应示例
@@ -284,12 +292,20 @@ GET /api/v1/graph
 
 **Bash / Git Bash：**
 ```bash
+# 本地
 curl "http://localhost:8765/api/v1/graph?user_id=test_user&depth=2"
+
+# 远程
+curl "https://neuromemory.zeabur.app/api/v1/graph?user_id=test_user&depth=2"
 ```
 
 **PowerShell 7：**
 ```powershell
+# 本地
 Invoke-RestMethod -Uri "http://localhost:8765/api/v1/graph?user_id=test_user&depth=2" -Method Get
+
+# 远程
+Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/api/v1/graph?user_id=test_user&depth=2" -Method Get
 ```
 
 #### 响应示例
@@ -383,6 +399,8 @@ GET /api/v1/health
 ```python
 import requests
 
+# 本地: http://localhost:8765
+# 远程: https://neuromemory.zeabur.app
 BASE_URL = "http://localhost:8765"
 
 # 批量导入测试数据（跳过隐私过滤）
@@ -403,6 +421,10 @@ for content in test_data:
 ### 场景 2：仅检索不存储
 
 ```python
+# 本地: http://localhost:8765
+# 远程: https://neuromemory.zeabur.app
+BASE_URL = "http://localhost:8765"
+
 # 仅需要检索结果，不触发存储
 response = requests.get(
     f"{BASE_URL}/api/v1/memory/search",
@@ -415,6 +437,10 @@ print(f"找到 {len(results['memories'])} 条记忆")
 ### 场景 3：需要 LLM 生成回答
 
 ```python
+# 本地: http://localhost:8765
+# 远程: https://neuromemory.zeabur.app
+BASE_URL = "http://localhost:8765"
+
 # 需要完整的自然语言回答
 response = requests.post(
     f"{BASE_URL}/api/v1/ask",
