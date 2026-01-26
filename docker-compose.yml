@@ -5,7 +5,7 @@ services:
     # [修正1] 明确指定改名后的 Dockerfile，避开 Zeabur 的自动检测冲突
     build:
       context: .
-      dockerfile: deploy/Dockerfile.app
+      dockerfile: Dockerfile
     container_name: neuromemory_app
     volumes:
       - .:/app
