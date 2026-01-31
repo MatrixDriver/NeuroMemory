@@ -55,8 +55,8 @@ qdrant_data/
 # 测试结果
 test-results.txt
 
-# .agents 目录（Claude Code 临时文件）
-.agents/
+# rpiv 过程文件目录
+rpiv/
 
 # 计划文件（Claude Code）
 *.md

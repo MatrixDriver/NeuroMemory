@@ -9,9 +9,10 @@
 - 命令定义于用户级：`~/.claude/commands/`（或项目内 `.claude/commands/` 若存在）。
 - 本仓库相关产出目录：
   - **特性计划**：`docs/feature-plans/`（参见 [feature-plans/README.md](feature-plans/README.md)）
-  - **代码审查**：`.agents/code-reviews/`
-  - **执行报告**：`.agents/execution-reports/`
-  - **系统审查**：`.agents/system-reviews/`
+  - **需求文档**：`rpiv/requirements/`（prd-*.md）
+  - **实施计划**：`rpiv/plans/`（plan-*.md）
+  - **验证产出**：`rpiv/validation/`（code-review-*.md、exec-report-*.md、system-review-*.md）
+  - **归档**：`rpiv/archive/`
 
 ### 1.2 三组命令的职责
 
@@ -54,7 +55,7 @@
 - 可审计、可复用：计划以 Markdown 形式保存，便于 Code Review 与后续类似需求复用。
 
 **产出位置**：
-- 命令默认：`.agents/plans/{kebab-name}.md`
+- 命令默认：`rpiv/plans/{kebab-name}.md`
 - 本仓库惯例：也可放在 `docs/feature-plans/`，与 [feature-plans/README.md](feature-plans/README.md) 一致。
 
 **计划核心结构**（摘要）：
@@ -101,7 +102,7 @@
    → 得到项目上下文摘要
 
 2. /core_piv_loop/plan-feature @<需求/设计文档 或 简短描述>
-   → 产出 文档（如 docs/feature-plans/{feature}.md 或 .agents/plans/{feature}.md）
+   → 产出 文档（如 docs/feature-plans/{feature}.md 或 rpiv/plans/{feature}.md）
 
 3. （可选）人工审阅计划，必要时再跑 plan-feature 迭代
 
@@ -144,7 +145,7 @@
 - 在合并前做一次人工/AI 双重把关。
 - 输出可操作：每个 issue 带 `severity`、`file`、`line`、`suggestion`，便于直接修或交给 `code-review-fix`。
 
-**产出**：`.agents/code-reviews/[appropriate-name].md`
+**产出**：`rpiv/validation/[appropriate-name].md`
 
 ---
 
@@ -156,7 +157,7 @@
 - 把 Code Review 的结论闭环，避免「审完无人修」。
 - 可重复、可审计：同一份 review 可多次跑 fix，或交给不同执行方。
 
-**用法示例**：`/validation/code-review-fix @.agents/code-reviews/xxx-review.md`
+**用法示例**：`/validation/code-review-fix @rpiv/validation/xxx-review.md`
 
 ---
 
@@ -168,7 +169,7 @@
 - 实施可追溯，便于日后理解「为何这样实现」。
 - 为 `system-review` 提供输入：system-review 对比「计划 vs 执行报告」，改进流程与资产，而非再逐行审代码。
 
-**产出**：`.agents/execution-reports/[feature-name].md`
+**产出**：`rpiv/validation/[feature-name].md`
 
 **典型内容**：元信息（计划路径、改动文件、行数）、验证结果（语法/类型/单元/集成）、顺利点、困难点、与计划的偏离、跳过的项、对计划/执行/CLAUDE 的改进建议。
 
@@ -185,7 +186,7 @@
 
 **输入**：计划文件（$1）、执行报告（$2）；会参考 `plan-feature` 与 `execute` 的指导逻辑。
 
-**产出**：`.agents/system-reviews/[feature-name]-review.md`
+**产出**：`rpiv/validation/[feature-name]-review.md`
 
 ---
 
@@ -197,10 +198,10 @@
 /core_piv_loop/execute @<计划> 完成后：
 
 → /validation/execution-report
-  → .agents/execution-reports/{feature}.md
+  → rpiv/validation/{feature}.md
 
 → /validation/system-review <计划> <执行报告>
-  → .agents/system-reviews/{feature}-review.md
+  → rpiv/validation/{feature}-review.md
   → 按建议更新 CLAUDE.md、计划/执行模板或命令
 ```
 
@@ -210,10 +211,10 @@
 改动完成后：
 
 → /validation/code-review
-  → .agents/code-reviews/{name}.md
+  → rpiv/validation/{name}.md
 
 若有 issue：
-  → /validation/code-review-fix @.agents/code-reviews/{name}.md
+  → /validation/code-review-fix @rpiv/validation/{name}.md
   → 修完后再跑 /validation/validate
 
 最后 /commit 或走既有提交流程
@@ -238,7 +239,7 @@
 
 **与后续流程的衔接**：
 - create-prd 产出 `PRD.md`（产品层）。
-- plan-feature 的输入可以是 PRD 的某一节、某条用户故事，或 `@PRD.md`；产出工程层计划（如 `docs/feature-plans/xxx.md` 或 `.agents/plans/xxx.md`）。
+- plan-feature 的输入可以是 PRD 的某一节、某条用户故事，或 `@PRD.md`；产出工程层计划（如 `docs/feature-plans/xxx.md` 或 `rpiv/plans/xxx.md`）。
 
 ---
 
@@ -262,14 +263,14 @@
    → 实现 + 测试 + 跑完计划中的 VALIDATE
 
 6) /validation/execution-report
-   → .agents/execution-reports/{feature}.md
+   → rpiv/validation/{feature}.md
 
 7) /validation/system-review <计划> <执行报告>
-   → .agents/system-reviews/{feature}-review.md
+   → rpiv/validation/{feature}-review.md
    → 按建议更新 CLAUDE.md、plan/execute 模板或命令
 
 8) /validation/code-review
-   → .agents/code-reviews/xxx.md
+   → rpiv/validation/xxx.md
 
 9) 如有 issue：/validation/code-review-fix @<审查文件>
    → 修完再 /validation/validate
@@ -293,13 +294,13 @@
 |------|----------------|----------|
 | **create-prd** | 产品范围与共识 | PRD.md |
 | **core_piv_loop/prime** | 项目与上下文快照 | 项目摘要（可文档化） |
-| **core_piv_loop/plan-feature** | 技术设计与任务分解 | docs/feature-plans/*.md 或 .agents/plans/*.md |
+| **core_piv_loop/plan-feature** | 技术设计与任务分解 | docs/feature-plans/*.md 或 rpiv/plans/*.md |
 | **core_piv_loop/execute** | 按计划实施与自验 | 代码 + 测试 + 验证结果 |
 | **validation/validate** | 统一健康检查 | 通过/失败 + 报告 |
-| **validation/code-review** | 提交前技术审查 | .agents/code-reviews/*.md |
+| **validation/code-review** | 提交前技术审查 | rpiv/validation/*.md |
 | **validation/code-review-fix** | 把审查结论修完 | 修改后代码 + 再次 validate |
-| **validation/execution-report** | 实施复盘 | .agents/execution-reports/*.md |
-| **validation/system-review** | 流程与资产改进 | .agents/system-reviews/*.md + 改进清单 |
+| **validation/execution-report** | 实施复盘 | rpiv/validation/*.md |
+| **validation/system-review** | 流程与资产改进 | rpiv/validation/*.md + 改进清单 |
 
 ---
 
@@ -309,7 +310,7 @@
 
 - **CLAUDE.md**：项目约定、常用命令、反模式；prime、plan-feature、execute、validation 均应遵守。
 - **docs/feature-plans/**：特性计划存放与规范见 [feature-plans/README.md](feature-plans/README.md)。
-- **.agents/**：code-reviews、execution-reports、system-reviews 的目录已在使用。
+- **rpiv/**：requirements、plans、validation、archive 的目录已在使用。
 
 ### 6.2 验证命令（validate）的定制
 
@@ -318,7 +319,7 @@
 
 ### 6.3 计划产出位置
 
-- **plan-feature** 默认写到 `.agents/plans/`；本仓库也可按惯例写到 `docs/feature-plans/`，与现有特性文档统一，并在 plan 中写明输出路径。
+- **plan-feature** 默认写到 `rpiv/plans/`；本仓库也可按惯例写到 `docs/feature-plans/`，与现有特性文档统一，并在 plan 中写明输出路径。
 
 ---
 
@@ -330,20 +331,20 @@
 
 ---
 
-## 8. .agents 过程文件的清理
+## 8. rpiv 过程文件的清理
 
-执行完整流程（core_piv_loop + validation）时，`.agents/` 下会生成多类过程性产出。本节说明：哪些算过程文件、何时清理、如何清理，以及是否纳入版本库。
+执行完整流程（core_piv_loop + validation）时，`rpiv/` 下会生成多类过程性产出。本节说明：哪些算过程文件、何时清理、如何清理，以及是否纳入版本库。
 
-### 8.1 各目录性质
+### 8.1 目录结构
 
 | 子目录 | 性质 | 说明 |
 |--------|------|------|
-| **code-reviews/** | 过程文件 | 提交前技术审查记录；`code-review-fix` 修完、合并后，其价值主要是历史审计，日常可删。 |
-| **execution-reports/** | 过程+复盘 | 实施复盘，已作为 system-review 的输入；system-review 的改进落实后，可视为过程文件。 |
-| **system-reviews/** | 过程文件 | 流程与资产改进建议；**关键输出是「对 CLAUDE.md、计划模板、execute 检查项的更新」**，一旦落实，报告本身可删。 |
-| **plans/** | 半持久 / 可迁 | 实施计划；若已有一份在 `docs/feature-plans/`，此处为工作副本可删；**若计划仅在此**，应先迁移到 `docs/feature-plans/` 再删，或归档。 |
+| **requirements/** | PRD | 产品需求文档（prd-*.md）。 |
+| **plans/** | 半持久 / 可迁 | 实施计划（plan-*.md）；若已有一份在 `docs/feature-plans/`，此处为工作副本可删；**若计划仅在此**，应先迁移到 `docs/feature-plans/` 再删，或归档。 |
+| **validation/** | 过程文件 | 代码审查（code-review-*.md）、执行报告（exec-report-*.md）、系统审查（system-review-*.md）。审查修完、改进落实后可删。 |
+| **archive/** | 归档 | 已完结特性的过程文件归档存放。 |
 
-**结论**：`code-reviews`、`execution-reports`、`system-reviews` 以**过程文件**为主；`plans` 需区分：已有「正式版」在 `docs/feature-plans/` 则可删，否则先迁后删或归档。
+**结论**：`validation/` 以**过程文件**为主；`plans` 需区分：已有「正式版」在 `docs/feature-plans/` 则可删，否则先迁后删或归档。
 
 ### 8.2 何时执行清理
 
@@ -353,7 +354,7 @@
 2. **system-review 已消化**：对 CLAUDE.md、计划/执行模板、execute 检查项等的修改已落地。
 3. **code-review 已闭环**：若有 issue，已通过 `code-review-fix` 修完并通过 `validate`。
 
-满足后，可对该 feature 对应的 `.agents` 文件做清理，**不必**等「整仓所有 feature 都完成」再统一清。
+满足后，可对该 feature 对应的 `rpiv` 文件做清理，**不必**等「整仓所有 feature 都完成」再统一清。
 
 **不推荐的时机**：
 
@@ -368,11 +369,11 @@
 
 ```powershell
 # 在项目根目录，PowerShell 示例：清理 feature「access-layer-sdk-and-cli」相关
-Remove-Item -ErrorAction SilentlyContinue .agents/code-reviews/access-layer-*.md
-Remove-Item -ErrorAction SilentlyContinue .agents/execution-reports/access-layer-sdk-and-cli.md
-Remove-Item -ErrorAction SilentlyContinue .agents/system-reviews/access-layer-sdk-and-cli-review.md
+Remove-Item -ErrorAction SilentlyContinue rpiv/validation/access-layer-*.md
+Remove-Item -ErrorAction SilentlyContinue rpiv/validation/access-layer-sdk-and-cli.md
+Remove-Item -ErrorAction SilentlyContinue rpiv/validation/access-layer-sdk-and-cli-review.md
 # plans：若 docs/feature-plans/ 中已有同名或等价计划，再删
-Remove-Item -ErrorAction SilentlyContinue .agents/plans/access-layer-sdk-and-cli.md
+Remove-Item -ErrorAction SilentlyContinue rpiv/plans/access-layer-sdk-and-cli.md
 ```
 
 - **code-reviews**：可按 `*review.md` 或 feature 前缀批量删。
@@ -381,27 +382,27 @@ Remove-Item -ErrorAction SilentlyContinue .agents/plans/access-layer-sdk-and-cli
 
 #### 方案 B：归档后删（适合要留审计/案例的场景）
 
-若希望保留「我们如何做 code-review / 复盘 / 流程改进」的案例，可建归档目录，按 feature 或按时间迁移后再删 `.agents` 内原文件：
+若希望保留「我们如何做 code-review / 复盘 / 流程改进」的案例，可建归档目录，按 feature 或按时间迁移后再删 `rpiv` 内原文件：
 
-- 归档位置示例：`docs/engineering-archive/{feature}/` 或 `.agents/archive/YYYY-MM/{feature}/`
+- 归档位置示例：`docs/engineering-archive/{feature}/` 或 `rpiv/archive/YYYY-MM/{feature}/`
 - 建议：**仅归档你认为对流程复现、内训有用的** report/review，不必全部保留。
 
-#### 方案 C：.gitignore 整个 .agents（过程文件不进版本库）
+#### 方案 C：.gitignore 整个 rpiv（过程文件不进版本库）
 
-若团队约定：`.agents` 仅作为**本地或 CI 中的过程工作区**，不纳入版本库，可把 `.agents/` 加入 `.gitignore`。这样：
+若团队约定：`rpiv` 仅作为**本地或 CI 中的过程工作区**，不纳入版本库，可把 `rpiv/` 加入 `.gitignore`。这样：
 
 - 不需要通过「清理后 commit 删除」来维护 repo；
 - 清理完全是**本地操作**：本地随时删、按需归档即可；
 - 新 clone 的成员不会拿到别人的 process 产出，需自己跑一遍流程。
 
-**与本仓库的衔接**：当前 `.gitignore` 未包含 `.agents`。若采用本方案，应在 ENGINEERING_WORKFLOW 或 README 中说明「.agents 为本地过程目录，不提交」。
+**与本仓库的衔接**：当前 `.gitignore` 已包含 `rpiv/`。`rpiv` 为本地过程目录，不提交。
 
 ### 8.4 建议汇总
 
 | 偏好 | 清理时机 | 清理方式 | 版本库 |
 |------|----------|----------|--------|
-| **轻量、少留痕** | 每个 feature 合并且 system-review 落实后 | 方案 A：直接删；plans 先迁 `docs/feature-plans/` 再删 | 可不提交 .agents，或提交前删干净 |
-| **留审计/案例** | 同上 | 方案 B：拣选后归档到 `docs/engineering-archive/` 等，再删 .agents 原文件 | 仅提交归档目录中要长期保留的 |
-| **过程纯本地** | 本地随时 | 方案 A 或 B，仅本地执行 | 方案 C：.gitignore `.agents/`，不提交 |
+| **轻量、少留痕** | 每个 feature 合并且 system-review 落实后 | 方案 A：直接删；plans 先迁 `docs/feature-plans/` 再删 | 可不提交 rpiv，或提交前删干净 |
+| **留审计/案例** | 同上 | 方案 B：拣选后归档到 `docs/engineering-archive/` 等，再删 rpiv 原文件 | 仅提交归档目录中要长期保留的 |
+| **过程纯本地** | 本地随时 | 方案 A 或 B，仅本地执行 | 方案 C：.gitignore `rpiv/`，不提交 |
 
-**对 `plans` 的单独建议**：优先把「仅存在于 `.agents/plans/`」的计划迁移到 `docs/feature-plans/`，并补到 [feature-plans/README.md](feature-plans/README.md) 的文档列表，再删除 `.agents/plans/` 中副本。这样计划成为项目正式文档，`.agents` 只做过程工作区。
+**对 `plans` 的单独建议**：优先把「仅存在于 `rpiv/plans/`」的计划迁移到 `docs/feature-plans/`，并补到 [feature-plans/README.md](feature-plans/README.md) 的文档列表，再删除 `rpiv/plans/` 中副本。这样计划成为项目正式文档，`rpiv` 只做过程工作区。

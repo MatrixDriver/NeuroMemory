@@ -21,6 +21,9 @@ qdrant_data/
 .claude/
 tmpclaude-*
 
+# rpiv 过程文件目录
+rpiv/
+
 # 临时文件
 nul
 Untitled

@@ -78,11 +78,15 @@ pytest -m "not slow"               # 跳过 LLM 调用的测试
 | 文件 | 职责 |
 |------|------|
 | `private_brain.py` | 核心类 `PrivateBrain`，实现 Y 型分流架构 |
-| `neuromemory/` | CLI（`neuromemory` 命令），直接使用 `get_brain()` |
+| `session_manager.py` | Session 生命周期管理、超时检查、记忆持久化 |
+| `coreference.py` | 指代消解（代词→实体），支持 DeepSeek/Gemini 切换 |
+| `consolidator.py` | Session 记忆整合器 |
 | `privacy_filter.py` | LLM 隐私分类器（PRIVATE/PUBLIC） |
 | `http_server.py` | FastAPI REST API 入口 |
 | `mcp_server.py` | MCP Server 入口（Cursor/Claude Desktop 集成） |
 | `config.py` | 模型切换、数据库连接配置 |
+| `utils.py` | 通用工具函数 |
+| `neuromemory/` | CLI（`neuromemory` 命令），直接使用 `get_brain()` |
 | `main.py` | CLI 交互模式入口 |
 
 ## 模型切换配置
@@ -120,13 +124,31 @@ SILICONFLOW_API_KEY=your-siliconflow-api-key
 
 ## 测试
 
-测试文件位于 `tests/test_cognitive.py`，包含：
-- `TestIdentityExtraction` / `TestPronounResolution`：单元测试（无 LLM）
-- `TestPrivacyFilter`：隐私分类集成测试
-- `TestPrivateBrain`：核心功能测试
-- `TestMultiHopRetrieval`：多跳检索端到端测试
+```bash
+# 全部测试（默认连接 ZeaBur 远程）
+pytest
 
-使用 `@pytest.mark.slow` 标记需要 LLM 调用的测试。
+# 跳过 LLM 调用的慢测试
+pytest -m "not slow"
+
+# 连接本地 Docker Desktop
+pytest --target local
+
+# 运行单个测试文件 / 单个用例
+pytest tests/test_session.py
+pytest tests/test_cognitive.py::TestIdentityExtraction::test_extract_names
+```
+
+测试文件：
+- `tests/test_cognitive.py`：认知功能（身份提取、代词消解、隐私分类、多跳检索）
+- `tests/test_session.py`：Session 管理（生命周期、超时、并发）
+- `tests/test_api.py`：REST API 端点测试
+- `tests/test_cli.py`：CLI 命令测试
+- `tests/test_zeabur.py`：ZeaBur 远程部署测试
+
+Marker：`@pytest.mark.slow`（需 LLM）、`@pytest.mark.requires_db`（需数据库）、`@pytest.mark.zeabur`（需远程环境）。
+
+`--target` 参数（`local` / `zeabur`）通过 `conftest.py` 自动设置数据库连接环境变量并 reload `config` 模块。
 
 ## 架构说明
 
@@ -134,7 +156,13 @@ SILICONFLOW_API_KEY=your-siliconflow-api-key
 
 ## 工程推进流程
 
-`core_piv_loop`（prime / plan-feature / execute）、`validation`（code-review、execution-report、system-review 等）、`create-prd` 的用法、顺序及与本仓库的衔接，参见 `docs/ENGINEERING_WORKFLOW.md`。
+`rpiv_loop`（brainstorm / create-prd / plan-feature / execute）、`validation`（code-review、execution-report、system-review 等）的用法、顺序及与本仓库的衔接，参见 `docs/ENGINEERING_WORKFLOW.md`。
+
+过程文件存放于 `rpiv/` 目录（已加入 `.gitignore`，不进版本库）：
+- `rpiv/requirements/`：PRD（prd-*.md）
+- `rpiv/plans/`：实施计划（plan-*.md）
+- `rpiv/validation/`：代码审查、执行报告、系统审查
+- `rpiv/archive/`：已完结特性的归档
 
 ## 开发约定与反模式
 
