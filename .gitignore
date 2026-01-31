@@ -15,6 +15,7 @@ qdrant_data/
 # IDE
 .idea/
 .vscode/
+.obsidian/
 *.swp
 
 # Claude Code

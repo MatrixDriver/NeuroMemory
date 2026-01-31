@@ -15,7 +15,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--target",
         action="store",
-        default="local",
+        default="zeabur",
         choices=["local", "zeabur"],
         help="测试目标服务器: local (Docker Desktop) 或 zeabur (远程服务器)"
     )

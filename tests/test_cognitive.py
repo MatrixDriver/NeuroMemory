@@ -23,7 +23,6 @@ NeuroMemory 测试套件
 
 import pytest
 import time
-import socket
 
 from config import LLM_PROVIDER, EMBEDDING_PROVIDER
 
@@ -32,20 +31,16 @@ from config import LLM_PROVIDER, EMBEDDING_PROVIDER
 # 工具函数
 # =============================================================================
 
-def check_database_available(host=None, port=6400, timeout=1):
-    """检查数据库服务是否可用"""
-    # 如果没有指定 host，从配置中读取
-    if host is None:
-        import config
-        host = config.MEM0_CONFIG.get("vector_store", {}).get("config", {}).get("host", "localhost")
-        port = config.MEM0_CONFIG.get("vector_store", {}).get("config", {}).get("port", 6400)
+def check_database_available():
+    """
+    检查 Qdrant 数据库服务是否可用。
     
+    使用 health_checks.check_qdrant() 进行实际连接检查，
+    而不是简单的 socket 连接，这样可以正确处理远程主机名。
+    """
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        result = sock.connect_ex((host, port))
-        sock.close()
-        return result == 0
+        from health_checks import check_qdrant
+        return check_qdrant()
     except Exception:
         return False
 
