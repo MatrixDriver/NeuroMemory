@@ -55,34 +55,31 @@ docker-compose ps
 
 | 服务 | 地址 | 凭证 |
 |------|------|------|
-| Neo4j Browser | http://localhost:7474 | neo4j / zeabur2025 |
+| Neo4j Browser | http://localhost:7474 | neo4j / railway2025 |
 | Qdrant API | http://localhost:6400 | 无需认证 |
 | Qdrant Dashboard | http://localhost:6400/dashboard | 无需认证 |
 
-**ZeaBur 远程（已部署）：**
+**Railway 远程（已部署）：**
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| REST API | https://neuromemory.zeabur.app/ | 主接口 |
-| API 文档 | https://neuromemory.zeabur.app/docs | Swagger UI |
-| 健康检查 | https://neuromemory.zeabur.app/health | 存活探测 |
-| **Neo4j Browser** | https://neo4j-neuromemory.zeabur.app/ | Web 管理界面；见下文访问步骤 |
-| **Qdrant Web UI** | https://qdrant-neuromemory.zeabur.app | 向量库管理；直接打开，无需认证 |
+| REST API | https://<your-app>.up.railway.app/ | 主接口 |
+| API 文档 | https://<your-app>.up.railway.app/docs | Swagger UI |
+| 健康检查 | https://<your-app>.up.railway.app/health | 存活探测 |
+| **Neo4j** | 通过 Railway 内部网络访问 | 无外部公开 URL，仅内部服务可连接 |
+| **Qdrant** | 通过 Railway 内部网络访问 | 无外部公开 URL，仅内部服务可连接 |
 
-**Neo4j Browser 访问步骤（ZeaBur）**
+**Neo4j 访问说明（Railway）**
 
-1. 打开 https://neo4j-neuromemory.zeabur.app/  
-2. 用户名：`neo4j`  
-3. 密码：在 ZeaBur 的应用或 Neo4j 服务变量 `Neo4jPassword` 中配置；具体值可记录于项目根目录的 `CREDENTIALS.local.md`（该文件已加入 .gitignore，不提交）  
-4. 点击 **Connect**  
+Railway 上 Neo4j 和 Qdrant 仅通过内部网络访问，不提供外部公开 URL。如需管理，可通过 Railway 控制台或本地端口转发。
 
-应用连接 Neo4j：Bolt 端口 **7687**（ZeaBur 标准 Neo4j）；内部主机由 ZeaBur 注入（如 `service-xxx:7687`）。
+- 用户名：`neo4j`
+- 密码：在 Railway 的 Neo4j 服务变量 `Neo4jPassword` 中配置；具体值可记录于项目根目录的 `CREDENTIALS.local.md`（该文件已加入 .gitignore，不提交）
+- 应用连接 Neo4j：Bolt 端口 **7687**；内部主机由 Railway 注入。
 
-**Qdrant Web UI 访问步骤（ZeaBur）**
+**Qdrant 访问说明（Railway）**
 
-1. 打开 https://qdrant-neuromemory.zeabur.app  
-2. 直接进入管理界面（当前未启用认证）  
-服务间：HTTP 端口 `6400`，gRPC 端口 `6334`。
+Qdrant 通过 Railway 内部网络访问。服务间：HTTP 端口 `6400`，gRPC 端口 `6334`。
 
 ---
 

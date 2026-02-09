@@ -11,7 +11,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 # =============================================================================
 # API 密钥配置
-# 兼容本地开发（下划线）和 ZeaBur（驼峰命名）
+# 兼容本地开发（下划线）和 Railway（驼峰命名）
 # =============================================================================
 def _get_env_var(*names: str, default: str = "") -> str:
     """按优先级读取环境变量，支持多种命名格式"""
@@ -144,9 +144,8 @@ def _get_collection_name() -> str:
 
 
 # Mem0 混合存储配置
-# Qdrant：Zeabur 链接 qdrant-neuromemory 后会注入 QDRANT_NEUROMEMORY_HOST；若 QDRANT_HOST 含未解析的 {{ }}，则用其回退
-_qh = os.getenv("QDRANT_HOST") or os.getenv("QDRANT_NEUROMEMORY_HOST") or "localhost"
-qdrant_host = _qh if "{{" not in str(_qh) else (os.getenv("QDRANT_NEUROMEMORY_HOST") or "localhost")
+# Qdrant：Railway 通过环境变量 QDRANT_HOST 注入内部地址（如 qdrant.railway.internal）
+qdrant_host = os.getenv("QDRANT_HOST") or "localhost"
 qdrant_port = int(os.getenv("QDRANT_PORT", "6400"))
 
 MEM0_CONFIG: dict = {
@@ -166,17 +165,17 @@ MEM0_CONFIG: dict = {
 # 图谱存储配置
 if ENABLE_GRAPH_STORE:
     # Neo4j 连接配置（支持环境变量）
-    # Zeabur：链接 neo4j-neuromemory 后会注入 NEO4J_NEUROMEMORY_HOST；若 NEO4J_URL 含未解析的 {{ }}，则用 _HOST 回退
+    # Railway：通过环境变量 NEO4J_URL 或 NEO4J_HOST 注入内部地址
     _neo4j_url_raw = os.getenv("NEO4J_URL", "")
-    if _neo4j_url_raw and "{{" not in _neo4j_url_raw:
+    if _neo4j_url_raw:
         neo4j_url = _neo4j_url_raw
     else:
-        _h = os.getenv("NEO4J_NEUROMEMORY_HOST") or os.getenv("NEO4J_HOST") or "localhost"
+        _h = os.getenv("NEO4J_HOST") or "localhost"
         _p = int(os.getenv("NEO4J_BOLT_PORT", "17687"))
         neo4j_url = f"bolt://{_h}:{_p}"  # 单实例使用 bolt://，集群使用 neo4j://
 
     neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-    neo4j_password = _get_env_var("NEO4J_PASSWORD", "Neo4jPassword", default="zeabur2025")
+    neo4j_password = _get_env_var("NEO4J_PASSWORD", "Neo4jPassword", default="railway2025")
 
     MEM0_CONFIG["graph_store"] = {
         "provider": "neo4j",
@@ -286,15 +285,15 @@ SESSION_CHECK_INTERVAL_SECONDS = 60  # 每分钟检查一次
 COREFERENCE_CONTEXT_SIZE = int(os.getenv("COREFERENCE_CONTEXT_SIZE", 5))  # 默认最近 5 条
 
 # =============================================================================
-# ZeaBur 测试配置
+# Railway 测试配置
 # =============================================================================
 
-ZEABUR_TEST_CONFIG = {
-    "base_url": os.getenv("ZEABUR_BASE_URL", "https://neuromemory.zeabur.app").rstrip("/"),
-    "neo4j_url": os.getenv("ZEABUR_NEO4J_URL"),  # 可选，如 neo4j://neo4j-neuromemory:7687
-    "neo4j_host": os.getenv("ZEABUR_NEO4J_HOST", "neo4j-neuromemory"),  # ZeaBur 内部服务名称，默认值很少修改
-    "neo4j_password": _get_env_var("ZEABUR_NEO4J_PASSWORD", "Neo4jPassword", default="zeabur2025"),
-    "qdrant_host": os.getenv("ZEABUR_QDRANT_HOST", "qdrant-neuromemory"),  # ZeaBur 内部服务名称，默认值很少修改
-    "qdrant_port": int(os.getenv("ZEABUR_QDRANT_PORT", "6400")),
-    "http_timeout": int(os.getenv("ZEABUR_HTTP_TIMEOUT", "30")),
+RAILWAY_TEST_CONFIG = {
+    "base_url": os.getenv("RAILWAY_BASE_URL", "https://<your-app>.up.railway.app").rstrip("/"),
+    "neo4j_url": os.getenv("RAILWAY_NEO4J_URL"),  # 可选，如 bolt://neo4j.railway.internal:7687
+    "neo4j_host": os.getenv("RAILWAY_NEO4J_HOST", "neo4j.railway.internal"),  # Railway 内部服务名称
+    "neo4j_password": _get_env_var("RAILWAY_NEO4J_PASSWORD", "Neo4jPassword", default="railway2025"),
+    "qdrant_host": os.getenv("RAILWAY_QDRANT_HOST", "qdrant.railway.internal"),  # Railway 内部服务名称
+    "qdrant_port": int(os.getenv("RAILWAY_QDRANT_PORT", "6400")),
+    "http_timeout": int(os.getenv("RAILWAY_HTTP_TIMEOUT", "30")),
 }

@@ -1,7 +1,7 @@
 
 services:
   app:
-    # [修正1] 明确指定改名后的 Dockerfile，避开 Zeabur 的自动检测冲突
+    # 明确指定 Dockerfile
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,13 +9,8 @@ services:
     volumes:
       - .:/app
     environment:
-      # --- 1. 注入 Zeabur 的密钥 ---
-      - DeepSeekApiKey
-      - SiliconFlowApiKey
-      
-      # --- 2. 统一密码逻辑 (关键修正) ---
-      # 让 App 读取 Zeabur 里的 NEO4J_PASSWORD，如果没有则用 zeabur2025
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-zeabur2025}
+      # --- 统一密码逻辑 ---
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-railway2025}
       
       # --- 3. 架构连接 ---
       - NEO4J_URL=bolt://neo4j:7687
@@ -39,9 +34,8 @@ services:
       - "17687:7687" 
       - "7474:7474"
     environment:
-      # [修正2] 这里的密码也不能写死！必须引用同一个变量
-      # 这样 Zeabur 和本地都统一使用 zeabur2025
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-zeabur2025}
+      # 密码引用同一个变量
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-railway2025}
       
       - NEO4J_PLUGINS=["apoc", "graph-data-science"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
@@ -49,7 +43,7 @@ services:
       - neo4j_data:/data
     # 健康检查建议加上，防止 App 启动太快连不上
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-zeabur2025} 'RETURN 1'"]
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-railway2025} 'RETURN 1'"]
       interval: 10s
       timeout: 5s
       retries: 5

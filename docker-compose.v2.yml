@@ -1,0 +1,36 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: neuromemory
+      POSTGRES_PASSWORD: neuromemory
+      POSTGRES_DB: neuromemory
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neuromemory"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "8765:8765"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://neuromemory:neuromemory@db:5432/neuromemory
+      DATABASE_URL_SYNC: postgresql://neuromemory:neuromemory@db:5432/neuromemory
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-siliconflow}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

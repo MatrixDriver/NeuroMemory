@@ -70,8 +70,8 @@ docker-compose up -d
 
 | 环境 | 密码 | 说明 |
 |------|------|------|
-| 本地开发 | `zeabur2025` | docker-compose 默认值 |
-| ZeaBur 远程 | `zeabur2025` | ZeaBur 变量 `Neo4jPassword` |
+| 本地开发 | `railway2025` | docker-compose 默认值 |
+| Railway 远程 | `railway2025` | Railway 变量 `Neo4jPassword` |
 
 ### 关键经验
 
@@ -142,7 +142,7 @@ docker logs memory_graph_db --tail 20
 docker logs neuromemory_app --tail 20
 
 # 3. 手动测试 Neo4j 连接（在容器内）
-docker exec -it memory_graph_db cypher-shell -u neo4j -p zeabur2025 "RETURN 1"
+docker exec -it memory_graph_db cypher-shell -u neo4j -p railway2025 "RETURN 1"
 ```
 
 ### `/health` 返回 `qdrant: false`
@@ -245,13 +245,13 @@ Error: [Errno 48] Address already in use
 | 服务 | 访问地址 | 说明 |
 |------|----------|------|
 | **Neo4j 管理界面** | http://localhost:7474/ | Neo4j Browser，用于可视化查询和浏览图数据 |
-| **Neo4j 数据库连接** | https://localhost:17687 | Bolt 协议连接地址<br>账号：`neo4j`<br>密码：`zeabur2025` |
+| **Neo4j 数据库连接** | https://localhost:17687 | Bolt 协议连接地址<br>账号：`neo4j`<br>密码：`railway2025` |
 | **Qdrant Dashboard** | http://localhost:6400/dashboard | Qdrant 向量数据库管理界面<br>无需密码 |
 | **App 健康检查** | http://localhost:8765/health | 应用健康检查端点<br>用于检查数据库连接状态<br>无 Web 页面，返回 JSON |
 
 #### 访问说明
 
-- **Neo4j Browser**：在浏览器中打开 http://localhost:7474/，输入用户名 `neo4j` 和密码 `zeabur2025` 即可登录
+- **Neo4j Browser**：在浏览器中打开 http://localhost:7474/，输入用户名 `neo4j` 和密码 `railway2025` 即可登录
 - **Neo4j Bolt 连接**：用于应用程序连接，使用 `bolt://localhost:17687`
 - **Qdrant Dashboard**：可直接访问，无需认证
 - **App 健康检查**：访问 http://localhost:8765/health 可查看各服务的连接状态，返回格式如：

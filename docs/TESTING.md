@@ -147,23 +147,23 @@ uv run pytest tests/test_cognitive.py
 # 明确指定本地
 uv run pytest tests/test_cognitive.py --target local
 
-# 测试 ZeaBur 远程服务器
+# 测试 Railway 远程服务器
 # 配置已在 config.py 中设置默认值，无需设置环境变量
-uv run pytest tests/test_cognitive.py --target zeabur
+uv run pytest tests/test_cognitive.py --target railway
 ```
 
 **说明**：
 - `--target local`：使用本地 Docker Desktop 中的数据库（localhost）
-- `--target zeabur`：使用 ZeaBur 远程服务器中的数据库
+- `--target railway`：使用 Railway 远程服务器中的数据库
 - 默认值为 `local`，如果不指定参数则测试本地环境
 
-**ZeaBur 远程测试配置**：
-- ZeaBur 测试配置在 `config.py` 中的 `ZEABUR_TEST_CONFIG` 中设置，包含默认值：
-  - `base_url`: `https://neuromemory.zeabur.app`
-  - `neo4j_host`: `neo4j-neuromemory` (ZeaBur 内部服务名称)
-  - `qdrant_host`: `qdrant-neuromemory` (ZeaBur 内部服务名称)
-  - `neo4j_password`: `zeabur2025`
-- 这些默认值很少修改，如需临时覆盖，可通过环境变量设置（如 `$env:ZEABUR_NEO4J_HOST="..."`）
+**Railway 远程测试配置**：
+- Railway 测试配置在 `config.py` 中的 `RAILWAY_TEST_CONFIG` 中设置，包含默认值：
+  - `base_url`: `https://<your-app>.up.railway.app`
+  - `neo4j_host`: `neo4j-neuromemory` (Railway 内部服务名称)
+  - `qdrant_host`: `qdrant-neuromemory` (Railway 内部服务名称)
+  - `neo4j_password`: `railway2025`
+- 这些默认值很少修改，如需临时覆盖，可通过环境变量设置（如 `$env:RAILWAY_NEO4J_HOST="..."`）
 
 ---
 
@@ -436,13 +436,13 @@ uv run pytest tests/test_cognitive.py --target local
 
 **远程测试**：
 ```powershell
-# 使用 --target zeabur，配置已在 config.py 中设置默认值
-uv run pytest tests/test_cognitive.py --target zeabur
+# 使用 --target railway，配置已在 config.py 中设置默认值
+uv run pytest tests/test_cognitive.py --target railway
 
 # 如需临时覆盖默认配置，可通过环境变量设置
-$env:ZEABUR_NEO4J_HOST="custom-neo4j-host"
-$env:ZEABUR_QDRANT_HOST="custom-qdrant-host"
-uv run pytest tests/test_cognitive.py --target zeabur
+$env:RAILWAY_NEO4J_HOST="custom-neo4j-host"
+$env:RAILWAY_QDRANT_HOST="custom-qdrant-host"
+uv run pytest tests/test_cognitive.py --target railway
 ```
 
 ### 问题：LLM API 调用失败

@@ -11,6 +11,7 @@ CREDENTIALS.local.md
 # 数据库持久化
 neo4j_data/
 qdrant_data/
+pgdata/
 
 # IDE
 .idea/
@@ -28,4 +29,3 @@ rpiv/
 # 临时文件
 nul
 Untitled
-.env.zeabur

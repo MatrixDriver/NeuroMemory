@@ -255,7 +255,7 @@ MEM0_CONFIG = {
         "config": {
             "url": "bolt://localhost:17687",  # 单实例使用 bolt://，集群使用 neo4j://
             "username": "neo4j",
-            "password": "zeabur2025",
+            "password": "railway2025",
         }
     },
     

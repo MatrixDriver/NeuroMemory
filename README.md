@@ -65,15 +65,15 @@
 | Graph DB | Neo4j 5.26.0 | 知识图谱存储 |
 | Framework | Mem0 + LangChain | 混合记忆管理 |
 
-## 在线演示（ZeaBur 部署）
+## 在线演示（Railway 部署）
 
-项目已部署在 [ZeaBur](https://zeabur.com)，可远程访问：
+项目已部署在 [Railway](https://railway.app)，可远程访问：
 
-- **REST API**: https://neuromemory.zeabur.app/
-- **API 文档 (Swagger)**: https://neuromemory.zeabur.app/docs
-- **健康检查**: https://neuromemory.zeabur.app/health
-- **Neo4j Browser**: https://neo4j-neuromemory.zeabur.app（图库 Web 管理；凭证见 ZeaBur 或 `CREDENTIALS.local.md`）
-- **Qdrant Web UI**: https://qdrant-neuromemory.zeabur.app（向量库管理；当前无需认证）
+- **REST API**: https://<your-app>.up.railway.app/
+- **API 文档 (Swagger)**: https://<your-app>.up.railway.app/docs
+- **健康检查**: https://<your-app>.up.railway.app/health
+
+> Neo4j 和 Qdrant 通过 Railway 内部网络互联，不对外暴露。凭证见 Railway Dashboard 或 `CREDENTIALS.local.md`。
 
 ---
 
@@ -127,7 +127,7 @@ docker-compose up -d
 ```
 
 服务启动后：
-- Neo4j Browser: http://localhost:7474 (用户名: `neo4j`, 密码: `zeabur2025`)
+- Neo4j Browser: http://localhost:7474 (用户名: `neo4j`, 密码: `railway2025`)
 - Qdrant API: http://localhost:6400
 
 ### 6. 运行演示

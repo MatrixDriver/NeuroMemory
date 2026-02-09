@@ -51,7 +51,7 @@ curl -X POST http://localhost:8765/process \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
 # 步骤1: 远程 - 存储记忆
-curl -X POST https://neuromemory.zeabur.app/process \
+curl -X POST https://<your-app>.up.railway.app/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
 
@@ -61,7 +61,7 @@ curl -X POST http://localhost:8765/end-session \
   -d '{"user_id": "user_001"}'
 
 # 步骤2: 远程 - 结束会话
-curl -X POST https://neuromemory.zeabur.app/end-session \
+curl -X POST https://<your-app>.up.railway.app/end-session \
   -H "Content-Type: application/json" \
   -d '{"user_id": "user_001"}'
 
@@ -71,7 +71,7 @@ curl -X POST http://localhost:8765/process \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 
 # 步骤3: 远程查询
-curl -X POST https://neuromemory.zeabur.app/process \
+curl -X POST https://<your-app>.up.railway.app/process \
   -H "Content-Type: application/json" \
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```
@@ -90,7 +90,7 @@ $body = @{
     input = "我女儿叫灿灿，今年5岁了"
     user_id = "user_001"
 } | ConvertTo-Json
-Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/process" -Method Post -ContentType "application/json" -Body $body
+Invoke-RestMethod -Uri "https://<your-app>.up.railway.app/process" -Method Post -ContentType "application/json" -Body $body
 
 # 步骤2: 本地 - 结束会话（⚠️ 必须调用触发存储，否则需等30分钟超时）
 $body = @{ user_id = "user_001" } | ConvertTo-Json
@@ -98,7 +98,7 @@ Invoke-RestMethod -Uri "http://localhost:8765/end-session" -Method Post -Content
 
 # 步骤2: 远程 - 结束会话
 $body = @{ user_id = "user_001" } | ConvertTo-Json
-Invoke-RestMethod -Uri "https://neuromemory.zeabur.app/end-session" -Method Post -ContentType "application/json" -Body $body
+Invoke-RestMethod -Uri "https://<your-app>.up.railway.app/end-session" -Method Post -ContentType "application/json" -Body $body
 
 # 步骤3: 本地 - 查询记忆（使用 curl.exe）
 curl.exe -X POST http://localhost:8765/process `
@@ -106,7 +106,7 @@ curl.exe -X POST http://localhost:8765/process `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 
 # 步骤3: 远程 - 查询记忆（使用 curl.exe）
-curl.exe -X POST https://neuromemory.zeabur.app/process `
+curl.exe -X POST https://<your-app>.up.railway.app/process `
   -H "Content-Type: application/json" `
   -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
 ```

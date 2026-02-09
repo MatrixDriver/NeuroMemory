@@ -1,4 +1,4 @@
-# NeuroMemory Dockerfile for ZeaBur Deployment
+# NeuroMemory Dockerfile for Railway Deployment
 # 多阶段构建优化镜像大小
 FROM python:3.13-slim as builder
 
@@ -39,9 +39,9 @@ USER appuser
 # 暴露端口（EXPOSE 仅文档用，实际监听 PORT 或 8765）
 EXPOSE 8765
 
-# 健康检查（使用 PORT 以兼容 Zeabur 等 PaaS 的端口注入）
+# 健康检查（使用 PORT 以兼容 Railway 等 PaaS 的端口注入）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD ["sh", "-c", "curl -f http://localhost:${PORT:-8765}/health || exit 1"]
 
-# 启动命令：优先使用 PORT 环境变量（Zeabur 等注入），否则 8765
+# 启动命令：优先使用 PORT 环境变量（Railway 注入），否则 8765
 CMD ["sh", "-c", "uvicorn http_server:app --host 0.0.0.0 --port ${PORT:-8765} --workers 2"]

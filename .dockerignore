@@ -50,7 +50,6 @@ qdrant_data/
 .env
 .env.*
 !.env.example
-!.env.zeabur
 
 # 测试结果
 test-results.txt
