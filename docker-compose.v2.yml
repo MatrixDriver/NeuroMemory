@@ -1,6 +1,9 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    build:
+      context: ./docker/postgres-age-vector
+      dockerfile: Dockerfile
+    image: neuromemory-postgres:16-age-vector
     environment:
       POSTGRES_USER: neuromemory
       POSTGRES_PASSWORD: neuromemory
