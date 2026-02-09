@@ -104,3 +104,82 @@ class TenantRegisterResponse(BaseModel):
 # === Error ===
 class ErrorResponse(BaseModel):
     detail: str
+
+
+# === Graph ===
+class NodeCreate(BaseModel):
+    """Request to create a graph node."""
+
+    node_type: str = Field(..., description="Type of node: User, Memory, Concept, Entity")
+    node_id: str = Field(..., description="Unique identifier for the node")
+    properties: dict | None = Field(None, description="Additional node properties")
+
+
+class EdgeCreate(BaseModel):
+    """Request to create a graph edge."""
+
+    source_type: str = Field(..., description="Source node type")
+    source_id: str = Field(..., description="Source node ID")
+    edge_type: str = Field(..., description="Edge type: HAS_MEMORY, MENTIONS, etc.")
+    target_type: str = Field(..., description="Target node type")
+    target_id: str = Field(..., description="Target node ID")
+    properties: dict | None = Field(None, description="Edge properties")
+
+
+class NodeResponse(BaseModel):
+    """Response for a graph node."""
+
+    id: str
+    tenant_id: str
+    node_type: str
+    node_id: str
+    properties: dict | None
+    created_at: datetime
+
+
+class EdgeResponse(BaseModel):
+    """Response for a graph edge."""
+
+    id: str
+    tenant_id: str
+    source_type: str
+    source_id: str
+    edge_type: str
+    target_type: str
+    target_id: str
+    properties: dict | None
+    created_at: datetime
+
+
+class NeighborsRequest(BaseModel):
+    """Request to get neighboring nodes."""
+
+    node_type: str
+    node_id: str
+    edge_types: list[str] | None = None
+    direction: str = Field("both", pattern="^(in|out|both)$")
+    limit: int = Field(10, ge=1, le=100)
+
+
+class PathRequest(BaseModel):
+    """Request to find path between nodes."""
+
+    source_type: str
+    source_id: str
+    target_type: str
+    target_id: str
+    max_depth: int = Field(3, ge=1, le=6)
+
+
+class GraphQueryRequest(BaseModel):
+    """Request for custom Cypher query."""
+
+    cypher: str = Field(..., description="Cypher query (must include tenant_id filter)")
+    params: dict | None = Field(None, description="Query parameters")
+
+
+class GraphQueryResponse(BaseModel):
+    """Response for graph query."""
+
+    results: list[dict]
+    count: int
