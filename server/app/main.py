@@ -7,7 +7,15 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from server.app.api.v1 import graph, health, preferences, search, tenants, users
+from server.app.api.v1 import (
+    conversations,
+    graph,
+    health,
+    preferences,
+    search,
+    tenants,
+    users,
+)
 from server.app.core.config import get_settings
 from server.app.core.logging import (
     generate_trace_id,
@@ -84,6 +92,7 @@ app.include_router(preferences.router, prefix="/v1")
 app.include_router(search.router, prefix="/v1")
 app.include_router(users.router, prefix="/v1")
 app.include_router(graph.router, prefix="/v1")
+app.include_router(conversations.router, prefix="/v1")
 
 
 @app.get("/")

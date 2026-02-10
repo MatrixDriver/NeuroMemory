@@ -60,3 +60,13 @@ def require_permission(perm: str):
         return auth
 
     return checker
+
+
+async def get_current_tenant(
+    auth: AuthContext = Depends(get_auth_context)
+) -> uuid.UUID:
+    """Extract tenant_id from auth context.
+
+    Convenience dependency for endpoints that only need the tenant_id.
+    """
+    return auth.tenant_id

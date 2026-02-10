@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import httpx
 
+from neuromemory_client.conversations import ConversationsClient
 from neuromemory_client.preferences import PreferencesClient
 from neuromemory_client.search import SearchClient
 
@@ -31,6 +32,7 @@ class NeuroMemoryClient:
             timeout=timeout,
         )
         self.preferences = PreferencesClient(self._http)
+        self.conversations = ConversationsClient(self._http)
         self._search_client = SearchClient(self._http)
 
     def search(

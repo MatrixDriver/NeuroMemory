@@ -7,6 +7,10 @@ from server.app.db.session import engine
 from server.app.models.base import Base
 
 # Import all models so they register with Base.metadata
+from server.app.models.conversation import (  # noqa: F401
+    Conversation,
+    ConversationSession,
+)
 from server.app.models.memory import Embedding, Preference  # noqa: F401
 from server.app.models.tenant import ApiKey, Tenant  # noqa: F401
 
