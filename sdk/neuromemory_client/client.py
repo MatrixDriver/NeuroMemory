@@ -7,6 +7,7 @@ from datetime import date, datetime
 import httpx
 
 from neuromemory_client.conversations import ConversationsClient
+from neuromemory_client.graph import GraphClient
 from neuromemory_client.memory import MemoryClient
 from neuromemory_client.preferences import PreferencesClient
 from neuromemory_client.search import SearchClient
@@ -38,6 +39,7 @@ class NeuroMemoryClient:
         self.conversations = ConversationsClient(self._http)
         self._search_client = SearchClient(self._http)
         self.memory = MemoryClient(self._http)
+        self.graph = GraphClient(self._http)
 
     def search(
         self,

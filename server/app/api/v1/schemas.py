@@ -160,6 +160,18 @@ class EdgeResponse(BaseModel):
     created_at: datetime
 
 
+class NodeUpdate(BaseModel):
+    """Request to update a node's properties."""
+
+    properties: dict = Field(..., description="Properties to update (will merge with existing)")
+
+
+class EdgeUpdate(BaseModel):
+    """Request to update an edge's properties."""
+
+    properties: dict = Field(..., description="Properties to update (will merge with existing)")
+
+
 class NeighborsRequest(BaseModel):
     """Request to get neighboring nodes."""
 

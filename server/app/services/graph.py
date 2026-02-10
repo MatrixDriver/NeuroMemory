@@ -4,7 +4,7 @@ import json
 import uuid
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.models.graph import EdgeType, GraphEdge, GraphNode, NodeType
@@ -98,10 +98,10 @@ class GraphService:
             "node_type": node_type.value,
         })
 
-        # Create node in AGE graph
-        props_str = json.dumps(props)
-        cypher = f"CREATE (n:{node_type.value} {props_str}) RETURN n"
-        await self._execute_cypher(cypher)
+        # Create node in AGE graph using parameterized query
+        # Note: Node labels (node_type.value) are safe as they come from enum
+        cypher = f"CREATE (n:{node_type.value} $props) RETURN n"
+        await self._execute_cypher(cypher, {"props": props})
 
         # Create tracking record
         node = GraphNode(
@@ -150,17 +150,23 @@ class GraphService:
             if not node.scalar_one_or_none():
                 raise ValueError(f"Node {ntype.value}:{nid} not found")
 
-        # Create edge in AGE graph
+        # Create edge in AGE graph using parameterized query
+        # Note: Labels and relationship types are safe as they come from enums
         props = properties or {}
-        props_str = json.dumps(props) if props else ""
 
         cypher = f"""
-        MATCH (a:{source_type.value} {{id: '{source_id}', tenant_id: '{self.tenant_id}'}})
-        MATCH (b:{target_type.value} {{id: '{target_id}', tenant_id: '{self.tenant_id}'}})
-        CREATE (a)-[r:{edge_type.value} {props_str}]->(b)
+        MATCH (a:{source_type.value} {{id: $source_id, tenant_id: $tenant_id}})
+        MATCH (b:{target_type.value} {{id: $target_id, tenant_id: $tenant_id}})
+        CREATE (a)-[r:{edge_type.value} $props]->(b)
         RETURN r
         """
-        await self._execute_cypher(cypher)
+        params = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "tenant_id": str(self.tenant_id),
+            "props": props if props else {}
+        }
+        await self._execute_cypher(cypher, params)
 
         # Create tracking record
         edge = GraphEdge(
@@ -210,15 +216,22 @@ class GraphService:
         else:  # both
             rel = f"-[r{edge_filter}]-"
 
+        # Use parameterized query to prevent injection
+        # Note: node_type and edge_filter are safe as they come from enums
         cypher = f"""
-        MATCH (n:{node_type.value} {{id: '{node_id}', tenant_id: '{self.tenant_id}'}})
+        MATCH (n:{node_type.value} {{id: $node_id, tenant_id: $tenant_id}})
         {rel}(neighbor)
-        WHERE neighbor.tenant_id = '{self.tenant_id}'
+        WHERE neighbor.tenant_id = $tenant_id
         RETURN neighbor, type(r) as rel_type, properties(r) as rel_props
-        LIMIT {limit}
+        LIMIT $limit
         """
+        params = {
+            "node_id": node_id,
+            "tenant_id": str(self.tenant_id),
+            "limit": limit
+        }
 
-        return await self._execute_cypher(cypher)
+        return await self._execute_cypher(cypher, params)
 
     async def find_path(
         self,
@@ -241,15 +254,26 @@ class GraphService:
         Returns:
             List of paths (nodes and edges)
         """
+        # Use parameterized query to prevent injection
+        # Note: node types are safe as they come from enums
+        # max_depth needs to be in the pattern, not parameterizable in AGE
+        if not isinstance(max_depth, int) or max_depth < 1 or max_depth > 10:
+            raise ValueError("max_depth must be an integer between 1 and 10")
+
         cypher = f"""
         MATCH path = shortestPath(
-            (a:{source_type.value} {{id: '{source_id}', tenant_id: '{self.tenant_id}'}})-[*..{max_depth}]-
-            (b:{target_type.value} {{id: '{target_id}', tenant_id: '{self.tenant_id}'}})
+            (a:{source_type.value} {{id: $source_id, tenant_id: $tenant_id}})-[*..{max_depth}]-
+            (b:{target_type.value} {{id: $target_id, tenant_id: $tenant_id}})
         )
         RETURN nodes(path) as nodes, relationships(path) as rels
         """
+        params = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "tenant_id": str(self.tenant_id)
+        }
 
-        return await self._execute_cypher(cypher)
+        return await self._execute_cypher(cypher, params)
 
     async def query(
         self,
@@ -277,3 +301,284 @@ class GraphService:
         params["tenant_id"] = str(self.tenant_id)
 
         return await self._execute_cypher(cypher, params)
+
+    async def get_node(
+        self,
+        node_type: NodeType,
+        node_id: str,
+    ) -> dict | None:
+        """
+        Get a single node by type and ID.
+
+        Args:
+            node_type: Type of node
+            node_id: Node ID
+
+        Returns:
+            Node data dict or None if not found
+        """
+        cypher = f"""
+        MATCH (n:{node_type.value} {{id: $node_id, tenant_id: $tenant_id}})
+        RETURN n
+        """
+        params = {
+            "node_id": node_id,
+            "tenant_id": str(self.tenant_id)
+        }
+
+        results = await self._execute_cypher(cypher, params)
+        return results[0] if results else None
+
+    async def update_node(
+        self,
+        node_type: NodeType,
+        node_id: str,
+        properties: dict[str, Any],
+    ) -> GraphNode:
+        """
+        Update node properties.
+
+        Args:
+            node_type: Type of node
+            node_id: Node ID
+            properties: Properties to update (will merge with existing)
+
+        Returns:
+            Updated GraphNode tracking record
+
+        Raises:
+            ValueError: If node doesn't exist
+        """
+        # Verify node exists in tracking table
+        node_result = await self.db.execute(
+            select(GraphNode).where(
+                GraphNode.tenant_id == self.tenant_id,
+                GraphNode.node_type == node_type.value,
+                GraphNode.node_id == node_id,
+            )
+        )
+        node = node_result.scalar_one_or_none()
+        if not node:
+            raise ValueError(f"Node {node_type.value}:{node_id} not found")
+
+        # Update node in AGE graph
+        # Build SET clause from properties
+        set_clauses = ", ".join([f"n.{key} = $props.{key}" for key in properties.keys()])
+        cypher = f"""
+        MATCH (n:{node_type.value} {{id: $node_id, tenant_id: $tenant_id}})
+        SET {set_clauses}
+        RETURN n
+        """
+        params = {
+            "node_id": node_id,
+            "tenant_id": str(self.tenant_id),
+            "props": properties
+        }
+        await self._execute_cypher(cypher, params)
+
+        # Update tracking record
+        node.properties = {**(node.properties or {}), **properties}
+        await self.db.flush()
+
+        return node
+
+    async def delete_node(
+        self,
+        node_type: NodeType,
+        node_id: str,
+    ) -> None:
+        """
+        Delete a node and all its edges.
+
+        Args:
+            node_type: Type of node
+            node_id: Node ID
+
+        Raises:
+            ValueError: If node doesn't exist
+        """
+        # Verify node exists in tracking table
+        node_result = await self.db.execute(
+            select(GraphNode).where(
+                GraphNode.tenant_id == self.tenant_id,
+                GraphNode.node_type == node_type.value,
+                GraphNode.node_id == node_id,
+            )
+        )
+        node = node_result.scalar_one_or_none()
+        if not node:
+            raise ValueError(f"Node {node_type.value}:{node_id} not found")
+
+        # Delete node and edges in AGE graph
+        cypher = f"""
+        MATCH (n:{node_type.value} {{id: $node_id, tenant_id: $tenant_id}})
+        DETACH DELETE n
+        """
+        params = {
+            "node_id": node_id,
+            "tenant_id": str(self.tenant_id)
+        }
+        await self._execute_cypher(cypher, params)
+
+        # Delete tracking records (node and related edges)
+        await self.db.delete(node)
+
+        # Delete all edges connected to this node
+        await self.db.execute(
+            delete(GraphEdge).where(
+                GraphEdge.tenant_id == self.tenant_id,
+                or_(
+                    (GraphEdge.source_type == node_type.value) & (GraphEdge.source_id == node_id),
+                    (GraphEdge.target_type == node_type.value) & (GraphEdge.target_id == node_id)
+                )
+            )
+        )
+        await self.db.flush()
+
+    async def get_edge(
+        self,
+        source_type: NodeType,
+        source_id: str,
+        edge_type: EdgeType,
+        target_type: NodeType,
+        target_id: str,
+    ) -> dict | None:
+        """
+        Get a single edge.
+
+        Args:
+            source_type: Source node type
+            source_id: Source node ID
+            edge_type: Type of edge
+            target_type: Target node type
+            target_id: Target node ID
+
+        Returns:
+            Edge data dict or None if not found
+        """
+        cypher = f"""
+        MATCH (a:{source_type.value} {{id: $source_id, tenant_id: $tenant_id}})-[r:{edge_type.value}]->(b:{target_type.value} {{id: $target_id, tenant_id: $tenant_id}})
+        RETURN r
+        """
+        params = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "tenant_id": str(self.tenant_id)
+        }
+
+        results = await self._execute_cypher(cypher, params)
+        return results[0] if results else None
+
+    async def update_edge(
+        self,
+        source_type: NodeType,
+        source_id: str,
+        edge_type: EdgeType,
+        target_type: NodeType,
+        target_id: str,
+        properties: dict[str, Any],
+    ) -> GraphEdge:
+        """
+        Update edge properties.
+
+        Args:
+            source_type: Source node type
+            source_id: Source node ID
+            edge_type: Type of edge
+            target_type: Target node type
+            target_id: Target node ID
+            properties: Properties to update (will merge with existing)
+
+        Returns:
+            Updated GraphEdge tracking record
+
+        Raises:
+            ValueError: If edge doesn't exist
+        """
+        # Verify edge exists in tracking table
+        edge_result = await self.db.execute(
+            select(GraphEdge).where(
+                GraphEdge.tenant_id == self.tenant_id,
+                GraphEdge.source_type == source_type.value,
+                GraphEdge.source_id == source_id,
+                GraphEdge.edge_type == edge_type.value,
+                GraphEdge.target_type == target_type.value,
+                GraphEdge.target_id == target_id,
+            )
+        )
+        edge = edge_result.scalar_one_or_none()
+        if not edge:
+            raise ValueError(f"Edge {source_type.value}:{source_id}-[{edge_type.value}]->{target_type.value}:{target_id} not found")
+
+        # Update edge in AGE graph
+        set_clauses = ", ".join([f"r.{key} = $props.{key}" for key in properties.keys()])
+        cypher = f"""
+        MATCH (a:{source_type.value} {{id: $source_id, tenant_id: $tenant_id}})-[r:{edge_type.value}]->(b:{target_type.value} {{id: $target_id, tenant_id: $tenant_id}})
+        SET {set_clauses}
+        RETURN r
+        """
+        params = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "tenant_id": str(self.tenant_id),
+            "props": properties
+        }
+        await self._execute_cypher(cypher, params)
+
+        # Update tracking record
+        edge.properties = {**(edge.properties or {}), **properties}
+        await self.db.flush()
+
+        return edge
+
+    async def delete_edge(
+        self,
+        source_type: NodeType,
+        source_id: str,
+        edge_type: EdgeType,
+        target_type: NodeType,
+        target_id: str,
+    ) -> None:
+        """
+        Delete an edge.
+
+        Args:
+            source_type: Source node type
+            source_id: Source node ID
+            edge_type: Type of edge
+            target_type: Target node type
+            target_id: Target node ID
+
+        Raises:
+            ValueError: If edge doesn't exist
+        """
+        # Verify edge exists in tracking table
+        edge_result = await self.db.execute(
+            select(GraphEdge).where(
+                GraphEdge.tenant_id == self.tenant_id,
+                GraphEdge.source_type == source_type.value,
+                GraphEdge.source_id == source_id,
+                GraphEdge.edge_type == edge_type.value,
+                GraphEdge.target_type == target_type.value,
+                GraphEdge.target_id == target_id,
+            )
+        )
+        edge = edge_result.scalar_one_or_none()
+        if not edge:
+            raise ValueError(f"Edge {source_type.value}:{source_id}-[{edge_type.value}]->{target_type.value}:{target_id} not found")
+
+        # Delete edge in AGE graph
+        cypher = f"""
+        MATCH (a:{source_type.value} {{id: $source_id, tenant_id: $tenant_id}})-[r:{edge_type.value}]->(b:{target_type.value} {{id: $target_id, tenant_id: $tenant_id}})
+        DELETE r
+        """
+        params = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "tenant_id": str(self.tenant_id)
+        }
+        await self._execute_cypher(cypher, params)
+
+        # Delete tracking record
+        await self.db.delete(edge)
+        await self.db.flush()

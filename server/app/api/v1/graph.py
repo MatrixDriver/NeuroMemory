@@ -6,11 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from server.app.api.v1.schemas import (
     EdgeCreate,
     EdgeResponse,
+    EdgeUpdate,
     GraphQueryRequest,
     GraphQueryResponse,
     NeighborsRequest,
     NodeCreate,
     NodeResponse,
+    NodeUpdate,
     PathRequest,
 )
 from server.app.core.logging import get_logger
@@ -297,3 +299,401 @@ async def execute_query(
     except Exception as e:
         logger.error(f"Query failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
+
+
+@router.get("/nodes/{node_type}/{node_id}", response_model=NodeResponse)
+async def get_node(
+    node_type: str,
+    node_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get a node by type and ID.
+
+    Retrieves a single node from the graph.
+
+    Returns:
+        NodeResponse: The requested node
+
+    Raises:
+        HTTPException 400: Invalid node type
+        HTTPException 404: Node not found
+        HTTPException 500: Database error
+    """
+    try:
+        # Validate node type
+        try:
+            node_type_enum = NodeType(node_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid node_type. Must be one of: {', '.join([t.value for t in NodeType])}"
+            )
+
+        graph_service = GraphService(db, auth.tenant_id)
+        result = await graph_service.get_node(
+            node_type=node_type_enum,
+            node_id=node_id,
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node {node_type}:{node_id} not found"
+            )
+
+        # Get tracking record for metadata
+        from sqlalchemy import select
+        from server.app.models.graph import GraphNode
+        node_result = await db.execute(
+            select(GraphNode).where(
+                GraphNode.tenant_id == auth.tenant_id,
+                GraphNode.node_type == node_type,
+                GraphNode.node_id == node_id,
+            )
+        )
+        node = node_result.scalar_one()
+
+        return NodeResponse(
+            id=str(node.id),
+            tenant_id=str(node.tenant_id),
+            node_type=node.node_type,
+            node_id=node.node_id,
+            properties=node.properties,
+            created_at=node.created_at,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get node: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get node: {str(e)}")
+
+
+@router.put("/nodes/{node_type}/{node_id}", response_model=NodeResponse)
+async def update_node(
+    node_type: str,
+    node_id: str,
+    body: NodeUpdate,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update a node's properties.
+
+    Updates the properties of an existing node. Properties are merged with existing values.
+
+    Returns:
+        NodeResponse: The updated node
+
+    Raises:
+        HTTPException 400: Invalid node type
+        HTTPException 404: Node not found
+        HTTPException 500: Database error
+    """
+    try:
+        # Validate node type
+        try:
+            node_type_enum = NodeType(node_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid node_type. Must be one of: {', '.join([t.value for t in NodeType])}"
+            )
+
+        graph_service = GraphService(db, auth.tenant_id)
+        node = await graph_service.update_node(
+            node_type=node_type_enum,
+            node_id=node_id,
+            properties=body.properties,
+        )
+
+        await db.commit()
+
+        logger.info(
+            f"Node updated: {node_type}:{node_id}",
+            extra={"tenant_id": str(auth.tenant_id)}
+        )
+
+        return NodeResponse(
+            id=str(node.id),
+            tenant_id=str(node.tenant_id),
+            node_type=node.node_type,
+            node_id=node.node_id,
+            properties=node.properties,
+            created_at=node.created_at,
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to update node: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update node: {str(e)}")
+
+
+@router.delete("/nodes/{node_type}/{node_id}", status_code=204)
+async def delete_node(
+    node_type: str,
+    node_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete a node and all its edges.
+
+    Deletes a node from the graph along with all edges connected to it.
+
+    Returns:
+        No content (204)
+
+    Raises:
+        HTTPException 400: Invalid node type
+        HTTPException 404: Node not found
+        HTTPException 500: Database error
+    """
+    try:
+        # Validate node type
+        try:
+            node_type_enum = NodeType(node_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid node_type. Must be one of: {', '.join([t.value for t in NodeType])}"
+            )
+
+        graph_service = GraphService(db, auth.tenant_id)
+        await graph_service.delete_node(
+            node_type=node_type_enum,
+            node_id=node_id,
+        )
+
+        await db.commit()
+
+        logger.info(
+            f"Node deleted: {node_type}:{node_id}",
+            extra={"tenant_id": str(auth.tenant_id)}
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to delete node: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete node: {str(e)}")
+
+
+@router.get("/edges/{source_type}/{source_id}/{edge_type}/{target_type}/{target_id}", response_model=EdgeResponse)
+async def get_edge(
+    source_type: str,
+    source_id: str,
+    edge_type: str,
+    target_type: str,
+    target_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get an edge by source, target, and type.
+
+    Retrieves a single edge from the graph.
+
+    Returns:
+        EdgeResponse: The requested edge
+
+    Raises:
+        HTTPException 400: Invalid node/edge type
+        HTTPException 404: Edge not found
+        HTTPException 500: Database error
+    """
+    try:
+        # Validate types
+        try:
+            source_type_enum = NodeType(source_type)
+            target_type_enum = NodeType(target_type)
+            edge_type_enum = EdgeType(edge_type)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid type: {str(e)}")
+
+        graph_service = GraphService(db, auth.tenant_id)
+        result = await graph_service.get_edge(
+            source_type=source_type_enum,
+            source_id=source_id,
+            edge_type=edge_type_enum,
+            target_type=target_type_enum,
+            target_id=target_id,
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Edge {source_type}:{source_id}-[{edge_type}]->{target_type}:{target_id} not found"
+            )
+
+        # Get tracking record for metadata
+        from sqlalchemy import select
+        from server.app.models.graph import GraphEdge
+        edge_result = await db.execute(
+            select(GraphEdge).where(
+                GraphEdge.tenant_id == auth.tenant_id,
+                GraphEdge.source_type == source_type,
+                GraphEdge.source_id == source_id,
+                GraphEdge.edge_type == edge_type,
+                GraphEdge.target_type == target_type,
+                GraphEdge.target_id == target_id,
+            )
+        )
+        edge = edge_result.scalar_one()
+
+        return EdgeResponse(
+            id=str(edge.id),
+            tenant_id=str(edge.tenant_id),
+            source_type=edge.source_type,
+            source_id=edge.source_id,
+            edge_type=edge.edge_type,
+            target_type=edge.target_type,
+            target_id=edge.target_id,
+            properties=edge.properties,
+            created_at=edge.created_at,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get edge: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get edge: {str(e)}")
+
+
+@router.put("/edges/{source_type}/{source_id}/{edge_type}/{target_type}/{target_id}", response_model=EdgeResponse)
+async def update_edge(
+    source_type: str,
+    source_id: str,
+    edge_type: str,
+    target_type: str,
+    target_id: str,
+    body: EdgeUpdate,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update an edge's properties.
+
+    Updates the properties of an existing edge. Properties are merged with existing values.
+
+    Returns:
+        EdgeResponse: The updated edge
+
+    Raises:
+        HTTPException 400: Invalid node/edge type
+        HTTPException 404: Edge not found
+        HTTPException 500: Database error
+    """
+    try:
+        # Validate types
+        try:
+            source_type_enum = NodeType(source_type)
+            target_type_enum = NodeType(target_type)
+            edge_type_enum = EdgeType(edge_type)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid type: {str(e)}")
+
+        graph_service = GraphService(db, auth.tenant_id)
+        edge = await graph_service.update_edge(
+            source_type=source_type_enum,
+            source_id=source_id,
+            edge_type=edge_type_enum,
+            target_type=target_type_enum,
+            target_id=target_id,
+            properties=body.properties,
+        )
+
+        await db.commit()
+
+        logger.info(
+            f"Edge updated: {source_type}:{source_id}-[{edge_type}]->{target_type}:{target_id}",
+            extra={"tenant_id": str(auth.tenant_id)}
+        )
+
+        return EdgeResponse(
+            id=str(edge.id),
+            tenant_id=str(edge.tenant_id),
+            source_type=edge.source_type,
+            source_id=edge.source_id,
+            edge_type=edge.edge_type,
+            target_type=edge.target_type,
+            target_id=edge.target_id,
+            properties=edge.properties,
+            created_at=edge.created_at,
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to update edge: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update edge: {str(e)}")
+
+
+@router.delete("/edges/{source_type}/{source_id}/{edge_type}/{target_type}/{target_id}", status_code=204)
+async def delete_edge(
+    source_type: str,
+    source_id: str,
+    edge_type: str,
+    target_type: str,
+    target_id: str,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete an edge.
+
+    Deletes an edge from the graph.
+
+    Returns:
+        No content (204)
+
+    Raises:
+        HTTPException 400: Invalid node/edge type
+        HTTPException 404: Edge not found
+        HTTPException 500: Database error
+    """
+    try:
+        # Validate types
+        try:
+            source_type_enum = NodeType(source_type)
+            target_type_enum = NodeType(target_type)
+            edge_type_enum = EdgeType(edge_type)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid type: {str(e)}")
+
+        graph_service = GraphService(db, auth.tenant_id)
+        await graph_service.delete_edge(
+            source_type=source_type_enum,
+            source_id=source_id,
+            edge_type=edge_type_enum,
+            target_type=target_type_enum,
+            target_id=target_id,
+        )
+
+        await db.commit()
+
+        logger.info(
+            f"Edge deleted: {source_type}:{source_id}-[{edge_type}]->{target_type}:{target_id}",
+            extra={"tenant_id": str(auth.tenant_id)}
+        )
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to delete edge: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete edge: {str(e)}")
