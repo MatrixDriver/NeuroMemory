@@ -22,6 +22,7 @@ from server.app.api.v1.schemas_conversation import (
 from server.app.db.session import get_db
 from server.app.services.auth import get_current_tenant
 from server.app.services.conversation import ConversationService
+from server.app.services.memory_extraction import MemoryExtractionService
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +274,7 @@ async def extract_memories(
     """Manually trigger memory extraction from conversations
 
     Extract preferences, facts, and episodes from conversation messages
-    using LLM classification.
+    using LLM classification (Claude API).
 
     **Example:**
     ```json
@@ -284,37 +285,82 @@ async def extract_memories(
     }
     ```
 
-    **Note:** LLM Classifier will be implemented in Phase 1.2.
-    This endpoint currently returns a placeholder response.
+    **Process:**
+    1. Fetch unextracted messages (or all if force=true)
+    2. Use Claude to classify and extract memories
+    3. Store preferences, facts, and episodes
+    4. Mark messages as extracted
     """
-    service = ConversationService(db)
+    conv_service = ConversationService(db)
+    extraction_service = MemoryExtractionService(db)
 
     try:
-        # Get unextracted messages
-        messages = await service.get_unextracted_messages(
-            tenant_id=tenant_id,
-            user_id=request.user_id,
-            session_id=request.session_id,
-            limit=100,
+        # Get messages to process
+        if request.force:
+            # Force re-extraction: get all messages
+            messages = await conv_service.get_session_messages(
+                tenant_id=tenant_id,
+                user_id=request.user_id,
+                session_id=request.session_id or "",
+                limit=100,
+            ) if request.session_id else []
+
+            if not request.session_id:
+                # Get unextracted from all sessions
+                messages = await conv_service.get_unextracted_messages(
+                    tenant_id=tenant_id,
+                    user_id=request.user_id,
+                    session_id=None,
+                    limit=100,
+                )
+        else:
+            # Normal mode: only unextracted messages
+            messages = await conv_service.get_unextracted_messages(
+                tenant_id=tenant_id,
+                user_id=request.user_id,
+                session_id=request.session_id,
+                limit=100,
+            )
+
+        if not messages:
+            logger.info(f"No messages to extract for user {request.user_id}")
+            return ExtractMemoriesResponse(
+                status="completed",
+                messages_processed=0,
+                preferences_extracted=0,
+                facts_extracted=0,
+                episodes_extracted=0,
+            )
+
+        # Extract memories using LLM
+        logger.info(
+            f"Extracting memories from {len(messages)} messages "
+            f"for user {request.user_id}"
         )
 
-        # TODO: Implement LLM-based extraction in Phase 1.2
-        # For now, just return the count
+        result = await extraction_service.extract_from_messages(
+            tenant_id=tenant_id,
+            user_id=request.user_id,
+            messages=messages,
+        )
+
+        # Mark messages as extracted
+        message_ids = [msg.id for msg in messages]
+        await conv_service.mark_messages_extracted(message_ids)
 
         logger.info(
-            f"Memory extraction requested for user {request.user_id}, "
-            f"found {len(messages)} unextracted messages"
+            f"Memory extraction completed: {result['preferences_extracted']} prefs, "
+            f"{result['facts_extracted']} facts, {result['episodes_extracted']} episodes"
         )
 
         return ExtractMemoriesResponse(
-            status="pending",
-            messages_processed=len(messages),
-            preferences_extracted=0,
-            facts_extracted=0,
-            episodes_extracted=0,
-            documents_extracted=0,
+            status="completed",
+            messages_processed=result["messages_processed"],
+            preferences_extracted=result["preferences_extracted"],
+            facts_extracted=result["facts_extracted"],
+            episodes_extracted=result["episodes_extracted"],
         )
 
     except Exception as e:
-        logger.error(f"Failed to extract memories: {e}")
+        logger.error(f"Failed to extract memories: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

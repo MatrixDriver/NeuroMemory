@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
     siliconflow_model: str = "BAAI/bge-m3"
 
+    # LLM for classification (DeepSeek)
+    deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
+    deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
