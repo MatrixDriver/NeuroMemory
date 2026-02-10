@@ -51,4 +51,7 @@ class Embedding(Base, TimestampMixin):
 
     __table_args__ = (
         Index("ix_emb_tenant_user", "tenant_id", "user_id"),
+        # Time-based indexes (created via SQL migration migrations/001_add_time_indexes.sql):
+        # - idx_embeddings_created_at_brin: BRIN index for time range queries
+        # - idx_embeddings_tenant_user_created: Composite index for filtered time queries
     )

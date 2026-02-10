@@ -11,6 +11,7 @@ from server.app.api.v1 import (
     conversations,
     graph,
     health,
+    memory,
     preferences,
     search,
     tenants,
@@ -93,6 +94,7 @@ app.include_router(search.router, prefix="/v1")
 app.include_router(users.router, prefix="/v1")
 app.include_router(graph.router, prefix="/v1")
 app.include_router(conversations.router, prefix="/v1")
+app.include_router(memory.router, prefix="/v1")
 
 
 @app.get("/")

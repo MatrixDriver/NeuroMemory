@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 import httpx
 
 from neuromemory_client.conversations import ConversationsClient
+from neuromemory_client.memory import MemoryClient
 from neuromemory_client.preferences import PreferencesClient
 from neuromemory_client.search import SearchClient
 
@@ -34,6 +37,7 @@ class NeuroMemoryClient:
         self.preferences = PreferencesClient(self._http)
         self.conversations = ConversationsClient(self._http)
         self._search_client = SearchClient(self._http)
+        self.memory = MemoryClient(self._http)
 
     def search(
         self,
@@ -41,10 +45,17 @@ class NeuroMemoryClient:
         query: str,
         limit: int = 5,
         memory_type: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
     ) -> list[dict]:
-        """Semantic search for memories."""
+        """Semantic search for memories with optional time filtering."""
         return self._search_client.search(
-            user_id=user_id, query=query, limit=limit, memory_type=memory_type
+            user_id=user_id,
+            query=query,
+            limit=limit,
+            memory_type=memory_type,
+            created_after=created_after,
+            created_before=created_before,
         )
 
     def add_memory(
@@ -67,6 +78,18 @@ class NeuroMemoryClient:
         resp = self._http.get(f"/users/{user_id}/memories")
         resp.raise_for_status()
         return resp.json()
+
+    def get_recent_memories(
+        self, user_id: str, days: int = 7, **kwargs
+    ) -> list[dict]:
+        """Convenience method: get recent memories."""
+        return self.memory.get_recent(user_id, days, **kwargs)
+
+    def get_memory_timeline(
+        self, user_id: str, start_date: date, end_date: date | None = None, **kwargs
+    ) -> dict:
+        """Convenience method: get memory timeline."""
+        return self.memory.get_timeline(user_id, start_date, end_date, **kwargs)
 
     def health(self) -> dict:
         """Check service health."""

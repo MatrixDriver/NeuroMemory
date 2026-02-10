@@ -26,13 +26,13 @@ async def search(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Semantic search for memories using vector similarity.
+    Semantic search for memories using vector similarity with optional time filtering.
 
     Converts the query to an embedding and searches for similar memories
-    using cosine similarity on vector embeddings.
+    using cosine similarity on vector embeddings. Optionally filter by time range.
 
     Args:
-        body: Search request with query, user_id, and optional filters
+        body: Search request with query, user_id, optional filters, and time range
         auth: Authentication context (injected)
         db: Database session (injected)
 
@@ -51,6 +51,8 @@ async def search(
             body.query,
             body.limit,
             body.memory_type,
+            body.created_after,
+            body.created_before,
         )
         logger.info(
             f"Search completed: {len(results)} results",

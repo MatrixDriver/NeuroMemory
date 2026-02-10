@@ -42,6 +42,15 @@ class SearchRequest(BaseModel):
     query: str
     limit: int = Field(default=5, ge=1, le=50)
     memory_type: str | None = None
+    # Time filtering parameters
+    created_after: datetime | None = Field(
+        None,
+        description="Filter memories created after this time (ISO 8601 with timezone)",
+    )
+    created_before: datetime | None = Field(
+        None,
+        description="Filter memories created before this time (ISO 8601 with timezone)",
+    )
 
 
 class SearchResult(BaseModel):
