@@ -1,291 +1,414 @@
-# NeuroMemory
+# NeuroMemory v2
 
-**神经符号混合记忆系统 (Neuro-Symbolic Hybrid Memory)**
+**Memory-as-a-Service Platform**
 
-一个模拟人类大脑海马体和大脑皮层工作方式的 AI 记忆系统，融合知识图谱 (GraphRAG) + 高维向量 (Vector) + 情景记忆 (Episodic Memory)，实现超越传统 RAG 的多跳推理能力。
-
-## 核心特性
-
-- **混合记忆架构**: 结合 Neo4j 知识图谱与 Qdrant 向量数据库，同时处理结构化逻辑和模糊语义
-- **多跳推理**: 通过图谱路径实现复杂的实体关系推理，如 `Demis → DeepMind → Gemini`
-- **自动知识提取**: 利用 LLM 自动从对话中提取实体关系并构建知识图谱
-- **Session 管理**: 内部自动管理短期记忆，超时自动整合为长期记忆
-- **指代消解**: 检索时规则匹配，整合时 LLM 消解，支持跨轮次指代
-- **隐私过滤**: LLM 分类 PRIVATE/PUBLIC，只存储私有数据
-- **灵活的模型切换**: 支持 DeepSeek / Gemini 作为推理引擎，本地 HuggingFace / Gemini / SiliconFlow 作为 Embedding
-- **记忆演化**: 知识图谱具有自我纠错能力，随使用时间形成致密的专家知识网络
-- **多种接入方式**: REST API、CLI 工具、MCP Server
-
-## 架构设计
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    NeuroMemory 三层架构                      │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐ │
-│  │  关联记忆        │  │  语义记忆        │  │  情景流      │ │
-│  │  (Graph Layer)  │  │  (Vector Layer) │  │  (Episodic) │ │
-│  │                 │  │                 │  │             │ │
-│  │  Neo4j 图谱     │  │  Qdrant 向量    │  │  LLM 长窗口  │ │
-│  │  存储硬逻辑      │  │  模糊语义检索    │  │  完整对话    │ │
-│  │  实体关系       │  │  384/768 维     │  │  上下文      │ │
-│  └────────┬────────┘  └────────┬────────┘  └──────┬──────┘ │
-│           │                    │                  │        │
-│           └────────────────────┼──────────────────┘        │
-│                                │                           │
-│                    ┌───────────▼───────────┐               │
-│                    │      Mem0 Framework   │               │
-│                    │    混合检索 & 整合     │               │
-│                    └───────────┬───────────┘               │
-│                                │                           │
-│                    ┌───────────▼───────────┐               │
-│                    │   LLM (DeepSeek/Gemini)│               │
-│                    │      深度推理引擎       │               │
-│                    └───────────────────────┘               │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 认知流程
-
-1. **Session 管理**: 自动获取或创建 Session，管理短期记忆
-2. **指代消解（检索时）**: 规则匹配，快速消解代词（"这个"→名词、"她/他"→人名）
-3. **混合检索**: 并行执行向量搜索和图谱遍历，返回结构化结果
-4. **返回结果**: 立即返回 `memories`、`relations`、`resolved_query`
-5. **Session 整合（后台）**: Session 超时或显式结束时，LLM 消解 + 隐私过滤 + 存储
-
-## 技术栈
-
-| 组件 | 技术 | 说明 |
-|------|------|------|
-| LLM | DeepSeek / Gemini | 可切换，用于推理和实体提取 |
-| Embedding | HuggingFace / Gemini / SiliconFlow | 可切换，384/768/1024 维向量 |
-| Vector DB | Qdrant | 高性能向量数据库 |
-| Graph DB | Neo4j 5.26.0 | 知识图谱存储 |
-| Framework | Mem0 + LangChain | 混合记忆管理 |
-
-## 在线演示（Railway 部署）
-
-项目已部署在 [Railway](https://railway.app)，可远程访问：
-
-- **REST API**: https://<your-app>.up.railway.app/
-- **API 文档 (Swagger)**: https://<your-app>.up.railway.app/docs
-- **健康检查**: https://<your-app>.up.railway.app/health
-
-> Neo4j 和 Qdrant 通过 Railway 内部网络互联，不对外暴露。凭证见 Railway Dashboard 或 `CREDENTIALS.local.md`。
+为 AI agent 开发者提供记忆管理服务。通过 Python SDK 和 REST API，轻松为您的 AI 应用添加记忆能力。
 
 ---
 
-## 快速开始
+## ⚡ 快速开始
+
+```bash
+# 1. 启动服务
+docker compose -f docker-compose.v2.yml up -d
+
+# 2. 访问 API 文档
+open http://localhost:8765/docs
+
+# 3. 注册租户获取 API Key
+curl -X POST http://localhost:8765/v1/tenants/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "MyCompany", "email": "admin@example.com"}'
+
+# 4. 使用 Python SDK
+pip install -e sdk/
+```
+
+```python
+from neuromemory_client import NeuroMemoryClient
+
+client = NeuroMemoryClient(api_key="nm_xxx")
+
+# 添加记忆
+client.add_memory(
+    user_id="alice",
+    content="I work at ABC Company as a software engineer",
+    memory_type="fact"
+)
+
+# 语义检索
+results = client.search(
+    user_id="alice",
+    query="Where does Alice work?",
+    limit=5
+)
+
+for result in results:
+    print(f"[{result['similarity']:.2f}] {result['content']}")
+```
+
+**完整指南**: [docs/v2/GETTING_STARTED.md](docs/v2/GETTING_STARTED.md) ⭐
+
+---
+
+## 🎯 核心特性
+
+### 🗄️ 统一存储架构
+- **PostgreSQL 16 + pgvector**: 结构化数据 + 向量检索统一存储
+- **简化部署**: 从 v1 的 3 个服务（Neo4j + Qdrant + API）简化为 2 个服务
+- **ACID 事务**: 保证数据一致性，告别跨库事务难题
+
+### 🔐 多租户隔离
+- **API Key 认证**: SHA-256 哈希存储，安全可靠
+- **数据隔离**: 按 `tenant_id` 严格隔离，支持 SaaS 模式
+- **用户管理**: 每个租户可管理多个用户的记忆
+
+### 🚀 高性能设计
+- **异步架构**: FastAPI + SQLAlchemy 2.0 async + asyncpg
+- **向量索引**: HNSW 索引，向量检索性能接近专用 VectorDB
+- **时序优化**: BRIN 索引，时间范围查询节省 99% 空间
+
+### 🐍 易于集成
+- **Python SDK**: 基于 httpx 的同步客户端，简洁易用
+- **REST API**: OpenAPI 3.0 规范，自动生成交互式文档
+- **类型安全**: Pydantic 模型定义，完整的类型提示
+
+---
+
+## 📚 完整文档
+
+### 核心文档
+
+| 文档 | 说明 |
+|------|------|
+| **[快速开始](docs/v2/GETTING_STARTED.md)** | 10 分钟上手指南 |
+| **[架构设计](docs/v2/ARCHITECTURE.md)** | 系统架构、技术栈、设计原则 |
+| **[API 参考](docs/v2/API_REFERENCE.md)** | 完整的 REST API 端点文档 |
+| **[SDK 指南](docs/v2/SDK_GUIDE.md)** | Python SDK 详细用法 |
+| **[CLAUDE.md](CLAUDE.md)** | Claude Code 工作指南 |
+
+### 在线文档
+
+- **Swagger UI**: http://localhost:8765/docs
+- **ReDoc**: http://localhost:8765/redoc
+- **文档中心**: [docs/v2/README.md](docs/v2/README.md)
+
+---
+
+## 🏗️ 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    NeuroMemory v2 架构                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │         客户端层 (Client Layer)                       │  │
+│  │  • Python SDK (httpx)                                │  │
+│  │  • REST API (HTTP/JSON)                              │  │
+│  │  • CLI Tool (Typer)                                  │  │
+│  └──────────────────────┬───────────────────────────────┘  │
+│                         │                                   │
+│  ┌──────────────────────▼───────────────────────────────┐  │
+│  │         API 服务层 (FastAPI)                          │  │
+│  │  • API Key 认证中间件                                 │  │
+│  │  • /v1/tenants - 租户管理                            │  │
+│  │  • /v1/preferences - 偏好 CRUD                       │  │
+│  │  • /v1/memories - 记忆添加                           │  │
+│  │  • /v1/search - 语义检索                             │  │
+│  │  • /v1/memories/time-range - 时间查询                │  │
+│  └──────────────────────┬───────────────────────────────┘  │
+│                         │                                   │
+│  ┌──────────────────────▼───────────────────────────────┐  │
+│  │         服务层 (Service Layer)                        │  │
+│  │  • AuthService - 认证和租户隔离                       │  │
+│  │  • MemoryService - 时间查询和 CRUD                    │  │
+│  │  • SearchService - 向量检索和 embedding              │  │
+│  │  • PreferencesService - 偏好管理                     │  │
+│  └──────────────────────┬───────────────────────────────┘  │
+│                         │                                   │
+│  ┌──────────────────────▼───────────────────────────────┐  │
+│  │         ORM 层 (SQLAlchemy 2.0 Async)                │  │
+│  │  • Tenant, ApiKey, Preference, Embedding             │  │
+│  │  • TimestampMixin (created_at, updated_at)           │  │
+│  └──────────────────────┬───────────────────────────────┘  │
+│                         │                                   │
+│  ┌──────────────────────▼───────────────────────────────┐  │
+│  │    存储层 (PostgreSQL 16 + pgvector)                  │  │
+│  │  • 结构化数据 (租户、偏好、元数据)                     │  │
+│  │  • 向量数据 (1024 维 embedding, cosine 距离)         │  │
+│  │  • HNSW 向量索引 + BRIN 时序索引                      │  │
+│  └──────────────────────┬───────────────────────────────┘  │
+│                         │                                   │
+│  ┌──────────────────────▼───────────────────────────────┐  │
+│  │    外部服务 (SiliconFlow Embedding API)               │  │
+│  │  • 模型: BAAI/bge-m3                                  │  │
+│  │  • 维度: 1024                                         │  │
+│  └─────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🛠️ 技术栈
+
+| 组件 | 技术 | 说明 |
+|------|------|------|
+| **API 框架** | FastAPI | 高性能异步 Web 框架 |
+| **数据库** | PostgreSQL 16 | 统一存储后端 |
+| **向量扩展** | pgvector | PostgreSQL 向量插件 |
+| **ORM** | SQLAlchemy 2.0 | 异步 ORM，asyncpg 驱动 |
+| **Schema** | Pydantic | 请求/响应模型定义 |
+| **SDK** | httpx | Python 同步 HTTP 客户端 |
+| **Embedding** | SiliconFlow | BAAI/bge-m3 (1024 维) |
+| **容器化** | Docker | 服务打包和部署 |
+
+---
+
+## 📦 安装
 
 ### 环境要求
 
-- Python 3.10+
-- Docker & Docker Compose
-- 至少 8GB RAM
+- **Python**: 3.10+
+- **Docker**: 20.0+
+- **内存**: 至少 4GB RAM
 
-### 1. 克隆项目
+### Docker Compose（推荐）
 
 ```bash
+# 克隆项目
 git clone https://github.com/your-repo/NeuroMemory.git
 cd NeuroMemory
+
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，添加 SILICONFLOW_API_KEY
+
+# 启动服务
+docker compose -f docker-compose.v2.yml up -d
+
+# 查看日志
+docker compose -f docker-compose.v2.yml logs -f api
+
+# 健康检查
+curl http://localhost:8765/v1/health
 ```
 
-### 2. 创建虚拟环境
+### 本地开发
 
 ```bash
-# Windows (PowerShell)
+# 1. 启动数据库
+docker compose -f docker-compose.v2.yml up -d db
+
+# 2. 创建虚拟环境
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
 
-# Linux/macOS
-python -m venv .venv
-source .venv/bin/activate
-```
-
-### 3. 安装依赖
-
-```bash
+# 3. 安装依赖
 pip install -r requirements.txt
+pip install -e sdk/
+
+# 4. 初始化数据库
+python -m server.app.db.init_db
+
+# 5. 启动 API 服务
+uvicorn server.app.main:app --reload --host 0.0.0.0 --port 8765
 ```
 
-### 4. 配置 API 密钥
+详见 [快速开始指南](docs/v2/GETTING_STARTED.md)
 
-创建 `.env` 文件：
+---
 
-```env
-GOOGLE_API_KEY=your-gemini-api-key
-DEEPSEEK_API_KEY=your-deepseek-api-key
-SILICONFLOW_API_KEY=your-siliconflow-api-key
-```
+## 🎯 使用示例
 
-### 5. 启动数据库服务
-
-```bash
-docker-compose up -d
-```
-
-服务启动后：
-- Neo4j Browser: http://localhost:7474 (用户名: `neo4j`, 密码: `railway2025`)
-- Qdrant API: http://localhost:6400
-
-### 6. 运行演示
-
-```bash
-python main.py
-```
-
-## 配置说明
-
-在 `config.py` 中修改以下变量切换模型：
+### 偏好管理
 
 ```python
-# LLM 提供商: "gemini" 或 "deepseek"
-LLM_PROVIDER = "deepseek"
+# 设置用户偏好
+client.preferences.set(
+    user_id="alice",
+    key="language",
+    value="zh-CN"
+)
 
-# Embedding 提供商: "gemini", "local" (本地 HuggingFace), "siliconflow"
-EMBEDDING_PROVIDER = "siliconflow"
-
-# 是否启用图谱存储 (Neo4j)
-ENABLE_GRAPH_STORE = True
+# 获取偏好
+pref = client.preferences.get(user_id="alice", key="language")
+print(pref["value"])  # "zh-CN"
 ```
 
-### 模型配置详情
+### 记忆管理
 
-| 配置 | Gemini | DeepSeek |
-|------|--------|----------|
-| LLM 模型 | gemini-2.0-flash | deepseek-chat |
-| 温度 | 0.7 | 0.7 |
-| API | Google AI | OpenAI 兼容 |
+```python
+# 添加事实性记忆
+client.add_memory(
+    user_id="alice",
+    content="I work at ABC Company as a software engineer",
+    memory_type="fact"
+)
 
-| 配置 | Local | SiliconFlow | Gemini |
-|------|-------|-------------|--------|
-| Embedding 模型 | paraphrase-multilingual-MiniLM-L12-v2 | BAAI/bge-m3 | text-embedding-004 |
-| 向量维度 | 384 | 1024 | 768 |
-
-## 使用示例
-
-### REST API（推荐）
-
-```bash
-# 启动服务
-uvicorn http_server:app --host 0.0.0.0 --port 8765 --reload
-
-# 存储记忆
-curl -X POST http://localhost:8765/process \
-  -H "Content-Type: application/json" \
-  -d '{"input": "DeepMind 是 Google 的子公司", "user_id": "user_001"}'
-
-# 查询记忆
-curl -X POST http://localhost:8765/process \
-  -H "Content-Type: application/json" \
-  -d '{"input": "Demis Hassabis 和 Gemini 有什么关系？", "user_id": "user_001"}'
+# 添加事件记忆
+client.add_memory(
+    user_id="alice",
+    content="Attended team meeting on project planning",
+    memory_type="episodic",
+    metadata={"date": "2026-02-10", "participants": ["bob", "charlie"]}
+)
 ```
 
-详细文档请参考 [用户接口文档](docs/USER_API.md)。
+### 语义检索
 
-### REST API
+```python
+# 基础检索
+results = client.search(
+    user_id="alice",
+    query="Where does Alice work?",
+    limit=5
+)
 
-```bash
-# 处理记忆（生产模式）
-curl -X POST http://localhost:8765/process \
-  -H "Content-Type: application/json" \
-  -d '{"input": "我女儿叫灿灿，今年5岁了", "user_id": "user_001"}'
+# 带时间过滤
+from datetime import datetime, timezone
 
-# 查询记忆
-curl -X POST http://localhost:8765/process \
-  -H "Content-Type: application/json" \
-  -d '{"input": "我女儿叫什么名字？", "user_id": "user_001"}'
-
-# 获取知识图谱
-curl http://localhost:8765/graph/user_001
+results = client.search(
+    user_id="alice",
+    query="meetings",
+    memory_type="episodic",
+    created_after=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    limit=10
+)
 ```
 
-### CLI 工具
+### 时间查询
 
-```bash
-# 安装后使用
-uv pip install -e .
+```python
+from datetime import datetime, date, timezone
 
-# 检查状态
-neuromemory status
+# 时间范围查询
+result = client.memory.get_by_time_range(
+    user_id="alice",
+    start_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    end_time=datetime(2026, 1, 31, 23, 59, 59, tzinfo=timezone.utc),
+    limit=50
+)
 
-# 添加记忆
-neuromemory add "DeepMind 是 Google 的子公司" --user user_001
+# 最近记忆
+memories = client.get_recent_memories(
+    user_id="alice",
+    days=7,
+    limit=50
+)
 
-# 检索记忆
-neuromemory search "Google 有哪些子公司" --user user_001 --limit 5
-
-# 基于记忆回答问题
-neuromemory ask "Demis 和 Gemini 有什么关系" --user user_001
-
-# 导出知识图谱
-neuromemory graph export --user user_001 -o graph.json
-
-# 可视化知识图谱
-neuromemory graph visualize --user user_001 --open-browser
+# 时间线统计
+timeline = client.get_memory_timeline(
+    user_id="alice",
+    start_date=date(2026, 1, 1),
+    end_date=date(2026, 1, 31),
+    granularity="day"  # day, week, month
+)
 ```
 
-## 项目结构
+更多示例见 [SDK 指南](docs/v2/SDK_GUIDE.md)
 
-```
-NeuroMemory/
-├── config.py              # 配置模块（模型切换、数据库连接）
-├── private_brain.py       # 核心处理引擎
-├── session_manager.py     # Session 管理器
-├── coreference.py         # 指代消解器
-├── consolidator.py        # Session 整合器
-├── privacy_filter.py      # 隐私过滤器
-├── http_server.py         # REST API 服务（FastAPI）
-├── mcp_server.py          # MCP Server
-├── main.py                # CLI 演示工具
-├── neuromemory/           # CLI 工具
-│   ├── __init__.py        # 包初始化
-│   └── cli.py             # CLI 工具（Typer）
-├── docs/                  # 架构文档
-│   ├── ARCHITECTURE.md    # 主架构文档
-│   ├── API.md             # 接口设计
-│   └── ...
-├── docker-compose.yml     # 数据库服务配置
-└── .env                   # API 密钥（不提交到 Git）
-```
+---
 
-## 为什么优于传统 RAG？
+## 🆚 v1 vs v2 对比
 
-| 特性 | 传统向量 RAG | NeuroMemory |
-|------|-------------|-------------|
-| 逻辑推理 | 只能语义相似度匹配 | 图谱路径多跳推理 |
-| 实体关系 | 扁平化存储，关系丢失 | 显式存储 `(A)-[关系]->(B)` |
-| 信息更新 | 累加矛盾记录 | 图谱自我纠错，更新边属性 |
-| 长期演化 | 噪音增加，Recall 下降 | 知识网络越来越致密 |
+| 特性 | v1 (已弃用) | v2 (当前版本) |
+|------|-------------|---------------|
+| **向量存储** | Qdrant | PostgreSQL + pgvector |
+| **图存储** | Neo4j | 移除（未来考虑 AGE 扩展） |
+| **认证** | 无 | API Key 多租户认证 |
+| **部署复杂度** | 3 个服务 | 2 个服务（简化 33%） |
+| **LLM 集成** | Mem0 内置 | 客户端自行集成 |
+| **事务支持** | 跨库困难 | 原生 ACID 事务 |
+| **运维成本** | 高（3 套监控） | 低（单一数据库） |
+| **学习曲线** | 陡峭（Cypher + Qdrant） | 平缓（标准 SQL） |
 
-## 常用命令
+### 迁移建议
 
-```bash
-# 启动数据库服务
-docker-compose up -d
+**如果你依赖 v1 的知识图谱功能**:
+- 保留 v1 部署，或等待 v2 的 AGE 图数据库支持（Phase 2 计划中）
 
-# 停止服务
-docker-compose down
+**如果你只使用向量检索**:
+- 可以迁移到 v2，性能更好，部署更简单
 
-# 安装 CLI 工具
-uv pip install -e .  # 或 pip install -e .
+详见 [架构文档 - v1 迁移说明](docs/v2/ARCHITECTURE.md#8-v1-迁移说明)
 
-# 启动 HTTP Server（开发模式）
-uvicorn http_server:app --host 0.0.0.0 --port 8765 --reload
+---
 
-# 启动 HTTP Server（生产模式）
-uvicorn http_server:app --host 0.0.0.0 --port 8765 --workers 4
+## 📖 v1 文档（已弃用）
 
-# 运行 CLI 演示
-python main.py
+v1 相关文档已移至 `docs/v1/` 目录，仅作为历史参考：
 
-# 运行测试
-pytest                    # 全部测试
-pytest -m "not slow"      # 跳过 LLM 调用的测试
-```
+- [v1 架构文档](docs/v1/ARCHITECTURE.md)
+- [v1 API 文档](docs/v1/API.md)
+- [v1 工作原理](docs/v1/HOW_IT_WORKS.md)
 
-## License
+⚠️ **v1 已停止维护，新项目请使用 v2**。
 
-MIT License
+---
+
+## 🗺️ 路线图
+
+### ✅ Phase 1 (已完成)
+
+- [x] PostgreSQL + pgvector 统一存储
+- [x] FastAPI REST API
+- [x] Python SDK
+- [x] API Key 多租户认证
+- [x] 偏好 CRUD
+- [x] 向量语义检索
+- [x] 时间范围查询
+- [x] 时间线聚合
+
+### 🚧 Phase 2 (计划中)
+
+- [ ] OBS 文档存储（华为云 OBS）
+- [ ] KV 存储（PostgreSQL jsonb）
+- [ ] 图数据库支持（Apache AGE）
+- [ ] LLM 记忆分类器
+- [ ] 配额管理和计费
+
+### 📋 Phase 3 (规划中)
+
+- [ ] 用户 Console（Web UI）
+- [ ] 运维后台
+- [ ] 华为云部署
+- [ ] 监控和告警（Prometheus + Grafana）
+
+---
+
+## 🤝 贡献
+
+欢迎贡献代码、文档或提出建议！
+
+1. Fork 项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交改动 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 提交 Pull Request
+
+---
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 🔗 相关链接
+
+- **GitHub**: https://github.com/your-repo/NeuroMemory
+- **Issues**: https://github.com/your-repo/NeuroMemory/issues
+- **文档中心**: [docs/v2/README.md](docs/v2/README.md)
+
+---
+
+## 📧 联系方式
+
+- 提交 Issue: https://github.com/your-repo/NeuroMemory/issues
+- 邮箱: your-email@example.com
+
+---
+
+**NeuroMemory v2** - 让您的 AI 拥有记忆 🧠
