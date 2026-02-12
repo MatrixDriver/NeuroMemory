@@ -698,24 +698,22 @@ print(f"提取了 {stats['facts_extracted']} 条事实")
 - [x] LLM 记忆分类提取
 - [x] 可插拔 Provider（Embedding/LLM/Storage）
 
-### Phase 2（进行中）
+### Phase 2（已完成）
 
 - [x] 情感标注（valence / arousal / label）
 - [x] 重要性评分（1-10）
 - [x] 三因子检索（relevance × recency × importance）
 - [x] 访问追踪（access_count / last_accessed_at）
 - [x] 反思机制（从记忆中生成高层洞察）
-- [ ] 自然遗忘（基于遗忘曲线的记忆衰减）
-- [ ] 配额管理
-- [ ] 后台任务系统
-- [ ] URL 自动下载和解析
+- [x] 后台任务系统（ExtractionStrategy 自动触发）
 
 ### Phase 3（规划中）
 
-- [ ] 用户 Console（Web UI）
-- [ ] 运维后台
-- [ ] 华为云部署
-- [ ] 监控和告警
+- [ ] 用户 Console（Web UI）- 可视化查看和管理记忆
+
+### 待定
+
+- [ ] 自然遗忘（主动记忆清理/归档机制）
 
 ---
 
