@@ -32,10 +32,10 @@ async def main():
             memory_type="fact",
         )
 
-        # 语义检索
-        results = await nm.search(user_id="alice", query="Where does Alice work?")
-        for r in results:
-            print(f"[{r['similarity']:.2f}] {r['content']}")
+        # 三因子检索（相关性 × 时效性 × 重要性）
+        result = await nm.recall(user_id="alice", query="Where does Alice work?")
+        for r in result["merged"]:
+            print(f"[{r['score']:.2f}] {r['content']}")
 
 asyncio.run(main())
 ```
@@ -46,16 +46,88 @@ asyncio.run(main())
 
 ## 核心特性
 
-### 六大功能模块
+### 功能模块
 
 | 模块 | 入口 | 功能 |
 |------|------|------|
 | **语义记忆** | `nm.add_memory()` / `nm.search()` | 存储文本并自动生成 embedding，向量相似度检索 |
+| **三因子检索** | `nm.recall()` | relevance × recency × importance 综合评分检索 |
 | **KV 存储** | `nm.kv` | 通用键值存储（偏好、配置），namespace + scope 隔离 |
 | **对话管理** | `nm.conversations` | 会话消息存储、批量导入、会话列表 |
 | **文件管理** | `nm.files` | 文件上传到 S3/MinIO，自动提取文本并生成 embedding |
 | **图数据库** | `nm.graph` | 基于 Apache AGE 的知识图谱，节点/边 CRUD、路径查找 |
-| **记忆提取** | `nm.extract_memories()` | 用 LLM 从对话中自动提取偏好、事实、事件 |
+| **记忆提取** | `nm.extract_memories()` | 用 LLM 从对话中自动提取偏好、事实、事件，含情感标注和重要性评分 |
+| **反思** | `nm.reflect()` | 从近期记忆中生成高层次洞察（行为模式、阶段总结、深层理解） |
+
+### 拟人记忆能力
+
+让 AI agent 像朋友般陪伴用户，而非冷冰冰的数据库。
+
+| 能力 | 理论基础 | 实现方式 |
+|------|---------|---------|
+| **情感标注** | LeDoux 1996 情感标记 + Russell Circumplex | LLM 提取时标注 valence(-1~1)、arousal(0~1)、label，存入 metadata |
+| **重要性评分** | Generative Agents (Park 2023) | 每条记忆 1-10 分，影响检索排序（生日=9, 天气=2） |
+| **三因子检索** | Generative Agents + Ebbinghaus | `score = relevance × recency × importance`，高 arousal 记忆衰减更慢 |
+| **访问追踪** | ACT-R 记忆模型 | 自动记录 access_count 和 last_accessed_at |
+| **反思机制** | Generative Agents Reflection | 定期从近期记忆提炼高层洞察（pattern/summary），更新情感画像 |
+
+#### 三层情感架构
+
+NeuroMemory 独创的三层情感设计，让 AI agent 既能记住具体事件的情感，又能理解用户的长期情感特质：
+
+| 层次 | 类型 | 存储位置 | 时间性 | 示例 |
+|------|------|---------|--------|------|
+| **微观** | 事件情感标注 | fact/episodic.metadata | 瞬时 | "说到面试时很紧张(valence=-0.6)" |
+| **中观** | 近期情感状态 | emotion_profiles.latest_state | 1-2周 | "最近工作压力大，情绪低落" |
+| **宏观** | 长期情感画像 | emotion_profiles.* | 长期稳定 | "容易焦虑，但对技术话题兴奋" |
+
+**为什么需要三层？**
+- 微观：捕捉瞬时情感，丰富记忆细节
+- 中观：追踪近期状态，agent 可以关心"你最近还好吗"
+- 宏观：理解长期特质，形成真正的用户画像
+
+> **不做的事**：不自动推断用户人格 (Big Five) 或价值观。EU AI Act Article 5 禁止基于人格特征做自动化画像，Replika 因此被罚款 500 万欧元。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
+
+#### 记忆类型总结
+
+| 记忆类型 | 存储方式 | 检索方式 | 示例 |
+|---------|---------|---------|------|
+| **偏好** | KV Store | 精确 key 查找 | `language=zh-CN` |
+| **事实** | Embedding + Graph | 向量搜索 + 图遍历 | "在 Google 工作" |
+| **情景** | Embedding | 向量搜索 | "昨天面试很紧张" |
+| **关系** | Graph Store | 实体遍历 | `(user)-[works_at]->(Google)` |
+| **洞察** | Embedding | 向量搜索 | • 行为模式："用户倾向于晚上工作"<br>• 阶段总结："用户近期在准备跳槽" |
+| **情感画像** | Table | 结构化查询 | "容易焦虑，对技术兴奋" |
+| **通用** | Embedding | 向量搜索 | 手动 `add_memory()` 的内容 |
+
+**检索方式对比**：
+- `search()`: 纯余弦相似度，向后兼容
+- `recall()`: `relevance × recency × importance` + 图实体，推荐使用
+- `reflect()`: LLM 从近期记忆生成洞察（行为模式、阶段总结）+ 更新情感画像
+
+---
+
+## 差异化亮点
+
+与 Mem0、LangChain Memory、Character.AI 等竞品相比，NeuroMemory 的独特优势：
+
+| 特性 | NeuroMemory | Mem0 | LangChain | Character.AI |
+|------|------------|------|-----------|--------------|
+| **三层情感架构** | ✅ 微观事件 + 中观状态 + 宏观画像 | ❌ | ❌ | 🔶 隐式推断（有争议） |
+| **情感标注** | ✅ valence/arousal/label | ❌ | ❌ | ❌ |
+| **重要性评分** | ✅ 1-10 分 + 三因子检索 | ✅ 有评分 | ❌ | ❌ |
+| **反思机制** | ✅ 行为模式 + 阶段总结洞察 | ❌ | ❌ | 🔶 Diary 机制 |
+| **图数据库** | ✅ Apache AGE (Cypher) | 🔶 简单图 | 🔶 LangGraph (不同层) | ❌ |
+| **框架嵌入** | ✅ Python 库，直接嵌入 | ✅ | ✅ | ❌ (SaaS) |
+| **多模态文件** | ✅ PDF/DOCX 自动提取 | ✅ | ❌ | ❌ |
+| **隐私合规** | ✅ 不推断人格/价值观 | ❓ | ❓ | ❌ (GDPR 罚款) |
+
+**核心差异点**：
+1. **情感认知**：NeuroMemory 是唯一实现三层情感架构的开源记忆框架，让 agent 能像人一样理解和回应用户的情感变化
+2. **理论基础**：基于认知心理学（LeDoux、Ebbinghaus、ACT-R）和最新 AI 研究（Generative Agents），不是简单的向量数据库封装
+3. **隐私优先**：严格遵守 EU AI Act 和 GDPR，不做有争议的人格推断
+
+---
 
 ### 可插拔 Provider
 
@@ -305,10 +377,15 @@ print(f"提取了 {stats['facts_extracted']} 条事实")
 - [x] LLM 记忆分类提取
 - [x] 可插拔 Provider（Embedding/LLM/Storage）
 
-### Phase 2（计划中）
+### Phase 2（进行中）
 
+- [x] 情感标注（valence / arousal / label）
+- [x] 重要性评分（1-10）
+- [x] 三因子检索（relevance × recency × importance）
+- [x] 访问追踪（access_count / last_accessed_at）
+- [x] 反思机制（从记忆中生成高层洞察）
+- [ ] 自然遗忘（基于遗忘曲线的记忆衰减）
 - [ ] 配额管理
-- [ ] 用户画像自动生成
 - [ ] 后台任务系统
 - [ ] URL 自动下载和解析
 

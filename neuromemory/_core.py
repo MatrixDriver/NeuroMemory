@@ -2,12 +2,54 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from dataclasses import dataclass
 from typing import Optional
 
 from neuromemory.db import Database
 from neuromemory.providers.embedding import EmbeddingProvider
 from neuromemory.providers.llm import LLMProvider
 from neuromemory.storage.base import ObjectStorage
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ExtractionStrategy:
+    """Memory extraction trigger strategy.
+
+    Controls when NeuroMemory automatically extracts structured memories
+    (preferences, facts, episodes) from conversation messages using LLM.
+
+    Inspired by AWS Bedrock AgentCore trigger conditions.
+
+    Args:
+        message_interval: Extract every N messages per session (0 = disabled).
+        idle_timeout: Extract after N seconds of session inactivity (0 = disabled).
+            Requires a running asyncio event loop (works in async apps,
+            not effective during blocking input() calls).
+        on_session_close: Extract when a session is explicitly closed via
+            conversations.close_session().
+        on_shutdown: Extract for all active sessions when NeuroMemory.close()
+            is called.
+
+    Examples:
+        # Default: every 10 messages + 10 min idle + session close + shutdown
+        ExtractionStrategy()
+
+        # Only on session close and shutdown, no periodic extraction
+        ExtractionStrategy(message_interval=0, idle_timeout=0)
+
+        # Aggressive: every 5 messages, 2 min idle
+        ExtractionStrategy(message_interval=5, idle_timeout=120)
+    """
+
+    message_interval: int = 10
+    idle_timeout: float = 600
+    on_session_close: bool = True
+    on_shutdown: bool = True
+    reflection_interval: int = 0  # Trigger reflection every N extractions (0 = disabled)
 
 
 class KVFacade:
@@ -50,20 +92,33 @@ class KVFacade:
 class ConversationsFacade:
     """Conversations facade."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, _on_message_added=None, _on_session_closed=None):
         self._db = db
+        self._on_message_added = _on_message_added
+        self._on_session_closed = _on_session_closed
 
     async def add_message(self, user_id: str, role: str, content: str, session_id: str | None = None, metadata: dict | None = None):
         from neuromemory.services.conversation import ConversationService
         async with self._db.session() as session:
             svc = ConversationService(session)
-            return await svc.add_message(user_id, role, content, session_id, metadata)
+            msg = await svc.add_message(user_id, role, content, session_id, metadata)
+        if self._on_message_added:
+            await self._on_message_added(user_id, msg.session_id, 1)
+        return msg
 
     async def add_messages_batch(self, user_id: str, messages: list[dict], session_id: str | None = None):
         from neuromemory.services.conversation import ConversationService
         async with self._db.session() as session:
             svc = ConversationService(session)
-            return await svc.add_messages_batch(user_id, messages, session_id)
+            sid, ids = await svc.add_messages_batch(user_id, messages, session_id)
+        if self._on_message_added:
+            await self._on_message_added(user_id, sid, len(messages))
+        return sid, ids
+
+    async def close_session(self, user_id: str, session_id: str) -> None:
+        """Close a conversation session, triggering memory extraction if configured."""
+        if self._on_session_closed:
+            await self._on_session_closed(user_id, session_id)
 
     async def get_session_messages(self, user_id: str, session_id: str, limit: int = 100, offset: int = 0):
         from neuromemory.services.conversation import ConversationService
@@ -109,6 +164,12 @@ class FilesFacade:
         async with self._db.session() as session:
             svc = FileService(session, self._embedding, self._storage)
             return await svc.list_documents(user_id, category, tags, file_types, limit)
+
+    async def search(self, user_id: str, query: str, limit: int = 5, file_types: list[str] | None = None, category: str | None = None, tags: list[str] | None = None) -> list[dict]:
+        from neuromemory.services.files import FileService
+        async with self._db.session() as session:
+            svc = FileService(session, self._embedding, self._storage)
+            return await svc.search(user_id, query, limit, file_types, category, tags)
 
     async def get(self, file_id):
         from neuromemory.services.files import FileService
@@ -196,6 +257,14 @@ class NeuroMemory:
     Or as async context manager:
         async with NeuroMemory(...) as nm:
             await nm.search(...)
+
+    With auto-extraction:
+        async with NeuroMemory(
+            ...,
+            extraction=ExtractionStrategy(message_interval=10),
+        ) as nm:
+            # Memories are auto-extracted every 10 messages
+            await nm.conversations.add_message(...)
     """
 
     def __init__(
@@ -204,6 +273,8 @@ class NeuroMemory:
         embedding: EmbeddingProvider,
         llm: Optional[LLMProvider] = None,
         storage: Optional[ObjectStorage] = None,
+        extraction: Optional[ExtractionStrategy] = None,
+        graph_enabled: bool = False,
         pool_size: int = 10,
         echo: bool = False,
     ):
@@ -215,10 +286,25 @@ class NeuroMemory:
         self._embedding = embedding
         self._llm = llm
         self._storage = storage
+        self._extraction = extraction
+        self._graph_enabled = graph_enabled
+
+        # Extraction state tracking
+        self._msg_counts: dict[tuple[str, str], int] = {}
+        self._idle_tasks: dict[tuple[str, str], asyncio.Task] = {}
+        self._active_sessions: set[tuple[str, str]] = set()
+        self._extraction_counts: dict[str, int] = {}  # user_id -> count
+
+        # Set up callbacks if extraction is configured and LLM is available
+        _has_extraction = bool(extraction and llm)
+        on_msg = self._on_message_added if _has_extraction else None
+        on_close = self._on_session_closed if _has_extraction else None
 
         # Sub-module facades
         self.kv = KVFacade(self._db)
-        self.conversations = ConversationsFacade(self._db)
+        self.conversations = ConversationsFacade(
+            self._db, _on_message_added=on_msg, _on_session_closed=on_close,
+        )
         self.graph = GraphFacade(self._db)
 
         if storage:
@@ -231,7 +317,19 @@ class NeuroMemory:
             await self._storage.init()
 
     async def close(self) -> None:
-        """Close database connections."""
+        """Close database connections. Triggers extraction if on_shutdown is set."""
+        # Cancel idle timers
+        for task in self._idle_tasks.values():
+            task.cancel()
+        self._idle_tasks.clear()
+
+        # Extract on shutdown for all active sessions
+        if self._extraction and self._extraction.on_shutdown and self._llm:
+            for user_id, session_id in self._active_sessions:
+                await self._do_extraction(user_id, session_id)
+        self._active_sessions.clear()
+        self._msg_counts.clear()
+
         await self._db.close()
 
     async def __aenter__(self) -> "NeuroMemory":
@@ -240,6 +338,94 @@ class NeuroMemory:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.close()
+
+    # -- Auto-extraction internals --
+
+    async def _on_session_closed(self, user_id: str, session_id: str) -> None:
+        """Callback invoked when a conversation session is closed."""
+        key = (user_id, session_id)
+
+        # Cancel idle timer for this session
+        old_task = self._idle_tasks.pop(key, None)
+        if old_task:
+            old_task.cancel()
+
+        # Extract if on_session_close is enabled
+        if self._extraction.on_session_close:
+            await self._do_extraction(user_id, session_id)
+
+        # Clean up tracking state
+        self._active_sessions.discard(key)
+        self._msg_counts.pop(key, None)
+
+    async def _on_message_added(self, user_id: str, session_id: str, count: int) -> None:
+        """Callback invoked after conversation messages are saved."""
+        key = (user_id, session_id)
+        self._active_sessions.add(key)
+
+        # Message interval trigger
+        if self._extraction.message_interval > 0:
+            self._msg_counts[key] = self._msg_counts.get(key, 0) + count
+            if self._msg_counts[key] >= self._extraction.message_interval:
+                await self._do_extraction(user_id, session_id)
+                self._msg_counts[key] = 0
+
+        # Idle timeout trigger - reset timer
+        if self._extraction.idle_timeout > 0:
+            old_task = self._idle_tasks.pop(key, None)
+            if old_task:
+                old_task.cancel()
+            self._idle_tasks[key] = asyncio.create_task(
+                self._idle_extraction_timer(user_id, session_id)
+            )
+
+    async def _idle_extraction_timer(self, user_id: str, session_id: str) -> None:
+        """Wait for idle timeout then trigger extraction."""
+        try:
+            await asyncio.sleep(self._extraction.idle_timeout)
+            await self._do_extraction(user_id, session_id)
+        except asyncio.CancelledError:
+            pass
+
+    async def _do_extraction(self, user_id: str, session_id: str) -> None:
+        """Extract memories from unprocessed messages in a session."""
+        try:
+            messages = await self.conversations.get_unextracted_messages(
+                user_id, session_id,
+            )
+            if not messages:
+                return
+            stats = await self.extract_memories(user_id, messages)
+            logger.info(
+                "Auto-extracted memories: user=%s session=%s "
+                "prefs=%d facts=%d episodes=%d msgs=%d",
+                user_id, session_id,
+                stats["preferences_extracted"],
+                stats["facts_extracted"],
+                stats["episodes_extracted"],
+                stats["messages_processed"],
+            )
+
+            # Check if reflection should be triggered
+            if (
+                self._extraction
+                and self._extraction.reflection_interval > 0
+                and self._llm
+            ):
+                self._extraction_counts[user_id] = (
+                    self._extraction_counts.get(user_id, 0) + 1
+                )
+                if self._extraction_counts[user_id] >= self._extraction.reflection_interval:
+                    self._extraction_counts[user_id] = 0
+                    try:
+                        await self.reflect(user_id)
+                    except Exception as e:
+                        logger.error("Auto-reflection failed: user=%s error=%s",
+                                     user_id, e, exc_info=True)
+
+        except Exception as e:
+            logger.error("Auto-extraction failed: user=%s session=%s error=%s",
+                         user_id, session_id, e, exc_info=True)
 
     # -- Top-level convenience methods --
 
@@ -289,5 +475,159 @@ class NeuroMemory:
             raise RuntimeError("LLM provider required for memory extraction")
         from neuromemory.services.memory_extraction import MemoryExtractionService
         async with self._db.session() as session:
-            svc = MemoryExtractionService(session, self._embedding, self._llm)
+            svc = MemoryExtractionService(
+                session, self._embedding, self._llm,
+                graph_enabled=self._graph_enabled,
+            )
             return await svc.extract_from_messages(user_id, messages)
+
+    async def recall(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 10,
+        decay_rate: float | None = None,
+    ) -> dict:
+        """Hybrid recall: three-factor scored search + graph entity lookup, merged and deduplicated.
+
+        Uses scored_search (relevance x recency x importance) instead of pure vector search.
+
+        Returns:
+            {
+                "vector_results": [...],   # three-factor scored search
+                "graph_results": [...],    # graph entity traversal
+                "merged": [...],           # deduplicated merge
+            }
+        """
+        from neuromemory.services.search import SearchService, DEFAULT_DECAY_RATE
+        vector_results = []
+        async with self._db.session() as session:
+            svc = SearchService(session, self._embedding)
+            vector_results = await svc.scored_search(
+                user_id, query, limit,
+                decay_rate=decay_rate or DEFAULT_DECAY_RATE,
+            )
+
+        graph_results: list[dict] = []
+        if self._graph_enabled:
+            from neuromemory.services.graph_memory import GraphMemoryService
+            async with self._db.session() as session:
+                graph_svc = GraphMemoryService(session)
+                graph_results = await graph_svc.find_entity_facts(
+                    user_id, query, limit,
+                )
+                user_facts = await graph_svc.find_entity_facts(
+                    user_id, user_id, limit,
+                )
+                graph_results.extend(user_facts)
+
+        # Deduplicate by content
+        seen_contents: set[str] = set()
+        merged: list[dict] = []
+
+        for r in vector_results:
+            content = r.get("content", "")
+            if content not in seen_contents:
+                seen_contents.add(content)
+                merged.append({**r, "source": "vector"})
+
+        for r in graph_results:
+            content = r.get("content", "")
+            if content and content not in seen_contents:
+                seen_contents.add(content)
+                merged.append({**r, "source": "graph"})
+
+        return {
+            "vector_results": vector_results,
+            "graph_results": graph_results,
+            "merged": merged[:limit],
+        }
+
+    async def reflect(
+        self,
+        user_id: str,
+        limit: int = 50,
+    ) -> dict:
+        """Reflect on recent memories to generate higher-level insights.
+
+        Requires LLM provider. Performs two types of reflection:
+        1. Generates pattern/summary insights → stored as embeddings
+        2. Updates emotion profile → stored in emotion_profiles table
+
+        Args:
+            user_id: The user to reflect about.
+            limit: Max number of recent memories to consider.
+
+        Returns:
+            {
+                "insights_generated": int,
+                "insights": [{"content": "...", "category": "pattern|summary"}],
+                "emotion_profile": {"latest_state": "...", "valence_avg": ...}
+            }
+        """
+        if not self._llm:
+            raise RuntimeError("LLM provider required for reflection")
+
+        from neuromemory.services.reflection import ReflectionService
+
+        # Get recent memories (excluding insights themselves)
+        recent_memories: list[dict] = []
+        async with self._db.session() as session:
+            from sqlalchemy import text as sql_text
+            result = await session.execute(
+                sql_text("""
+                    SELECT id, content, memory_type, metadata, created_at
+                    FROM embeddings
+                    WHERE user_id = :user_id AND memory_type != 'insight'
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"user_id": user_id, "limit": limit},
+            )
+            for row in result.fetchall():
+                recent_memories.append({
+                    "id": str(row.id),
+                    "content": row.content,
+                    "memory_type": row.memory_type,
+                    "metadata": row.metadata,
+                    "created_at": row.created_at,
+                })
+
+        if not recent_memories:
+            return {
+                "insights_generated": 0,
+                "insights": [],
+                "emotion_profile": None,
+            }
+
+        # Get existing insights to avoid duplication
+        existing_insights: list[dict] = []
+        async with self._db.session() as session:
+            result = await session.execute(
+                sql_text("""
+                    SELECT content, metadata
+                    FROM embeddings
+                    WHERE user_id = :user_id AND memory_type = 'insight'
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """),
+                {"user_id": user_id},
+            )
+            for row in result.fetchall():
+                existing_insights.append({
+                    "content": row.content,
+                    "metadata": row.metadata,
+                })
+
+        # Generate insights and update emotion profile
+        async with self._db.session() as session:
+            reflection_svc = ReflectionService(session, self._embedding, self._llm)
+            result = await reflection_svc.reflect(
+                user_id, recent_memories, existing_insights or None,
+            )
+
+        return {
+            "insights_generated": len(result["insights"]),
+            "insights": result["insights"],
+            "emotion_profile": result["emotion_profile"],
+        }
