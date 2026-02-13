@@ -147,6 +147,57 @@ asyncio.run(main())
 | **记忆提取** | `nm.extract_memories()` | 用 LLM 从对话中自动提取偏好、事实、事件，含情感标注和重要性评分 |
 | **反思** | `nm.reflect()` | 全面记忆整理：重新提取未处理对话 + 生成洞察 + 更新情感画像 |
 
+---
+
+## 易混淆 API 说明
+
+NeuroMemory 有两组容易混淆的 API，请先理解它们的区别：
+
+### 📚 检索 API：recall() vs search()
+
+| API | 用途 | 检索方式 | 何时使用 |
+|-----|------|---------|---------|
+| **recall()** ⭐ | 智能混合检索 | 三因子向量（相关性×时效×重要性）+ 图实体检索 + 去重 | **日常使用（推荐）** |
+| **search()** | 纯语义检索 | 仅 embedding 余弦相似度 | 只需语义相似度，不考虑时间和重要性 |
+
+```python
+# recall(): 综合考虑，最近的重要记忆优先
+result = await nm.recall(user_id="alice", query="工作")
+# → "昨天面试 Google"（最近 + 重要）优先于 "去年在微软实习"（久远）
+
+# search(): 只看语义，可能返回很久以前的记忆
+results = await nm.search(user_id="alice", query="工作")
+# → "去年在微软实习" 和 "昨天面试 Google" 都可能返回，只按相似度排序
+```
+
+---
+
+### 🧠 记忆管理 API：extract_memories() vs reflect()
+
+| API | 用途 | 处理内容 | 何时使用 |
+|-----|------|---------|---------|
+| **extract_memories()** | 提取新记忆 | 从对话中提取事实/偏好/关系 | **每次对话后** |
+| **reflect()** | 整理已有记忆 | 重新提取 + 生成洞察 + 更新画像 | **定期整理**（每天/每周） |
+
+```python
+# extract_memories(): 从对话中提取新信息
+await nm.conversations.add_message(user_id="alice", role="user", content="我在 Google 工作")
+await nm.extract_memories(user_id="alice")
+# → 提取: fact: "在 Google 工作", relation: (alice)-[works_at]->(Google)
+
+# reflect(): 整理所有记忆，生成洞察
+await nm.reflect(user_id="alice")
+# → 重新提取遗漏对话 + 生成洞察: "用户近期求职，面试了 Google 和微软"
+```
+
+**核心区别**：
+- `extract_memories()`: **增量提取** - 处理新对话，添加新记忆
+- `reflect()`: **全面整理** - 查漏补缺 + 提炼洞察 + 更新画像
+
+**更多细节**: [docs/API.md - 易混淆 API 说明](docs/API.md#易混淆-api-说明)
+
+---
+
 ### 拟人记忆能力
 
 让 AI agent 像朋友般陪伴用户，而非冷冰冰的数据库。
