@@ -10,16 +10,18 @@
 
 - [初始化](#初始化)
 - [核心 API](#核心-api)
-  - [recall() - 混合检索](#recall---混合检索)
-  - [add_memory() - 添加记忆](#add_memory---添加记忆)
-  - [search() - 向量检索](#search---向量检索)
+  - [add_message() - 添加对话消息](#add_message---添加对话消息) ⭐ **最常用**
+  - [recall() - 混合检索](#recall---混合检索) ⭐ **推荐**
+  - [add_memory() - 直接添加记忆](#add_memory---直接添加记忆)
   - [extract_memories() - 提取记忆](#extract_memories---提取记忆)
+  - [search() - 向量检索](#search---向量检索)
   - [reflect() - 记忆整理](#reflect---记忆整理)
+- [对话管理（完整 API）](#对话管理完整-api)
 - [KV 存储](#kv-存储)
-- [对话管理](#对话管理)
 - [文件管理](#文件管理)
 - [图数据库](#图数据库)
 - [Provider 接口](#provider-接口)
+- [常见使用模式](#常见使用模式)
 
 ---
 
@@ -66,6 +68,93 @@ async with NeuroMemory(
 ---
 
 ## 核心 API
+
+### add_message() - 添加对话消息
+
+**最常用的 API**，用于存储用户和 assistant 的对话消息。这是构建对话 agent 的核心操作。
+
+```python
+message = await nm.conversations.add_message(
+    user_id: str,
+    role: str,
+    content: str,
+    session_id: str | None = None,
+    metadata: dict | None = None,
+) -> ConversationMessage
+```
+
+**参数**：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `user_id` | `str` | - | 用户 ID |
+| `role` | `str` | - | 角色：`"user"` 或 `"assistant"` |
+| `content` | `str` | - | 消息内容 |
+| `session_id` | `str` | `None` | 会话 ID，为 None 时自动创建新会话 |
+| `metadata` | `dict` | `None` | 元数据（可选） |
+
+**返回**：`ConversationMessage` 对象，包含 `id`, `session_id`, `role`, `content`, `created_at`
+
+**典型使用流程**：
+
+```python
+# 1. 用户发送消息
+await nm.conversations.add_message(
+    user_id="alice",
+    role="user",
+    content="我在 Google 工作，做后端开发"
+)
+
+# 2. 召回相关记忆
+result = await nm.recall(user_id="alice", query="工作", limit=5)
+
+# 3. 基于记忆生成回复（使用你的 LLM）
+reply = your_llm.generate(
+    context=result["merged"],
+    user_input="我在 Google 工作，做后端开发"
+)
+
+# 4. 存储 assistant 回复
+await nm.conversations.add_message(
+    user_id="alice",
+    role="assistant",
+    content=reply
+)
+
+# 5. 自动提取记忆（如果配置了 ExtractionStrategy）
+# 或手动触发：await nm.extract_memories(user_id="alice")
+```
+
+**使用场景**：
+
+| 场景 | 说明 | 代码示例 |
+|------|------|---------|
+| **聊天机器人** | 存储用户和 bot 的每轮对话 | `await nm.conversations.add_message(user_id, "user", input)` |
+| **客服系统** | 记录客服与用户的完整对话历史 | 每次对话都调用 `add_message()` |
+| **AI 导师** | 追踪学生的学习对话，分析进度 | 存储所有问答，定期 `reflect()` |
+| **个人助手** | 构建长期对话记忆，理解用户习惯 | 结合 `recall()` 提供个性化回复 |
+
+**进阶：批量添加消息**
+
+```python
+# 导入历史对话
+session_id, msg_ids = await nm.conversations.add_messages_batch(
+    user_id="alice",
+    messages=[
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "你好！有什么可以帮你？"},
+        {"role": "user", "content": "介绍一下 Python"},
+    ]
+)
+```
+
+**注意事项**：
+- 每次对话都应该存储（user 和 assistant 消息）
+- 自动记忆提取需要配置 `llm` 参数和 `ExtractionStrategy`
+- 可以通过 `session_id` 组织多轮对话
+- 更多对话管理 API 见 [对话管理（完整 API）](#对话管理完整-api)
+
+---
 
 ### recall() - 混合检索
 
