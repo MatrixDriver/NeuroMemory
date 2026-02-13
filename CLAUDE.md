@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-NeuroMemory v2 是一个 **Python 框架**，为 AI agent 开发者提供记忆管理能力。开发者直接 `from neuromemory import NeuroMemory` 在自己程序中使用，无需部署服务器。
+NeuroMemory 是一个 **Python 框架**，为 AI agent 开发者提供记忆管理能力。开发者直接 `from neuromemory import NeuroMemory` 在自己程序中使用，无需部署服务器。
 
 **核心架构**：
 - **Python 框架** (`neuromemory/`)：直接在 agent 程序中使用的库
@@ -151,7 +151,7 @@ Marker：
 
 ## 项目定位
 
-NeuroMemory v2 是一个专注的 Python 库，不提供以下内容：
+NeuroMemory 是一个专注的 Python 库，不提供以下内容：
 - ❌ Web 管理界面（记忆可视化应由 agent 应用提供）
 - ❌ HTTP/API 服务器（直接在 Python 代码中使用）
 - ❌ 独立部署的服务（嵌入到你的 agent 程序中）

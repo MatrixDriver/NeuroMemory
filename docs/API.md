@@ -41,8 +41,10 @@ nm = NeuroMemory(
     embedding: EmbeddingProvider,
     llm: LLMProvider | None = None,
     storage: ObjectStorage | None = None,
+    extraction: ExtractionStrategy | None = None,
+    graph_enabled: bool = False,
     pool_size: int = 10,
-    extraction_strategy: ExtractionStrategy | None = None,
+    echo: bool = False,
 )
 ```
 
@@ -54,8 +56,10 @@ nm = NeuroMemory(
 | `embedding` | `EmbeddingProvider` | ✅ | Embedding 提供者（SiliconFlowEmbedding / OpenAIEmbedding） |
 | `llm` | `LLMProvider` | ❌ | LLM 提供者，用于 `extract_memories()` 和 `reflect()` |
 | `storage` | `ObjectStorage` | ❌ | 对象存储，用于文件管理（S3Storage） |
+| `extraction` | `ExtractionStrategy` | ❌ | 自动记忆提取策略 |
+| `graph_enabled` | `bool` | ❌ | 是否启用图数据库（Apache AGE），默认 `False` |
 | `pool_size` | `int` | ❌ | 数据库连接池大小，默认 10 |
-| `extraction_strategy` | `ExtractionStrategy` | ❌ | 自动记忆提取策略 |
+| `echo` | `bool` | ❌ | 是否输出 SQL 日志，默认 `False`（调试用） |
 
 **示例**：
 
@@ -85,10 +89,11 @@ NeuroMemory 有三组容易混淆的 API，请先理解它们的区别：
 **示例对比**：
 ```python
 # add_message(): 对话驱动（推荐）
-# 先存对话，再通过 extract_memories() 自动提取记忆
+# 先存对话，再获取未提取消息，然后 LLM 提取记忆
 await nm.conversations.add_message(user_id="alice", role="user",
     content="我在 Google 工作，做后端开发")
-await nm.extract_memories(user_id="alice")
+messages = await nm.conversations.get_unextracted_messages(user_id="alice")
+await nm.extract_memories(user_id="alice", messages=messages)
 # → 自动提取: fact: "在 Google 工作", fact: "做后端开发"
 # → 自动标注: importance=8, emotion={valence: 0.3, arousal: 0.2}
 
@@ -133,9 +138,10 @@ results = await nm.search(user_id="alice", query="工作")
 
 **示例对比**：
 ```python
-# extract_memories(): 从对话中提取新信息
+# extract_memories(): 获取未提取消息，然后提取记忆
 await nm.conversations.add_message(user_id="alice", role="user", content="我在 Google 工作")
-await nm.extract_memories(user_id="alice")
+messages = await nm.conversations.get_unextracted_messages(user_id="alice")
+await nm.extract_memories(user_id="alice", messages=messages)
 # → 提取: fact: "在 Google 工作", relation: (alice)-[works_at]->(Google)
 
 # reflect(): 整理所有记忆，生成洞察
@@ -207,8 +213,10 @@ await nm.conversations.add_message(
     content=reply
 )
 
-# 5. 自动提取记忆（如果配置了 ExtractionStrategy）
-# 或手动触发：await nm.extract_memories(user_id="alice")
+# 5. 自动提取记忆（如果配置了 ExtractionStrategy，会在满足条件时自动触发）
+# 手动触发：
+# messages = await nm.conversations.get_unextracted_messages(user_id="alice")
+# await nm.extract_memories(user_id="alice", messages=messages)
 ```
 
 **使用场景**：
@@ -236,7 +244,7 @@ session_id, msg_ids = await nm.conversations.add_messages_batch(
 
 **注意事项**：
 - 每次对话都应该存储（user 和 assistant 消息）
-- 自动记忆提取需要配置 `llm` 参数和 `ExtractionStrategy`
+- 自动记忆提取需要配置 `llm` 和 `extraction` 参数
 - 可以通过 `session_id` 组织多轮对话
 - 更多对话管理 API 见 [对话管理（完整 API）](#对话管理完整-api)
 
@@ -420,6 +428,8 @@ results = await nm.search(
     query: str,
     limit: int = 5,
     memory_type: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
 ) -> list[dict]
 ```
 
@@ -431,6 +441,8 @@ results = await nm.search(
 | `query` | `str` | - | 查询文本 |
 | `limit` | `int` | `5` | 返回结果数量 |
 | `memory_type` | `str` | `None` | 过滤记忆类型 |
+| `created_after` | `datetime` | `None` | 只返回该时间之后的记忆 |
+| `created_before` | `datetime` | `None` | 只返回该时间之前的记忆 |
 
 **返回格式**：
 
@@ -501,27 +513,26 @@ insights = await nm.search(
 ```python
 stats = await nm.extract_memories(
     user_id: str,
-    session_id: str | None = None,
-    limit: int = 50,
+    messages: list,
 ) -> dict
 ```
 
 **参数**：
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `user_id` | `str` | - | 用户 ID |
-| `session_id` | `str` | `None` | 会话 ID，为 None 时处理所有未提取的消息 |
-| `limit` | `int` | `50` | 一次处理的消息数量 |
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `user_id` | `str` | 用户 ID |
+| `messages` | `list` | 待提取的对话消息列表（通过 `get_unextracted_messages()` 获取） |
 
 **返回格式**：
 
 ```python
 {
     "messages_processed": 10,
-    "facts_extracted": 3,
-    "preferences_extracted": 2,
-    "relations_extracted": 1,
+    "facts_stored": 3,
+    "preferences_stored": 2,
+    "episodes_stored": 1,
+    "triples_stored": 1,      # 图关系数量（需要 graph_enabled=True）
 }
 ```
 
@@ -530,28 +541,32 @@ stats = await nm.extract_memories(
 - **事实** (`fact`)：客观信息（"在 Google 工作"）
 - **偏好** (`preference`)：存入 KV Store（`preferences` namespace）
 - **情景** (`episodic`)：带时间的事件（"昨天面试"）
-- **关系** (`relation`)：存入图数据库（(alice)-[works_at]->(Google)）
+- **关系** (`relation`)：存入图数据库（需要 `graph_enabled=True`）
 - **情感标注**：自动标注 valence, arousal, label
 - **重要性评分**：1-10 分
 
 **示例**：
 
 ```python
-# 添加对话消息
+# 1. 添加对话消息
 await nm.conversations.add_message(
-    user_id="alice",
-    role="user",
+    user_id="alice", role="user",
     content="我在 Google 工作，做后端开发"
 )
 
-# 提取记忆
-stats = await nm.extract_memories(user_id="alice")
-print(f"提取了 {stats['facts_extracted']} 条事实")
+# 2. 获取未提取的消息
+messages = await nm.conversations.get_unextracted_messages(user_id="alice")
+
+# 3. 提取记忆
+stats = await nm.extract_memories(user_id="alice", messages=messages)
+print(f"提取了 {stats['facts_stored']} 条事实")
 # 自动生成：
 # - fact: "在 Google 工作"
 # - fact: "做后端开发"
-# - relation: (alice)-[works_at]->(Google)
+# - relation: (alice)-[works_at]->(Google)  (需要 graph_enabled=True)
 ```
+
+**注意**：配置了 `ExtractionStrategy` 后，`add_message()` 会在满足条件时（如每 10 条消息）自动调用提取，无需手动调用。
 
 ---
 
@@ -577,22 +592,29 @@ result = await nm.reflect(
 
 ```python
 {
-    "extraction_stats": {
-        "messages_processed": 10,
-        "facts_extracted": 3,
+    "conversations_processed": 10,    # 补充提取的对话数
+    "facts_added": 3,                # 新增事实数
+    "preferences_updated": 2,         # 更新偏好数
+    "relations_added": 1,             # 新增关系数
+    "insights_generated": 2,          # 生成洞察数
+    "insights": [                     # 洞察内容
+        {"content": "用户是技术从业者，关注后端开发", "category": "pattern"},
+        {"content": "用户近期工作压力大，寻求减压方式", "category": "summary"},
+    ],
+    "emotion_profile": {              # 情感画像
+        "latest_state": "近期偏焦虑",
+        "valence_avg": -0.3,
         ...
     },
-    "insights_generated": 2,
-    "emotion_profile_updated": True,
 }
 ```
 
 **工作流程**：
 
-1. **查漏补缺**：重新提取未处理的对话
+1. **查漏补缺**：重新提取未处理的对话（自动调用 `extract_memories()`）
 2. **提炼洞察**：分析近期记忆，生成高层理解
-   - 行为模式："用户倾向于晚上工作"
-   - 阶段总结："用户近期在准备跳槽"
+   - 行为模式（pattern）："用户倾向于晚上工作"
+   - 阶段总结（summary）："用户近期在准备跳槽"
 3. **更新画像**：整合情感数据，更新用户情感画像
 
 **示例**：
@@ -601,13 +623,15 @@ result = await nm.reflect(
 # 定期整理记忆
 result = await nm.reflect(user_id="alice")
 
-print(f"处理了 {result['extraction_stats']['messages_processed']} 条消息")
+print(f"处理了 {result['conversations_processed']} 条对话")
 print(f"生成了 {result['insights_generated']} 条洞察")
 
 # 查看生成的洞察
-insights = await nm.search(user_id="alice", query="", memory_type="insight")
-for insight in insights:
-    print(insight['content'])
+for insight in result["insights"]:
+    print(f"[{insight['category']}] {insight['content']}")
+
+# 也可以通过 search 查找洞察
+insights = await nm.search(user_id="alice", query="行为模式", memory_type="insight")
 ```
 
 ---
@@ -638,9 +662,13 @@ for insight in insights:
 
 **典型使用模式**：
 ```python
-# 每次对话后
+# 每次对话后（手动模式）
 await nm.conversations.add_message(user_id, "user", input)
-await nm.extract_memories(user_id)  # 增量提取
+messages = await nm.conversations.get_unextracted_messages(user_id)
+await nm.extract_memories(user_id, messages=messages)  # 增量提取
+
+# 或配置 ExtractionStrategy 自动提取（推荐）
+# nm = NeuroMemory(..., extraction=ExtractionStrategy(message_interval=10))
 
 # 每天 0 点执行
 await nm.reflect(user_id)  # 全面整理
@@ -821,17 +849,41 @@ messages = [
 
 **返回**：`(session_id, [msg_id1, msg_id2, ...])`
 
-### nm.conversations.get_history()
+### nm.conversations.get_session_messages()
 
 ```python
-messages = await nm.conversations.get_history(
+messages = await nm.conversations.get_session_messages(
     user_id: str,
     session_id: str,
-    limit: int = 50,
+    limit: int = 100,
+    offset: int = 0,
 ) -> list[ConversationMessage]
 ```
 
-**返回**：消息列表，按时间倒序。
+**返回**：消息列表。
+
+### nm.conversations.get_unextracted_messages()
+
+```python
+messages = await nm.conversations.get_unextracted_messages(
+    user_id: str,
+    session_id: str | None = None,
+    limit: int = 100,
+) -> list[ConversationMessage]
+```
+
+**获取尚未提取记忆的消息**，用于传入 `extract_memories()`。
+
+### nm.conversations.close_session()
+
+```python
+await nm.conversations.close_session(
+    user_id: str,
+    session_id: str,
+) -> None
+```
+
+**关闭会话**，如果配置了 `ExtractionStrategy.on_session_close=True`，会自动触发记忆提取。
 
 ### nm.conversations.list_sessions()
 
@@ -858,7 +910,7 @@ document = await nm.files.upload(
     filename: str,
     file_data: bytes,
     category: str = "general",
-    auto_extract: bool = True,
+    tags: list[str] | None = None,
     metadata: dict | None = None,
 ) -> Document
 ```
@@ -871,7 +923,7 @@ document = await nm.files.upload(
 | `filename` | `str` | - | 文件名 |
 | `file_data` | `bytes` | - | 文件二进制数据 |
 | `category` | `str` | `"general"` | 分类标签 |
-| `auto_extract` | `bool` | `True` | 是否自动提取文本并生成 embedding |
+| `tags` | `list[str]` | `None` | 标签列表 |
 | `metadata` | `dict` | `None` | 元数据 |
 
 **支持格式**：
@@ -903,52 +955,54 @@ print(f"提取文本: {doc.extracted_text[:100]}...")
 ```python
 document = await nm.files.create_from_text(
     user_id: str,
-    filename: str,
-    text: str,
+    title: str,
+    content: str,
     category: str = "general",
+    tags: list[str] | None = None,
     metadata: dict | None = None,
 ) -> Document
 ```
 
 **直接从文本创建文档**（不上传到 S3）。
 
-### nm.files.list_documents()
+### nm.files.list()
 
 ```python
-docs = await nm.files.list_documents(
+docs = await nm.files.list(
     user_id: str,
     category: str | None = None,
-    limit: int = 10,
+    tags: list[str] | None = None,
+    file_types: list[str] | None = None,
+    limit: int = 50,
 ) -> list[Document]
 ```
 
-### nm.files.get_document()
+### nm.files.get()
 
 ```python
-doc = await nm.files.get_document(
-    user_id: str,
-    document_id: str,
+doc = await nm.files.get(
+    file_id: str,
 ) -> Document | None
 ```
 
-### nm.files.delete_document()
+### nm.files.delete()
 
 ```python
-success = await nm.files.delete_document(
-    user_id: str,
-    document_id: str,
+success = await nm.files.delete(
+    file_id: str,
 ) -> bool
 ```
 
-### nm.files.search_files()
+### nm.files.search()
 
 ```python
-results = await nm.files.search_files(
+results = await nm.files.search(
     user_id: str,
     query: str,
     limit: int = 5,
-    file_type: str | None = None,
+    file_types: list[str] | None = None,
     category: str | None = None,
+    tags: list[str] | None = None,
 ) -> list[dict]
 ```
 
@@ -958,13 +1012,13 @@ results = await nm.files.search_files(
 
 ```python
 # 检索所有文件
-results = await nm.files.search_files(user_id="alice", query="项目报告")
+results = await nm.files.search(user_id="alice", query="项目报告")
 
 # 只检索 PDF
-pdfs = await nm.files.search_files(
+pdfs = await nm.files.search(
     user_id="alice",
     query="技术文档",
-    file_type="pdf"
+    file_types=["pdf"]
 )
 ```
 
@@ -981,6 +1035,7 @@ node_id = await nm.graph.create_node(
     node_type: NodeType,
     node_id: str,
     properties: dict | None = None,
+    user_id: str | None = None,
 ) -> str
 ```
 
@@ -1011,12 +1066,13 @@ await nm.graph.create_node(NodeType.ENTITY, "google", {"name": "Google"})
 
 ```python
 await nm.graph.create_edge(
-    start_type: NodeType,
-    start_id: str,
+    source_type: NodeType,
+    source_id: str,
     edge_type: EdgeType,
-    end_type: NodeType,
-    end_id: str,
+    target_type: NodeType,
+    target_id: str,
     properties: dict | None = None,
+    user_id: str | None = None,
 ) -> None
 ```
 
@@ -1042,13 +1098,24 @@ await nm.graph.create_edge(
 )
 ```
 
+### nm.graph.get_node()
+
+```python
+node = await nm.graph.get_node(
+    node_type: NodeType,
+    node_id: str,
+) -> dict | None
+```
+
 ### nm.graph.get_neighbors()
 
 ```python
 neighbors = await nm.graph.get_neighbors(
     node_type: NodeType,
     node_id: str,
-    edge_type: EdgeType | None = None,
+    edge_types: list[EdgeType] | None = None,
+    direction: str = "both",
+    limit: int = 10,
 ) -> list[dict]
 ```
 
@@ -1099,6 +1166,17 @@ await nm.graph.delete_node(
     node_id: str,
 ) -> None
 ```
+
+### nm.graph.query()
+
+```python
+results = await nm.graph.query(
+    cypher: str,
+    params: dict | None = None,
+) -> list
+```
+
+**执行原始 Cypher 查询**（高级用法）。
 
 ---
 
@@ -1203,8 +1281,9 @@ async def main():
         )
 
         # 2. 提取记忆
-        stats = await nm.extract_memories(user_id=user_id)
-        print(f"提取了 {stats['facts_extracted']} 条事实")
+        messages = await nm.conversations.get_unextracted_messages(user_id=user_id)
+        stats = await nm.extract_memories(user_id=user_id, messages=messages)
+        print(f"提取了 {stats['facts_stored']} 条事实")
 
         # 3. 召回记忆
         result = await nm.recall(user_id=user_id, query="工作情况", limit=5)
@@ -1275,5 +1354,5 @@ nm = NeuroMemory(
 
 ---
 
-**更多示例**: [docs/GETTING_STARTED.md](v2/GETTING_STARTED.md)
-**架构文档**: [docs/ARCHITECTURE.md](v2/ARCHITECTURE.md)
+**更多示例**: [GETTING_STARTED.md](GETTING_STARTED.md)
+**架构文档**: [ARCHITECTURE.md](ARCHITECTURE.md)
