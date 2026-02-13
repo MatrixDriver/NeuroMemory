@@ -151,7 +151,28 @@ asyncio.run(main())
 
 ## 易混淆 API 说明
 
-NeuroMemory 有两组容易混淆的 API，请先理解它们的区别：
+NeuroMemory 有三组容易混淆的 API，请先理解它们的区别：
+
+### ✏️ 写入 API：add_message() vs add_memory()
+
+| API | 用途 | 写入目标 | 何时使用 |
+|-----|------|---------|---------|
+| **add_message()** ⭐ | 存储对话消息 | 对话历史 → 后续通过 `extract_memories()` 自动提取记忆 | **日常使用（推荐）** |
+| **add_memory()** | 直接写入记忆 | 记忆表（embedding），立即可检索 | 手动导入、批量初始化、已知结构化信息 |
+
+```python
+# add_message(): 对话驱动（推荐）— 先存对话，再自动提取记忆
+await nm.conversations.add_message(user_id="alice", role="user",
+    content="我在 Google 工作，做后端开发")
+await nm.extract_memories(user_id="alice")
+# → 自动提取: fact: "在 Google 工作" + 情感标注 + 重要性评分
+
+# add_memory(): 直接写入（手动指定一切）
+await nm.add_memory(user_id="alice", content="在 Google 工作",
+    memory_type="fact", metadata={"importance": 8})
+```
+
+---
 
 ### 📚 检索 API：recall() vs search()
 

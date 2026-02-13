@@ -11,11 +11,12 @@
 - [初始化](#初始化)
 - [易混淆 API 说明](#易混淆-api-说明) ⚠️ **必读**
 - [核心 API](#核心-api)
-  - [add_message() - 添加对话消息](#add_message---添加对话消息) ⭐ **最常用**
+  - [写入 API 对比](#写入-api-对比)
+    - [add_message() - 添加对话消息](#add_message---添加对话消息) ⭐ **最常用**
+    - [add_memory() - 直接添加记忆](#add_memory---直接添加记忆)
   - [检索 API 对比](#检索-api-对比)
     - [recall() - 混合检索](#recall---混合检索) ⭐ **推荐**
     - [search() - 向量检索](#search---向量检索)
-  - [add_memory() - 直接添加记忆](#add_memory---直接添加记忆)
   - [记忆管理 API 对比](#记忆管理-api-对比)
     - [extract_memories() - 提取记忆](#extract_memories---提取记忆)
     - [reflect() - 记忆整理](#reflect---记忆整理)
@@ -72,7 +73,36 @@ async with NeuroMemory(
 
 ## 易混淆 API 说明
 
-NeuroMemory 有两组容易混淆的 API，请先理解它们的区别：
+NeuroMemory 有三组容易混淆的 API，请先理解它们的区别：
+
+### ✏️ 写入 API：add_message() vs add_memory()
+
+| API | 用途 | 写入目标 | 何时使用 |
+|-----|------|---------|---------|
+| **add_message()** ⭐ | 存储对话消息 | 对话历史表 → 后续通过 `extract_memories()` 提取记忆 | **日常使用（推荐）**：对话驱动，记忆自动提取 |
+| **add_memory()** | 直接写入记忆 | 记忆表（embedding） | **特定场景**：手动导入、批量初始化、已知结构化信息 |
+
+**示例对比**：
+```python
+# add_message(): 对话驱动（推荐）
+# 先存对话，再通过 extract_memories() 自动提取记忆
+await nm.conversations.add_message(user_id="alice", role="user",
+    content="我在 Google 工作，做后端开发")
+await nm.extract_memories(user_id="alice")
+# → 自动提取: fact: "在 Google 工作", fact: "做后端开发"
+# → 自动标注: importance=8, emotion={valence: 0.3, arousal: 0.2}
+
+# add_memory(): 直接写入（手动指定一切）
+await nm.add_memory(user_id="alice", content="在 Google 工作",
+    memory_type="fact", metadata={"importance": 8})
+# → 直接存入记忆库，不经过对话和 LLM 提取
+```
+
+**核心区别**：
+- `add_message()`: **对话驱动** - 存对话 → LLM 自动提取记忆（含情感、重要性）
+- `add_memory()`: **手动写入** - 跳过对话，直接存记忆（需自行指定类型和元数据）
+
+---
 
 ### 📚 检索 API：recall() vs search()
 
@@ -120,6 +150,10 @@ await nm.reflect(user_id="alice")
 ---
 
 ## 核心 API
+
+## 写入 API 对比
+
+这两个 API 都用于"写入"数据，但写入目标不同。**日常使用推荐 add_message()**。
 
 ### add_message() - 添加对话消息
 
@@ -205,6 +239,82 @@ session_id, msg_ids = await nm.conversations.add_messages_batch(
 - 自动记忆提取需要配置 `llm` 参数和 `ExtractionStrategy`
 - 可以通过 `session_id` 组织多轮对话
 - 更多对话管理 API 见 [对话管理（完整 API）](#对话管理完整-api)
+
+---
+
+### add_memory() - 直接添加记忆
+
+直接添加结构化记忆，无需 LLM 提取。适用于手动导入、批量初始化等场景。
+
+```python
+memory_id = await nm.add_memory(
+    user_id: str,
+    content: str,
+    memory_type: str = "general",
+    metadata: dict | None = None,
+) -> str
+```
+
+**参数**：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `user_id` | `str` | - | 用户 ID |
+| `content` | `str` | - | 记忆内容 |
+| `memory_type` | `str` | `"general"` | 记忆类型：`fact`, `episodic`, `preference`, `insight`, `general` |
+| `metadata` | `dict` | `None` | 元数据，支持 `importance`, `emotion`, `tags` 等 |
+
+**示例**：
+
+```python
+# 添加事实记忆
+await nm.add_memory(
+    user_id="alice",
+    content="在 Google 工作",
+    memory_type="fact",
+    metadata={"importance": 8, "source": "user_profile"}
+)
+
+# 添加情景记忆（带情感标注）
+await nm.add_memory(
+    user_id="alice",
+    content="昨天面试很紧张",
+    memory_type="episodic",
+    metadata={
+        "importance": 7,
+        "emotion": {
+            "valence": -0.6,   # 情感效价 (-1~1)
+            "arousal": 0.8,    # 情感唤醒 (0~1)
+            "label": "焦虑"
+        }
+    }
+)
+```
+
+---
+
+### ✏️ add_message() vs add_memory() 对比
+
+| 特性 | add_message() | add_memory() |
+|------|--------------|-------------|
+| **写入目标** | 对话历史表 | 记忆表（embedding） |
+| **记忆生成** | 后续通过 extract_memories() 自动提取 | 直接写入，立即可检索 |
+| **情感标注** | ✅ LLM 自动标注 | ❌ 需手动指定 |
+| **重要性评分** | ✅ LLM 自动评估 | ❌ 需手动指定 |
+| **记忆分类** | ✅ LLM 自动分类（fact/preference/relation） | ❌ 需手动指定 memory_type |
+| **图关系** | ✅ 自动提取关系到知识图谱 | ❌ 不涉及图数据库 |
+| **LLM 依赖** | 提取时需要 LLM | 不需要 LLM |
+| **推荐场景** | 日常对话（推荐） | 手动导入、批量初始化、已知结构化数据 |
+
+**何时使用 add_message()**：
+- ✅ 构建对话 Agent（推荐）
+- ✅ 希望自动提取记忆、情感、关系
+- ✅ 日常对话场景
+
+**何时使用 add_memory()**：
+- 批量导入已有数据（如从其他系统迁移）
+- 手动添加已知信息（如用户资料）
+- 不想依赖 LLM 提取
 
 ---
 
@@ -377,57 +487,6 @@ insights = await nm.search(
 - 只需要语义相似度，不考虑时间
 - 特定类型筛选（`memory_type="insight"`）
 - 调试或分析记忆分布
-
----
-
-### add_memory() - 添加记忆
-
-直接添加结构化记忆，无需 LLM 提取。
-
-```python
-memory_id = await nm.add_memory(
-    user_id: str,
-    content: str,
-    memory_type: str = "general",
-    metadata: dict | None = None,
-) -> str
-```
-
-**参数**：
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `user_id` | `str` | - | 用户 ID |
-| `content` | `str` | - | 记忆内容 |
-| `memory_type` | `str` | `"general"` | 记忆类型：`fact`, `episodic`, `preference`, `insight`, `general` |
-| `metadata` | `dict` | `None` | 元数据，支持 `importance`, `emotion`, `tags` 等 |
-
-**示例**：
-
-```python
-# 添加事实记忆
-await nm.add_memory(
-    user_id="alice",
-    content="在 Google 工作",
-    memory_type="fact",
-    metadata={"importance": 8, "source": "user_profile"}
-)
-
-# 添加情景记忆（带情感标注）
-await nm.add_memory(
-    user_id="alice",
-    content="昨天面试很紧张",
-    memory_type="episodic",
-    metadata={
-        "importance": 7,
-        "emotion": {
-            "valence": -0.6,   # 情感效价 (-1~1)
-            "arousal": 0.8,    # 情感唤醒 (0~1)
-            "label": "焦虑"
-        }
-    }
-)
-```
 
 ---
 
