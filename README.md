@@ -126,13 +126,9 @@ agent 需要上下文 → 召回记忆 (recall)
 
 通过 `ExtractionStrategy` 可以配置自动触发时机（如每 10 条消息提取，每 50 次提取后反思），也可以完全手动控制。
 
-**完整指南**: [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | **API 参考**: [docs/API.md](docs/API.md)
-
 ---
 
 ## 核心特性
-
-### 功能模块
 
 | 模块 | 入口 | 功能 |
 |------|------|------|
@@ -147,9 +143,11 @@ agent 需要上下文 → 召回记忆 (recall)
 
 ---
 
-## 易混淆 API 说明
+## API 使用说明
 
-NeuroMemory 有三组容易混淆的 API，请先理解它们的区别：
+> 完整 API 参考文档见 **[docs/API.md](docs/API.md)**，包含所有方法的签名、参数、返回值和示例。
+
+NeuroMemory 有三组容易混淆的 API，以下是快速对比：
 
 ### ✏️ 写入 API：add_message() vs add_memory()
 
@@ -171,8 +169,6 @@ await nm.add_memory(user_id="alice", content="在 Google 工作",
     memory_type="fact", metadata={"importance": 8})
 ```
 
----
-
 ### 📚 检索 API：recall() vs search()
 
 | API | 用途 | 检索方式 | 何时使用 |
@@ -189,8 +185,6 @@ result = await nm.recall(user_id="alice", query="工作")
 results = await nm.search(user_id="alice", query="工作")
 # → "去年在微软实习" 和 "昨天面试 Google" 都可能返回，只按相似度排序
 ```
-
----
 
 ### 🧠 记忆管理 API：extract_memories() vs reflect()
 
@@ -211,17 +205,57 @@ await nm.reflect(user_id="alice")
 # → 重新提取遗漏对话 + 生成洞察: "用户近期求职，面试了 Google 和微软"
 ```
 
-**核心区别**：
-- `extract_memories()`: **增量提取** - 处理新对话，添加新记忆
-- `reflect()`: **全面整理** - 查漏补缺 + 提炼洞察 + 更新画像
+### 策略配置（ExtractionStrategy）
 
-**更多细节**: [docs/API.md - 易混淆 API 说明](docs/API.md#易混淆-api-说明)
+通过 `ExtractionStrategy` 控制自动记忆管理，配置后 `add_message()` 会在满足条件时自动触发提取：
+
+```python
+from neuromemory import ExtractionStrategy
+
+nm = NeuroMemory(
+    ...,
+    extraction=ExtractionStrategy(
+        message_interval=10,      # 每 10 条消息自动提取记忆（0 = 禁用）
+        idle_timeout=600,         # 闲置 10 分钟后自动提取（0 = 禁用）
+        reflection_interval=50,   # 每 50 次提取后触发 reflect() 整理（0 = 禁用）
+        on_session_close=True,    # 会话关闭时提取
+        on_shutdown=True,         # 程序关闭时提取
+    )
+)
+```
+
+**推荐配置**：
+- **实时应用**（聊天机器人）：`message_interval=10, reflection_interval=50`
+- **批处理**（每日总结）：`message_interval=0, on_session_close=True`，手动调用 `reflect()`
+- **开发调试**：全部设为 0，手动控制提取和反思时机
 
 ---
 
+## 记忆体系
+
+### 记忆分类
+
+NeuroMemory 提供 7 种记忆类型，每种有不同的存储方式和获取方式：
+
+| 记忆类型 | 存储方式 | 获取方式 | 示例 |
+|---------|---------|---------|------|
+| **偏好** | KV Store | `nm.kv.get("preferences", user_id, key)` | `language=zh-CN` |
+| **事实** | Embedding + Graph | `nm.recall(user_id, query)` | "在 Google 工作" |
+| **情景** | Embedding | `nm.recall(user_id, query)` | "昨天面试很紧张" |
+| **关系** | Graph Store | `nm.graph.get_neighbors(type, id)` | `(user)-[works_at]->(Google)` |
+| **洞察** | Embedding | `nm.search(user_id, query, memory_type="insight")` | "用户倾向于晚上工作" |
+| **情感画像** | Table | `reflect()` 自动更新 | "容易焦虑，对技术兴奋" |
+| **通用** | Embedding | `nm.search(user_id, query)` | 手动 `add_memory()` 的内容 |
+
+**查询方式选择**：
+- `recall()`: 综合评分（相关性 × 时效性 × 重要性），**推荐日常使用**
+- `search()`: 纯向量相似度，适合特定类型筛选
+- `kv.get()`: 精确键值查询，用于偏好配置
+- `graph.*`: 图遍历查询，用于关系网络
+
 ### 拟人记忆能力
 
-让 AI agent 像朋友般陪伴用户，而非冷冰冰的数据库。
+让 AI agent 像朋友般陪伴用户，而非冷冰冰的数据库：
 
 | 能力 | 理论基础 | 实现方式 |
 |------|---------|---------|
@@ -231,11 +265,28 @@ await nm.reflect(user_id="alice")
 | **访问追踪** | ACT-R 记忆模型 | 自动记录 access_count 和 last_accessed_at |
 | **反思机制** | Generative Agents Reflection | 定期从近期记忆提炼高层洞察（pattern/summary），更新情感画像 |
 
-#### 为什么用混合检索（三因子 + 图）
+### 三层情感架构
+
+NeuroMemory 独创的三层情感设计，让 AI agent 既能记住具体事件的情感，又能理解用户的长期情感特质：
+
+| 层次 | 类型 | 存储位置 | 时间性 | 示例 |
+|------|------|---------|--------|------|
+| **微观** | 事件情感标注 | fact/episodic.metadata | 瞬时 | "说到面试时很紧张(valence=-0.6)" |
+| **中观** | 近期情感状态 | emotion_profiles.latest_state | 1-2周 | "最近工作压力大，情绪低落" |
+| **宏观** | 长期情感画像 | emotion_profiles.* | 长期稳定 | "容易焦虑，但对技术话题兴奋" |
+
+**为什么需要三层？**
+- 微观：捕捉瞬时情感，丰富记忆细节
+- 中观：追踪近期状态，agent 可以关心"你最近还好吗"
+- 宏观：理解长期特质，形成真正的用户画像
+
+> **不做的事**：不自动推断用户人格 (Big Five) 或价值观。EU AI Act Article 5 禁止基于人格特征做自动化画像，Replika 因此被罚款 500 万欧元。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
+
+### 混合检索（三因子 + 图）
 
 `recall()` 不是简单的向量检索，而是**混合检索**，结合了三因子评分和图遍历：
 
-**1. 三因子向量检索**
+**三因子向量检索**
 
 ```python
 Score = relevance × recency × importance
@@ -259,26 +310,16 @@ importance = metadata.importance / 10
 | **重要性** | ❌ 琐事（天气）和大事（生日）同等对待 | ✅ 重要事件优先级更高 |
 | **适用场景** | 静态知识库 | 长期陪伴型 agent |
 
-**实际案例**：
-
-用户问："我在哪工作？"
+**实际案例**：用户问"我在哪工作？"
 
 | 记忆内容 | 时间 | 纯向量 | 三因子 | 应该返回 |
 |---------|------|--------|--------|---------|
 | "我在 Google 工作" | 1 年前 | 0.95 | 0.008 | ❌ 已过时 |
 | "上周从 Google 离职了" | 7 天前 | 0.85 | 0.67 | ✅ 最新且重要 |
 
-纯向量会返回过时信息，三因子优先返回最新相关记忆。
+**图实体检索**：从知识图谱中查找实体相关的 facts，与向量检索互补。向量擅长**语义匹配**，图擅长**结构化关系**：`(alice)-[works_at]->(Google)-[located_in]->(Mountain View)`
 
-**2. 图实体检索**
-
-从知识图谱中查找实体相关的 facts：
-- 查询中提到的实体（如 "Google"）
-- 用户自身相关的实体关系
-
-**3. 合并策略（recall() 实现）**
-
-`recall()` 自动执行混合检索并返回三部分结果：
+**合并策略**：`recall()` 自动执行两种检索并按 content 去重合并：
 
 ```python
 result = await nm.recall(user_id="alice", query="我在哪工作？", limit=10)
@@ -290,156 +331,13 @@ result = await nm.recall(user_id="alice", query="我在哪工作？", limit=10)
     "merged": [...],           # 去重后的综合结果（推荐使用）
 }
 
-# 使用示例
 for memory in result["merged"]:
     print(f"[{memory.get('source')}] {memory['content']}")
-    # 输出: [vector] 上周从 Google 离职了
-    #      [graph] Alice 在 Mountain View 工作过
 ```
-
-**实现流程**：
-
-```python
-# 步骤 1: 三因子向量检索
-vector_results = await scored_search(
-    user_id, query, limit,
-    # 自动计算：relevance × recency × importance
-)
-
-# 步骤 2: 图实体检索（自动并行）
-graph_results = []
-if graph_enabled:
-    # 2.1 查询中提到的实体（如 "Google"）
-    entity_facts = await find_entity_facts(user_id, query, limit)
-    # 2.2 用户自身相关的关系
-    user_facts = await find_entity_facts(user_id, user_id, limit)
-    graph_results = entity_facts + user_facts
-
-# 步骤 3: 按 content 去重合并
-seen_contents = set()
-merged = []
-for r in vector_results:
-    if r['content'] not in seen_contents:
-        merged.append({**r, "source": "vector"})
-for r in graph_results:
-    if r['content'] not in seen_contents:
-        merged.append({**r, "source": "graph"})
-
-return {"vector_results": ..., "graph_results": ..., "merged": merged[:limit]}
-```
-
-**为什么需要图检索？**
-- 向量检索擅长**语义匹配**："在 Google 工作" ≈ "工作地点"
-- 图检索擅长**结构化关系**：(alice)-[works_at]->(Google)-[located_in]->(Mountain View)
-- 两者互补，提供更全面的记忆召回
-- **去重机制**：避免同一记忆被重复返回
-
-**学术基础**：
-- **Generative Agents** (Stanford, 2023)：三因子检索
-- **ACT-R 认知架构**：基础激活 = log(Σ t^-d)
-- 已在虚拟小镇 Smallville 实验中验证有效性
-
-#### 记忆类型总结
-
-| 记忆类型 | 存储方式 | 检索方式 | 示例 |
-|---------|---------|---------|------|
-| **偏好** | KV Store | 精确 key 查找 | `language=zh-CN` |
-| **事实** | Embedding + Graph | 向量搜索 + 图遍历 | "在 Google 工作" |
-| **情景** | Embedding | 向量搜索 | "昨天面试很紧张" |
-| **关系** | Graph Store | 实体遍历 | `(user)-[works_at]->(Google)` |
-| **洞察** | Embedding | 向量搜索 | • 行为模式："用户倾向于晚上工作"<br>• 阶段总结："用户近期在准备跳槽" |
-| **情感画像** | Table | 结构化查询 | "容易焦虑，对技术兴奋" |
-| **通用** | Embedding | 向量搜索 | 手动 `add_memory()` 的内容 |
-
-#### 三层情感架构
-
-NeuroMemory 独创的三层情感设计，让 AI agent 既能记住具体事件的情感，又能理解用户的长期情感特质：
-
-| 层次 | 类型 | 存储位置 | 时间性 | 示例 |
-|------|------|---------|--------|------|
-| **微观** | 事件情感标注 | fact/episodic.metadata | 瞬时 | "说到面试时很紧张(valence=-0.6)" |
-| **中观** | 近期情感状态 | emotion_profiles.latest_state | 1-2周 | "最近工作压力大，情绪低落" |
-| **宏观** | 长期情感画像 | emotion_profiles.* | 长期稳定 | "容易焦虑，但对技术话题兴奋" |
-
-**为什么需要三层？**
-- 微观：捕捉瞬时情感，丰富记忆细节
-- 中观：追踪近期状态，agent 可以关心"你最近还好吗"
-- 宏观：理解长期特质，形成真正的用户画像
-
-> **不做的事**：不自动推断用户人格 (Big Five) 或价值观。EU AI Act Article 5 禁止基于人格特征做自动化画像，Replika 因此被罚款 500 万欧元。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
 
 ---
 
-### 如何使用
-
-#### 两种记忆管理方式
-
-NeuroMemory 提供两种方式管理记忆，适用于不同场景：
-
-**方式一：会话驱动（推荐用于聊天机器人）**
-```python
-# 1. 存储原始对话消息
-await nm.conversations.add_message(user_id="alice", role="user", content="我在 Google 工作")
-await nm.conversations.add_message(user_id="alice", role="assistant", content="了解！")
-
-# 2. 获取未提取的消息，用 LLM 提取结构化记忆
-messages = await nm.conversations.get_unextracted_messages(user_id="alice")
-await nm.extract_memories(user_id="alice", messages=messages)
-# 提取结果：fact="在 Google 工作", relation=(alice)-[works_at]->(Google)
-
-# 3. 定期整理记忆
-await nm.reflect(user_id="alice")  # 查漏补缺 + 生成洞察 + 更新画像
-```
-
-**方式二：直接添加记忆（推荐用于知识库导入）**
-```python
-# 直接添加结构化记忆，跳过对话存储
-await nm.add_memory(
-    user_id="alice",
-    content="在 Google 工作",
-    memory_type="fact",
-    metadata={"source": "user_profile", "importance": 8}
-)
-```
-
-**区别与选择**：
-
-| 维度 | 会话驱动 (conversations) | 直接添加 (add_memory) |
-|------|------------------------|---------------------|
-| **数据源** | 原始对话消息（user/assistant） | 已知的结构化信息 |
-| **处理方式** | 需要 LLM 提取 → 自动分类 | 直接存储，无需 LLM |
-| **适用场景** | 聊天机器人、对话 agent | 知识库导入、手动管理 |
-| **优势** | 保留完整对话上下文，自动情感标注 | 精确控制，性能更高 |
-| **成本** | 需要 LLM API 调用 | 无 LLM 成本 |
-
-**最佳实践**：
-- 聊天场景：用 `conversations.add_message()` + `ExtractionStrategy` 自动管理
-- 批量导入：用 `add_memory()` 直接添加已知事实
-- 混合使用：对话用 conversations，系统信息用 add_memory
-
----
-
-#### 1. 获取不同类型的记忆
-
-NeuroMemory 提供 7 种记忆类型，每种有不同的获取方式：
-
-| 记忆类型 | 如何获取 | 代码示例 |
-|---------|---------|---------|
-| **偏好** | `nm.kv.get()` | `lang = await nm.kv.get("preferences", "alice", "language")` |
-| **事实** | `nm.recall()` 或 `nm.search()` | `facts = await nm.recall("alice", "工作信息")` |
-| **情景** | `nm.recall()` 或 `nm.search()` | `episodes = await nm.recall("alice", "面试经历")` |
-| **关系** | `nm.graph.get_neighbors()` | `relations = await nm.graph.get_neighbors("alice", "User")` |
-| **洞察** | `nm.search(memory_type="insight")` | `insights = await nm.search("alice", "行为模式", memory_type="insight")` |
-| **情感画像** | 直接查询数据库 | `profile = await get_emotion_profile(user_id)` |
-| **通用** | `nm.search()` 或 `nm.recall()` | `all = await nm.search("alice", "相关内容")` |
-
-**查询方式对比**：
-- `search()`: 纯向量相似度，简单快速
-- `recall()`: 综合评分（相关性 × 时效性 × 重要性），推荐使用
-- `kv.get()`: 精确键值查询，用于偏好配置
-- `graph.*`: 图遍历查询，用于关系网络
-
-#### 2. 完整 Agent 示例
+## 完整 Agent 示例
 
 以下是一个带记忆的聊天 agent 完整实现：
 
@@ -490,11 +388,7 @@ class MemoryAgent:
         **对用户的深度理解（洞察）**：
         {insight_context}
 
-        请根据这些记忆和理解，以朋友的口吻自然地回应用户：
-        1. 如果记忆中有相关信息，自然地提及它们，展现你记得 ta 说过的话
-        2. 利用洞察来理解用户的性格、习惯、情感状态
-        3. 如果用户情绪低落（根据历史记忆判断），给予关心和支持
-        4. 避免机械地复述记忆，要像真正的朋友一样对话"""
+        请根据这些记忆和理解，以朋友的口吻自然地回应用户。"""
 
         # === 步骤 4：调用 LLM 生成回复 ===
         response = await self.llm.chat.completions.create(
@@ -532,60 +426,32 @@ async def main():
         # 第一轮对话
         reply1 = await agent.chat("alice", "我在 Google 工作，做后端开发，最近压力有点大")
         print(f"Agent: {reply1}")
-        # Agent: "听起来你最近工作挺辛苦的。在 Google 做后端开发一定很有挑战性吧..."
 
         # 自动提取记忆（达到 message_interval 时触发）
-        # 提取结果：
-        # - fact: "在 Google 工作", "做后端开发"
-        # - episodic: "最近压力有点大" (emotion: {valence: -0.5, label: "压力"})
-        # - relation: (alice)-[works_at]->(Google)
+        # → fact: "在 Google 工作", episodic: "最近压力有点大", relation: (alice)-[works_at]->(Google)
 
-        # 第二轮对话（几天后）
+        # 第二轮对话（几天后）— agent 能"记住"之前的对话
         reply2 = await agent.chat("alice", "有什么减压的建议吗？")
         print(f"Agent: {reply2}")
-        # Agent: "我记得你在 Google 做后端开发，最近压力挺大的。要不要试试..."
-        # ↑ agent 能"记住"之前的对话内容
 
-        # 手动触发反思整理（也可以由 ExtractionStrategy 自动触发）
+        # 定期反思整理
         result = await nm.reflect(user_id="alice")
         print(f"生成了 {result['insights_generated']} 条洞察")
-        # 返回: conversations_processed, facts_added, insights_generated, emotion_profile 等
-        # 洞察示例：
-        # - pattern: "用户是 Google 的后端工程师，关注技术和工作压力"
-        # - summary: "用户近期工作压力较大，寻求减压建议"
-        # - emotion_profile: "近期情绪偏焦虑 (valence: -0.5)"
 ```
 
-**关键点说明**：
-1. **召回记忆**：每次对话前，用 `recall()` 找出相关记忆
+**关键点**：
+1. **召回记忆**：每次对话前用 `recall()` 找出相关记忆
 2. **注入 prompt**：将记忆作为 context 注入到 LLM 的 system prompt
 3. **自动提取**：`ExtractionStrategy` 在后台自动提取和整理记忆
 4. **持续学习**：agent 随着对话增加，对用户的理解越来越深入
 
-#### 3. 策略配置
-
-通过 `ExtractionStrategy` 控制自动记忆管理：
-
-```python
-ExtractionStrategy(
-    message_interval=10,      # 每 10 条消息自动提取记忆（0 = 禁用）
-    idle_timeout=600,         # 闲置 10 分钟后自动提取（0 = 禁用）
-    reflection_interval=50,   # 每 50 次提取后触发 reflect() 整理（0 = 禁用）
-    on_session_close=True,    # 会话关闭时提取
-    on_shutdown=True,         # 程序关闭时提取
-)
-```
-
-**推荐配置**：
-- **实时应用**（聊天机器人）：`message_interval=10, reflection_interval=50`
-- **批处理**（每日总结）：`message_interval=0, on_session_close=True`，手动调用 `reflect()`
-- **开发调试**：全部设为 0，手动控制提取和反思时机
-
 ---
 
-## 差异化亮点
+## 架构与差异化
 
-与 Mem0、LangChain Memory、Character.AI 等竞品相比，NeuroMemory 的独特优势：
+### 差异化亮点
+
+与 Mem0、LangChain Memory、Character.AI 等竞品相比：
 
 | 特性 | NeuroMemory | Mem0 | LangChain | Character.AI |
 |------|------------|------|-----------|--------------|
@@ -599,53 +465,11 @@ ExtractionStrategy(
 | **隐私合规** | ✅ 不推断人格/价值观 | ❓ | ❓ | ❌ (GDPR 罚款) |
 
 **核心差异点**：
-1. **情感认知**：NeuroMemory 是唯一实现三层情感架构的开源记忆框架，让 agent 能像人一样理解和回应用户的情感变化
-2. **理论基础**：基于认知心理学（LeDoux、Ebbinghaus、ACT-R）和最新 AI 研究（Generative Agents），不是简单的向量数据库封装
+1. **情感认知**：唯一实现三层情感架构的开源记忆框架
+2. **理论基础**：基于认知心理学（LeDoux、Ebbinghaus、ACT-R）和 Generative Agents，不是简单的向量数据库封装
 3. **隐私优先**：严格遵守 EU AI Act 和 GDPR，不做有争议的人格推断
 
----
-
-### 可插拔 Provider
-
-```
-EmbeddingProvider (ABC)
-├── SiliconFlowEmbedding   # BAAI/bge-m3, 1024 维
-└── OpenAIEmbedding        # text-embedding-3-small, 1536 维
-
-LLMProvider (ABC)
-└── OpenAILLM              # 兼容 OpenAI / DeepSeek
-
-ObjectStorage (ABC)
-└── S3Storage              # 兼容 MinIO / AWS S3 / 华为云 OBS
-```
-
-### 统一存储
-
-- **PostgreSQL 16 + pgvector**: 结构化数据 + 向量检索
-- **Apache AGE**: 图数据库（Cypher 查询）
-- **ACID 事务**: 数据一致性保证
-
-### 异步优先
-
-- 全链路 async/await（SQLAlchemy 2.0 + asyncpg）
-- 上下文管理器自动管理连接生命周期
-
----
-
-## 文档
-
-| 文档 | 说明 |
-|------|------|
-| **[API 参考](docs/API.md)** | 完整的 Python API 文档（recall, search, extract_memories 等） |
-| **[快速开始](docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
-| **[架构设计](docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型 |
-| **[使用指南](docs/SDK_GUIDE.md)** | API 用法和代码示例 |
-| **[为什么不提供 Web UI](docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
-| **[CLAUDE.md](CLAUDE.md)** | Claude Code 工作指南 |
-
----
-
-## 架构概览
+### 架构概览
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -681,13 +505,11 @@ ObjectStorage (ABC)
 └─────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 技术栈
+### 技术栈
 
 | 组件 | 技术 | 说明 |
 |------|------|------|
-| **Framework** | Python 3.10+ async | 直接嵌入 agent 程序 |
+| **Framework** | Python 3.12+ async | 直接嵌入 agent 程序 |
 | **数据库** | PostgreSQL 16 + pgvector | 向量检索 + 结构化存储 |
 | **图数据库** | Apache AGE | Cypher 查询语言 |
 | **ORM** | SQLAlchemy 2.0 (async) | asyncpg 驱动 |
@@ -695,150 +517,31 @@ ObjectStorage (ABC)
 | **LLM** | 可插拔 Provider | OpenAI / DeepSeek |
 | **文件存储** | S3 兼容 | MinIO / AWS S3 / 华为云 OBS |
 
----
+### 可插拔 Provider
 
-## 安装
-
-### 环境要求
-
-- **Python**: 3.10+
-- **Docker**: 20.0+（用于 PostgreSQL）
-
-### 安装步骤
-
-```bash
-# 克隆项目
-git clone https://github.com/your-repo/NeuroMemory.git
-cd NeuroMemory
-
-# 启动 PostgreSQL（含 pgvector + AGE）
-docker compose -f docker-compose.yml up -d db
-
-# 安装（含所有可选依赖）
-pip install -e ".[all]"
-
-# 或只安装核心依赖
-pip install -e .
 ```
+EmbeddingProvider (ABC)
+├── SiliconFlowEmbedding   # BAAI/bge-m3, 1024 维
+└── OpenAIEmbedding        # text-embedding-3-small, 1536 维
 
-### 可选依赖
+LLMProvider (ABC)
+└── OpenAILLM              # 兼容 OpenAI / DeepSeek
 
-```bash
-pip install -e ".[s3]"     # S3/MinIO 文件存储
-pip install -e ".[pdf]"    # PDF 文本提取
-pip install -e ".[docx]"   # Word 文本提取
-pip install -e ".[dev]"    # 开发和测试工具
-pip install -e ".[all]"    # 全部依赖
+ObjectStorage (ABC)
+└── S3Storage              # 兼容 MinIO / AWS S3 / 华为云 OBS
 ```
-
-详见 [快速开始指南](docs/GETTING_STARTED.md)
 
 ---
 
-## 使用示例
+## 文档
 
-### KV 存储
-
-```python
-# 存储用户偏好
-await nm.kv.set("preferences", "alice", "language", "zh-CN")
-await nm.kv.set("preferences", "alice", "theme", {"mode": "dark"})
-
-# 读取
-value = await nm.kv.get("preferences", "alice", "language")
-
-# 列出
-items = await nm.kv.list("preferences", "alice")
-```
-
-### 对话管理
-
-```python
-# 添加消息
-msg = await nm.conversations.add_message(
-    user_id="alice", role="user", content="Hello!"
-)
-
-# 批量添加
-session_id, ids = await nm.conversations.add_messages_batch(
-    user_id="alice",
-    messages=[
-        {"role": "user", "content": "Hi"},
-        {"role": "assistant", "content": "Hello!"},
-    ],
-)
-
-# 获取历史
-messages = await nm.conversations.get_session_messages(user_id="alice", session_id=session_id)
-```
-
-### 文件管理
-
-```python
-from neuromemory import S3Storage
-
-nm = NeuroMemory(
-    database_url="...",
-    embedding=SiliconFlowEmbedding(api_key="..."),
-    storage=S3Storage(
-        endpoint="http://localhost:9000",
-        access_key="neuromemory",
-        secret_key="neuromemory123",
-        bucket="neuromemory",
-    ),
-)
-
-# 上传文件（自动提取文本、生成 embedding）
-doc = await nm.files.upload(
-    user_id="alice",
-    filename="report.pdf",
-    file_data=open("report.pdf", "rb").read(),
-    category="work",
-    auto_extract=True,
-)
-
-# 列出文件
-docs = await nm.files.list(user_id="alice", category="work")
-```
-
-### 图数据库
-
-```python
-from neuromemory.models.graph import NodeType, EdgeType
-
-# 创建节点
-await nm.graph.create_node(NodeType.USER, "alice", properties={"name": "Alice"})
-await nm.graph.create_node(NodeType.TOPIC, "python", properties={"name": "Python"})
-
-# 创建关系
-await nm.graph.create_edge(
-    NodeType.USER, "alice",
-    EdgeType.INTERESTED_IN,
-    NodeType.TOPIC, "python",
-)
-
-# 查询邻居
-neighbors = await nm.graph.get_neighbors(NodeType.USER, "alice")
-```
-
-### 记忆提取（需要 LLM）
-
-```python
-from neuromemory import OpenAILLM
-
-nm = NeuroMemory(
-    database_url="...",
-    embedding=SiliconFlowEmbedding(api_key="..."),
-    llm=OpenAILLM(api_key="...", model="deepseek-chat"),
-)
-
-# 获取未提取的消息，然后用 LLM 提取记忆
-messages = await nm.conversations.get_unextracted_messages(user_id="alice")
-stats = await nm.extract_memories(user_id="alice", messages=messages)
-print(f"提取了 {stats['facts_stored']} 条事实")
-```
-
-更多示例见 [使用指南](docs/SDK_GUIDE.md)
+| 文档 | 说明 |
+|------|------|
+| **[API 参考](docs/API.md)** | 完整的 Python API 文档（recall, search, extract_memories 等） |
+| **[快速开始](docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
+| **[架构设计](docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型 |
+| **[使用指南](docs/SDK_GUIDE.md)** | API 用法和代码示例 |
+| **[为什么不提供 Web UI](docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
 
 ---
 
@@ -877,31 +580,18 @@ print(f"提取了 {stats['facts_stored']} 条事实")
 
 NeuroMemory 是一个 Python 库，不提供 Web 管理界面。记忆的可视化和管理应该由你的 agent 应用程序提供。
 
-**推荐方式**：
-
 ```python
-# 方式 1: 在 agent 应用中查询并展示
+# 在 agent 应用中查询
 results = await nm.search(user_id="alice", query="工作")
-for r in results:
-    print(f"{r['content']} (score: {r['score']})")
 
-# 方式 2: Jupyter Notebook（数据分析）
+# Jupyter Notebook
 import pandas as pd
-results = await nm.search(user_id="alice", query="")
-df = pd.DataFrame(results)
-df.head()
+df = pd.DataFrame(await nm.search(user_id="alice", query=""))
 
-# 方式 3: 直接查询 PostgreSQL
+# 直接查询 PostgreSQL
 # psql -U neuromemory -d neuromemory
 # SELECT content, memory_type, metadata FROM embeddings WHERE user_id = 'alice';
 ```
-
-**构建自己的界面**：
-
-如果需要为你的 agent 应用构建管理界面，可以：
-- 调用 `nm.search()` / `nm.kv.list()` / `nm.conversations.get_history()` 等 API
-- 用任何框架构建 UI（Streamlit、Gradio、Flask、FastAPI + React 等）
-- 根据应用场景定制展示方式（聊天界面、数据看板、CLI 工具等）
 
 ---
 
