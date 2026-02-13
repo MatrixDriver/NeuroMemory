@@ -16,10 +16,7 @@
 docker compose -f docker-compose.yml up -d db
 
 # 安装 neuromemory
-uv pip install -e ".[dev]"
-
-# 安装本地 embedding 模型依赖
-pip install sentence-transformers
+pip install -e ".[dev]"
 ```
 
 ## 环境变量
@@ -31,7 +28,19 @@ pip install sentence-transformers
 | `LLM_BASE_URL` | LLM API 地址 | `https://api.deepseek.com/v1` |
 | `LLM_MODEL` | LLM 模型名 | `deepseek-chat` |
 
-Embedding 使用本地模型 `paraphrase-multilingual-MiniLM-L12-v2`（384 维，支持中英文），首次运行自动下载（约 450MB），无需 API Key。
+### Embedding
+
+默认使用内置的 **HashEmbedding**（基于哈希，无需额外依赖），可以完整验证所有功能流程。
+
+如需真正的语义检索能力，安装 `sentence-transformers` 后会自动切换到本地模型：
+
+```bash
+pip install sentence-transformers
+# 模型: paraphrase-multilingual-MiniLM-L12-v2 (384 dims, 支持中英文)
+# 首次运行自动下载（约 450MB）
+```
+
+> 注意：sentence-transformers 依赖 PyTorch，需要 Python ≤ 3.12 或 ARM64 架构。
 
 ## 运行
 
@@ -51,7 +60,8 @@ python example/chat_agent.py
 
 | 命令 | 说明 |
 |------|------|
-| `/memories <query>` | 搜索记忆 |
+| `/memories <query>` | 搜索记忆（三因子评分：相关性 × 时效性 × 重要性） |
+| `/reflect` | 触发反思，从近期记忆生成高层次洞察 |
 | `/history` | 查看当前会话对话历史 |
 | `/prefs [key] [value]` | 查看/设置偏好 |
 | `/help` | 显示帮助 |

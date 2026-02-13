@@ -9,13 +9,16 @@
     export LLM_API_KEY=your_key
     python example/chat_agent.py
 
-首次运行会自动下载本地 embedding 模型（约 450MB）。
+默认使用内置的 HashEmbedding（基于哈希，无需额外依赖，适合功能验证）。
+如需真正的语义检索，安装 sentence-transformers 后会自动启用本地模型。
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import math
 import os
 import uuid
 
@@ -25,7 +28,37 @@ from neuromemory.providers.embedding import EmbeddingProvider
 USER_ID = "demo-user"
 SESSION_ID = str(uuid.uuid4())
 
-# --- 本地 Embedding Provider ---
+# --- Embedding Providers ---
+
+
+class HashEmbedding(EmbeddingProvider):
+    """基于哈希的 embedding provider，无需额外依赖。
+
+    使用 SHA-256 哈希生成确定性向量，不提供真正的语义相似度，
+    但可以完整验证 NeuroMemory 的所有功能流程。
+    """
+
+    def __init__(self, dims: int = 1024):
+        self._dims = dims
+
+    @property
+    def dims(self) -> int:
+        return self._dims
+
+    async def embed(self, text: str) -> list[float]:
+        digest = hashlib.sha256(text.encode()).digest()
+        raw = []
+        # 用 SHA-256 的 32 字节循环填充到目标维度
+        for i in range(self._dims):
+            byte_val = digest[i % len(digest)] ^ (i // len(digest) & 0xFF)
+            raw.append(byte_val / 255.0 * 2 - 1)
+        # L2 归一化
+        norm = math.sqrt(sum(x * x for x in raw)) or 1.0
+        return [x / norm for x in raw]
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [await self.embed(t) for t in texts]
+
 
 MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
@@ -38,12 +71,7 @@ class LocalEmbedding(EmbeddingProvider):
     """
 
     def __init__(self, model_name: str = MODEL_NAME):
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError:
-            raise ImportError(
-                "请安装 sentence-transformers: pip install sentence-transformers"
-            )
+        from sentence_transformers import SentenceTransformer
 
         print(f"加载 embedding 模型: {model_name}")
         print("（首次运行需要下载，之后从缓存加载）")
@@ -62,6 +90,22 @@ class LocalEmbedding(EmbeddingProvider):
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         embeddings = self._model.encode(texts, normalize_embeddings=True)
         return [e.tolist() for e in embeddings]
+
+
+def create_embedding_provider() -> EmbeddingProvider:
+    """自动选择最佳 embedding provider。
+
+    优先使用 sentence-transformers 本地模型（真正的语义检索），
+    如果未安装则回退到 HashEmbedding（功能验证模式）。
+    """
+    try:
+        import sentence_transformers  # noqa: F401
+        print("检测到 sentence-transformers，使用本地语义模型")
+        return LocalEmbedding()
+    except ImportError:
+        print("使用内置 HashEmbedding（功能验证模式，无语义相似度）")
+        print("提示: pip install sentence-transformers 可启用真正的语义检索\n")
+        return HashEmbedding(dims=1024)
 
 
 # --- Provider 初始化 ---
@@ -162,14 +206,13 @@ async def handle_reflect_command(nm: NeuroMemory):
     print("  正在反思最近的记忆...")
     try:
         result = await nm.reflect(user_id=USER_ID, limit=50)
-        count = result["reflections_generated"]
-        if count == 0:
-            print("  没有生成新的反思（可能记忆太少）。")
-            return
-        print(f"  生成了 {count} 条新的反思：")
-        for ref in result["reflections"]:
-            category = ref.get("category", "?")
-            print(f"    - [{category}] {ref['content']}")
+        count = result.get("insights_generated", 0)
+        facts = result.get("facts_added", 0)
+        prefs = result.get("preferences_updated", 0)
+        print(f"  反思完成：提取 {facts} 条事实，{prefs} 条偏好，生成 {count} 条洞察")
+        if count > 0:
+            for ins in result.get("insights", []):
+                print(f"    - {ins.get('content', '')}")
     except RuntimeError as e:
         print(f"  反思失败: {e}")
 
@@ -238,7 +281,7 @@ async def main():
     # 使用默认提取策略：每 10 条消息 + 10 分钟空闲 + session 关闭 + 程序退出
     strategy = ExtractionStrategy()
 
-    embedding = LocalEmbedding()
+    embedding = create_embedding_provider()
     llm = create_llm_provider()
 
     # 开启 extraction 日志，便于观察自动提取过程

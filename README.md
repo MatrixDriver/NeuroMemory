@@ -53,12 +53,18 @@ docker run -d -p 5432:5432 \
   ankane/pgvector:pg16
 ```
 
-### 2. API Keys（必需）
+### 2. Embedding Provider（必需，三选一）
 
-- **Embedding**: [SiliconFlow](https://siliconflow.cn/) 或 [OpenAI](https://platform.openai.com/)
-- **LLM**: [OpenAI](https://platform.openai.com/) 或 [DeepSeek](https://platform.deepseek.com/)（用于自动提取记忆）
+- **本地模型**（无需 API Key）：`pip install sentence-transformers`，使用本地 transformer 模型
+- **SiliconFlow**：[siliconflow.cn](https://siliconflow.cn/)，需要 API Key
+- **OpenAI**：[platform.openai.com](https://platform.openai.com/)，需要 API Key
 
-### 3. MinIO/S3（可选，仅用于文件存储）
+### 3. LLM API Key（用于自动提取记忆，可选）
+
+- [OpenAI](https://platform.openai.com/) 或 [DeepSeek](https://platform.deepseek.com/)
+- 不使用 LLM 时，仍可手动通过 `add_memory()` 添加记忆并用 `recall()`/`search()` 检索
+
+### 4. MinIO/S3（可选，仅用于文件存储）
 
 ```bash
 docker compose -f docker-compose.yml up -d minio
@@ -130,16 +136,94 @@ agent 需要上下文 → 召回记忆 (recall)
 
 ## 核心特性
 
+### 记忆分类
+
+NeuroMemory 提供 7 种记忆类型，每种有不同的存储和获取方式：
+
+| 记忆类型 | 存储方式 | 获取方式 | 示例 |
+|---------|---------|---------|------|
+| **偏好** | KV Store | `nm.kv.get("preferences", user_id, key)` | `language=zh-CN` |
+| **事实** | Embedding + Graph | `nm.recall(user_id, query)` | "在 Google 工作" |
+| **情景** | Embedding | `nm.recall(user_id, query)` | "昨天面试很紧张" |
+| **关系** | Graph Store | `nm.graph.get_neighbors(type, id)` | `(user)-[works_at]->(Google)` |
+| **洞察** | Embedding | `nm.search(user_id, query, memory_type="insight")` | "用户倾向于晚上工作" |
+| **情感画像** | Table | `reflect()` 自动更新 | "容易焦虑，对技术兴奋" |
+| **通用** | Embedding | `nm.search(user_id, query)` | 手动 `add_memory()` 的内容 |
+
+### 三因子混合检索
+
+不是简单的向量数据库封装。`recall()` 综合三个因子评分并融合图谱遍历：
+
+```python
+Score = relevance × recency × importance
+
+relevance = 1 - cosine_distance                         # 语义相似度 (0-1)
+recency   = e^(-t / decay_rate × (1 + arousal × 0.5))   # 时效性，高情感唤醒衰减更慢
+importance = metadata.importance / 10                    # LLM 评估的重要性 (0.1-1.0)
+```
+
+| 对比维度 | 纯向量检索 | 三因子检索 |
+|---------|-----------|-----------|
+| **时间感知** | ❌ 1 年前和昨天的权重相同 | ✅ 指数衰减（Ebbinghaus 遗忘曲线） |
+| **情感影响** | ❌ 不考虑情感强度 | ✅ 高 arousal 记忆衰减慢 50% |
+| **重要性** | ❌ 琐事和大事同等对待 | ✅ 重要事件优先级更高 |
+
+**实际案例** — 用户问"我在哪工作？"：
+
+| 记忆内容 | 时间 | 纯向量 | 三因子 | 应该返回 |
+|---------|------|--------|--------|---------|
+| "我在 Google 工作" | 1 年前 | 0.95 | 0.008 | ❌ 已过时 |
+| "上周从 Google 离职了" | 7 天前 | 0.85 | 0.67 | ✅ 最新且重要 |
+
+**图实体检索**：从知识图谱中查找结构化关系（`(alice)-[works_at]->(Google)`），与向量结果去重合并。`recall()` 返回 `vector_results`、`graph_results` 和合并后的 `merged` 列表。
+
+### 三层情感架构
+
+唯一实现三层情感设计的开源记忆框架：
+
+| 层次 | 类型 | 存储位置 | 时间性 | 示例 |
+|------|------|---------|--------|------|
+| **微观** | 事件情感标注 | 记忆 metadata (valence/arousal/label) | 瞬时 | "说到面试时很紧张(valence=-0.6)" |
+| **中观** | 近期情感状态 | emotion_profiles.latest_state | 1-2周 | "最近工作压力大，情绪低落" |
+| **宏观** | 长期情感画像 | emotion_profiles.* | 长期稳定 | "容易焦虑，但对技术话题兴奋" |
+
+- 微观：捕捉瞬时情感，丰富记忆细节
+- 中观：追踪近期状态，agent 可以关心"你最近还好吗"
+- 宏观：理解长期特质，形成真正的用户画像
+
+> **隐私合规**：不自动推断用户人格 (Big Five) 或价值观。EU AI Act Article 5 禁止此类自动化画像。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
+
+### LLM 驱动的记忆提取与反思
+
+- **提取** (`extract_memories`)：从对话中自动识别事实、偏好、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10）
+- **反思** (`reflect`)：定期从近期记忆提炼高层洞察（行为模式、阶段总结），更新情感画像
+- **访问追踪**：自动记录 access_count 和 last_accessed_at，符合 ACT-R 记忆模型
+
+理论基础：Generative Agents (Park 2023) 的 Reflection 机制 + LeDoux 情感标记 + Ebbinghaus 遗忘曲线 + ACT-R 记忆模型。
+
+### 全栈记忆能力
+
 | 模块 | 入口 | 功能 |
 |------|------|------|
-| **语义记忆** | `nm.add_memory()` / `nm.search()` | 存储文本并自动生成 embedding，向量相似度检索 |
-| **混合检索** | `nm.recall()` | 三因子向量检索 (relevance × recency × importance) + 图实体检索，合并去重 |
-| **KV 存储** | `nm.kv` | 通用键值存储（偏好、配置），namespace + scope 隔离 |
+| **语义记忆** | `nm.add_memory()` / `nm.search()` | 存储文本 + embedding，向量相似度检索 |
+| **混合检索** | `nm.recall()` | 三因子 + 图实体，合并去重 |
+| **KV 存储** | `nm.kv` | 键值存储（偏好、配置），namespace + scope 隔离 |
 | **对话管理** | `nm.conversations` | 会话消息存储、批量导入、会话列表 |
-| **文件管理** | `nm.files` | 文件上传到 S3/MinIO，自动提取文本并生成 embedding |
-| **图数据库** | `nm.graph` | 基于 Apache AGE 的知识图谱，节点/边 CRUD、路径查找 |
-| **记忆提取** | `nm.extract_memories()` | 用 LLM 从对话中自动提取偏好、事实、事件，含情感标注和重要性评分 |
-| **反思** | `nm.reflect()` | 全面记忆整理：重新提取未处理对话 + 生成洞察 + 更新情感画像 |
+| **文件管理** | `nm.files` | 上传到 S3/MinIO，自动提取文本并生成 embedding |
+| **知识图谱** | `nm.graph` | Apache AGE，节点/边 CRUD、路径查找、Cypher 查询 |
+
+### 与同类框架对比
+
+| 特性 | NeuroMemory | Mem0 | LangChain Memory |
+|------|------------|------|-----------------|
+| 三层情感架构 | ✅ 微观+中观+宏观 | ❌ | ❌ |
+| 情感标注 | ✅ valence/arousal/label | ❌ | ❌ |
+| 重要性评分 + 三因子检索 | ✅ | 🔶 有评分 | ❌ |
+| 反思机制 | ✅ 洞察 + 画像更新 | ❌ | ❌ |
+| 知识图谱 | ✅ Apache AGE (Cypher) | 🔶 简单图 | 🔶 LangGraph |
+| 多模态文件 | ✅ PDF/DOCX 提取 | ✅ | ❌ |
+| 框架嵌入 | ✅ Python 库 | ✅ | ✅ |
+| 隐私合规 | ✅ 不推断人格 | ❓ | ❓ |
 
 ---
 
@@ -231,115 +315,11 @@ nm = NeuroMemory(
 
 ---
 
-## 记忆体系
-
-### 记忆分类
-
-NeuroMemory 提供 7 种记忆类型，每种有不同的存储方式和获取方式：
-
-| 记忆类型 | 存储方式 | 获取方式 | 示例 |
-|---------|---------|---------|------|
-| **偏好** | KV Store | `nm.kv.get("preferences", user_id, key)` | `language=zh-CN` |
-| **事实** | Embedding + Graph | `nm.recall(user_id, query)` | "在 Google 工作" |
-| **情景** | Embedding | `nm.recall(user_id, query)` | "昨天面试很紧张" |
-| **关系** | Graph Store | `nm.graph.get_neighbors(type, id)` | `(user)-[works_at]->(Google)` |
-| **洞察** | Embedding | `nm.search(user_id, query, memory_type="insight")` | "用户倾向于晚上工作" |
-| **情感画像** | Table | `reflect()` 自动更新 | "容易焦虑，对技术兴奋" |
-| **通用** | Embedding | `nm.search(user_id, query)` | 手动 `add_memory()` 的内容 |
-
-**查询方式选择**：
-- `recall()`: 综合评分（相关性 × 时效性 × 重要性），**推荐日常使用**
-- `search()`: 纯向量相似度，适合特定类型筛选
-- `kv.get()`: 精确键值查询，用于偏好配置
-- `graph.*`: 图遍历查询，用于关系网络
-
-### 拟人记忆能力
-
-让 AI agent 像朋友般陪伴用户，而非冷冰冰的数据库：
-
-| 能力 | 理论基础 | 实现方式 |
-|------|---------|---------|
-| **情感标注** | LeDoux 1996 情感标记 + Russell Circumplex | LLM 提取时标注 valence(-1~1)、arousal(0~1)、label，存入 metadata |
-| **重要性评分** | Generative Agents (Park 2023) | 每条记忆 1-10 分，影响检索排序（生日=9, 天气=2） |
-| **混合检索** | Generative Agents + Ebbinghaus | 三因子向量 (`relevance × recency × importance`) + 图实体遍历，高 arousal 记忆衰减更慢 |
-| **访问追踪** | ACT-R 记忆模型 | 自动记录 access_count 和 last_accessed_at |
-| **反思机制** | Generative Agents Reflection | 定期从近期记忆提炼高层洞察（pattern/summary），更新情感画像 |
-
-### 三层情感架构
-
-NeuroMemory 独创的三层情感设计，让 AI agent 既能记住具体事件的情感，又能理解用户的长期情感特质：
-
-| 层次 | 类型 | 存储位置 | 时间性 | 示例 |
-|------|------|---------|--------|------|
-| **微观** | 事件情感标注 | fact/episodic.metadata | 瞬时 | "说到面试时很紧张(valence=-0.6)" |
-| **中观** | 近期情感状态 | emotion_profiles.latest_state | 1-2周 | "最近工作压力大，情绪低落" |
-| **宏观** | 长期情感画像 | emotion_profiles.* | 长期稳定 | "容易焦虑，但对技术话题兴奋" |
-
-**为什么需要三层？**
-- 微观：捕捉瞬时情感，丰富记忆细节
-- 中观：追踪近期状态，agent 可以关心"你最近还好吗"
-- 宏观：理解长期特质，形成真正的用户画像
-
-> **不做的事**：不自动推断用户人格 (Big Five) 或价值观。EU AI Act Article 5 禁止基于人格特征做自动化画像，Replika 因此被罚款 500 万欧元。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
-
-### 混合检索（三因子 + 图）
-
-`recall()` 不是简单的向量检索，而是**混合检索**，结合了三因子评分和图遍历：
-
-**三因子向量检索**
-
-```python
-Score = relevance × recency × importance
-
-# 相关性 (0-1)：语义相似度
-relevance = 1 - cosine_distance
-
-# 时效性 (0-1)：指数衰减，情感唤醒减缓遗忘
-recency = e^(-t / decay_rate × (1 + arousal × 0.5))
-
-# 重要性 (0.1-1.0)：LLM 评估或人工标注
-importance = metadata.importance / 10
-```
-
-**为什么采用三因子？**
-
-| 对比维度 | 纯向量检索 | 三因子检索 |
-|---------|-----------|-----------|
-| **时间感知** | ❌ 1 年前的记忆和昨天的权重相同 | ✅ 指数衰减，符合 Ebbinghaus 遗忘曲线 |
-| **情感影响** | ❌ 不考虑情感强度 | ✅ 高 arousal 记忆（面试、分手）衰减慢 50% |
-| **重要性** | ❌ 琐事（天气）和大事（生日）同等对待 | ✅ 重要事件优先级更高 |
-| **适用场景** | 静态知识库 | 长期陪伴型 agent |
-
-**实际案例**：用户问"我在哪工作？"
-
-| 记忆内容 | 时间 | 纯向量 | 三因子 | 应该返回 |
-|---------|------|--------|--------|---------|
-| "我在 Google 工作" | 1 年前 | 0.95 | 0.008 | ❌ 已过时 |
-| "上周从 Google 离职了" | 7 天前 | 0.85 | 0.67 | ✅ 最新且重要 |
-
-**图实体检索**：从知识图谱中查找实体相关的 facts，与向量检索互补。向量擅长**语义匹配**，图擅长**结构化关系**：`(alice)-[works_at]->(Google)-[located_in]->(Mountain View)`
-
-**合并策略**：`recall()` 自动执行两种检索并按 content 去重合并：
-
-```python
-result = await nm.recall(user_id="alice", query="我在哪工作？", limit=10)
-
-# 返回格式
-{
-    "vector_results": [...],   # 三因子检索结果（带 score）
-    "graph_results": [...],    # 图实体检索结果
-    "merged": [...],           # 去重后的综合结果（推荐使用）
-}
-
-for memory in result["merged"]:
-    print(f"[{memory.get('source')}] {memory['content']}")
-```
-
----
-
 ## 完整 Agent 示例
 
-以下是一个带记忆的聊天 agent 完整实现：
+> 可运行的完整示例见 **[example/](example/)**，支持终端交互、命令查询、自动记忆提取。无需 Embedding API Key。
+
+以下是一个带记忆的聊天 agent 核心实现：
 
 ```python
 from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM, ExtractionStrategy
@@ -447,27 +427,7 @@ async def main():
 
 ---
 
-## 架构与差异化
-
-### 差异化亮点
-
-与 Mem0、LangChain Memory、Character.AI 等竞品相比：
-
-| 特性 | NeuroMemory | Mem0 | LangChain | Character.AI |
-|------|------------|------|-----------|--------------|
-| **三层情感架构** | ✅ 微观事件 + 中观状态 + 宏观画像 | ❌ | ❌ | 🔶 隐式推断（有争议） |
-| **情感标注** | ✅ valence/arousal/label | ❌ | ❌ | ❌ |
-| **重要性评分** | ✅ 1-10 分 + 三因子检索 | ✅ 有评分 | ❌ | ❌ |
-| **反思机制** | ✅ 行为模式 + 阶段总结洞察 | ❌ | ❌ | 🔶 Diary 机制 |
-| **图数据库** | ✅ Apache AGE (Cypher) | 🔶 简单图 | 🔶 LangGraph (不同层) | ❌ |
-| **框架嵌入** | ✅ Python 库，直接嵌入 | ✅ | ✅ | ❌ (SaaS) |
-| **多模态文件** | ✅ PDF/DOCX 自动提取 | ✅ | ❌ | ❌ |
-| **隐私合规** | ✅ 不推断人格/价值观 | ❓ | ❓ | ❌ (GDPR 罚款) |
-
-**核心差异点**：
-1. **情感认知**：唯一实现三层情感架构的开源记忆框架
-2. **理论基础**：基于认知心理学（LeDoux、Ebbinghaus、ACT-R）和 Generative Agents，不是简单的向量数据库封装
-3. **隐私优先**：严格遵守 EU AI Act 和 GDPR，不做有争议的人格推断
+## 架构
 
 ### 架构概览
 
@@ -573,25 +533,6 @@ ObjectStorage (ABC)
 - [ ] 自然遗忘（主动记忆清理/归档机制）
 - [ ] 多模态 embedding（图片、音频）
 - [ ] 分布式部署支持
-
----
-
-## 查看和调试记忆
-
-NeuroMemory 是一个 Python 库，不提供 Web 管理界面。记忆的可视化和管理应该由你的 agent 应用程序提供。
-
-```python
-# 在 agent 应用中查询
-results = await nm.search(user_id="alice", query="工作")
-
-# Jupyter Notebook
-import pandas as pd
-df = pd.DataFrame(await nm.search(user_id="alice", query=""))
-
-# 直接查询 PostgreSQL
-# psql -U neuromemory -d neuromemory
-# SELECT content, memory_type, metadata FROM embeddings WHERE user_id = 'alice';
-```
 
 ---
 
