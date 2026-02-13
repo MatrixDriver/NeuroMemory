@@ -26,6 +26,11 @@ tmpclaude-*
 # rpiv 过程文件目录
 rpiv/
 
+# Evaluation data & results
+evaluation/data/*.json
+evaluation/results/*.json
+evaluation/results/*.tmp
+
 # 临时文件
 nul
 Untitled
