@@ -601,9 +601,11 @@ ObjectStorage (ABC)
 
 | 文档 | 说明 |
 |------|------|
+| **[API 参考](docs/API.md)** | 完整的 Python API 文档（recall, search, extract_memories 等） |
 | **[快速开始](docs/v2/GETTING_STARTED.md)** | 10 分钟上手指南 |
 | **[架构设计](docs/v2/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型 |
-| **[使用指南](docs/v2/SDK_GUIDE.md)** | 完整 API 用法和代码示例 |
+| **[使用指南](docs/v2/SDK_GUIDE.md)** | API 用法和代码示例 |
+| **[为什么不提供 Web UI](docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
 | **[CLAUDE.md](CLAUDE.md)** | Claude Code 工作指南 |
 
 ---
