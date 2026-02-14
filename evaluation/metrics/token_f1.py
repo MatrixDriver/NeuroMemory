@@ -7,7 +7,7 @@ import re
 
 def _tokenize(text: str) -> list[str]:
     """Lowercase, remove punctuation, split on whitespace."""
-    text = text.lower()
+    text = str(text).lower()
     text = re.sub(r"[^\w\s]", "", text)
     return text.split()
 

@@ -9,6 +9,11 @@ from neuromemory.providers.llm import LLMProvider
 from neuromemory.providers.openai_embedding import OpenAIEmbedding
 from neuromemory.providers.openai_llm import OpenAILLM
 from neuromemory.providers.siliconflow import SiliconFlowEmbedding
+
+try:
+    from neuromemory.providers.sentence_transformer import SentenceTransformerEmbedding
+except ImportError:
+    SentenceTransformerEmbedding = None
 from neuromemory.services.graph_memory import GraphMemoryService
 from neuromemory.services.reflection import ReflectionService
 from neuromemory.storage.base import ObjectStorage
@@ -24,6 +29,7 @@ __all__ = [
     "SiliconFlowEmbedding",
     "OpenAIEmbedding",
     "OpenAILLM",
+    "SentenceTransformerEmbedding",
     "ObjectStorage",
     "S3Storage",
     "NodeType",

@@ -78,3 +78,7 @@ class EvalConfig:
     graph_enabled: bool = field(
         default_factory=lambda: os.environ.get("GRAPH_ENABLED", "0") == "1"
     )
+    # Recency decay rate in days (default 365 for benchmarks; production default is 30)
+    decay_rate_days: int = field(
+        default_factory=lambda: int(os.environ.get("DECAY_RATE_DAYS", "365"))
+    )

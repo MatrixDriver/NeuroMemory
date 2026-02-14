@@ -8,7 +8,7 @@ from collections import Counter
 
 
 def _tokenize(text: str) -> list[str]:
-    text = text.lower()
+    text = str(text).lower()
     text = re.sub(r"[^\w\s]", "", text)
     return text.split()
 

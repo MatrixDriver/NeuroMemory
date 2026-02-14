@@ -39,75 +39,83 @@ class LoCoMoConversation:
     qa_pairs: list[LoCoMoQA] = field(default_factory=list)
 
 
-def _parse_timestamp(session_key: str, conv_data: dict) -> datetime | None:
-    """Try to extract timestamp from session date_time field."""
-    date_key = f"{session_key}_date_time"
-    raw = conv_data.get(date_key, "")
+def _parse_timestamp(raw: str) -> datetime | None:
+    """Parse LoCoMo timestamp strings like '1:56 pm on 8 May, 2023'."""
     if not raw:
         return None
-    try:
-        # Formats seen in LoCoMo: "November 20, 2023, 6:00 PM" etc.
-        for fmt in [
-            "%B %d, %Y, %I:%M %p",
-            "%B %d, %Y, %H:%M",
-            "%B %d, %Y",
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d",
-        ]:
-            try:
-                return datetime.strptime(raw.strip(), fmt)
-            except ValueError:
-                continue
-    except Exception:
-        pass
+    raw = raw.strip()
+    for fmt in [
+        # "1:56 pm on 8 May, 2023"
+        "%I:%M %p on %d %B, %Y",
+        # "1:56 PM on 8 May, 2023"
+        "%I:%M %p on %d %B, %Y",
+        # "November 20, 2023, 6:00 PM"
+        "%B %d, %Y, %I:%M %p",
+        "%B %d, %Y, %H:%M",
+        "%B %d, %Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d",
+    ]:
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
     return None
 
 
-def _parse_messages(session_data: list[list[str]]) -> list[LoCoMoMessage]:
-    """Parse session message list: each item is [speaker, text]."""
+def _parse_messages(session_data: list) -> list[LoCoMoMessage]:
+    """Parse session message list: each item is {speaker, text, dia_id}."""
     messages = []
     for item in session_data:
-        if isinstance(item, list) and len(item) >= 2:
-            messages.append(LoCoMoMessage(speaker=item[0], text=item[1]))
-        elif isinstance(item, dict):
+        if isinstance(item, dict):
             messages.append(LoCoMoMessage(
                 speaker=item.get("speaker", ""),
                 text=item.get("text", item.get("content", "")),
             ))
+        elif isinstance(item, list) and len(item) >= 2:
+            messages.append(LoCoMoMessage(speaker=item[0], text=item[1]))
     return messages
 
 
 def load_locomo(path: str) -> list[LoCoMoConversation]:
-    """Load locomo10.json and return structured conversations."""
+    """Load locomo10.json and return structured conversations.
+
+    Data format: [{conversation: {speaker_a, speaker_b, session_N, session_N_date_time}, qa: [...]}]
+    """
     with open(path) as f:
         raw = json.load(f)
 
     conversations = []
-    for conv_idx, conv_data in enumerate(raw):
-        speaker_a = conv_data.get("speaker_a", conv_data.get("PersonA", f"PersonA"))
-        speaker_b = conv_data.get("speaker_b", conv_data.get("PersonB", f"PersonB"))
+    for conv_idx, item in enumerate(raw):
+        # conversation data is nested under "conversation" key
+        conv_data = item.get("conversation", item)
+        speaker_a = conv_data.get("speaker_a", "PersonA")
+        speaker_b = conv_data.get("speaker_b", "PersonB")
 
         # Parse sessions
         sessions = []
         session_keys = sorted(
-            k for k in conv_data.keys() if re.match(r"session_\d+$", k)
+            (k for k in conv_data.keys() if re.match(r"session_\d+$", k)),
+            key=lambda k: int(re.search(r"\d+", k).group()),
         )
         for idx, key in enumerate(session_keys):
-            ts = _parse_timestamp(key, conv_data)
+            date_key = f"{key}_date_time"
+            ts = _parse_timestamp(conv_data.get(date_key, ""))
             msgs = _parse_messages(conv_data[key])
             sessions.append(LoCoMoSession(
                 session_key=key, session_idx=idx, timestamp=ts, messages=msgs,
             ))
 
-        # Parse QA pairs
+        # Parse QA pairs — key is "qa" or "qa_pairs"
+        qa_raw = item.get("qa", item.get("qa_pairs", []))
         qa_pairs = []
-        for qa in conv_data.get("qa_pairs", conv_data.get("QA", [])):
-            cat = qa.get("category", qa.get("cat", 0))
+        for qa in qa_raw:
+            cat = qa.get("category", 0)
             if isinstance(cat, str):
                 cat = int(cat) if cat.isdigit() else 0
             qa_pairs.append(LoCoMoQA(
-                question=qa.get("question", qa.get("Q", "")),
-                answer=qa.get("answer", qa.get("A", "")),
+                question=qa.get("question", ""),
+                answer=qa.get("answer", ""),
                 category=cat,
                 evidence=qa.get("evidence", []),
             ))

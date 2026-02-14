@@ -5,7 +5,49 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 
+import pytest_asyncio
+
+from neuromemory import NeuroMemory
+from neuromemory.providers.llm import LLMProvider
 from neuromemory.services.search import DEFAULT_DECAY_RATE, SearchService
+
+TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory"
+
+
+class MockLLMProvider(LLMProvider):
+    """Mock LLM that returns preset extraction results."""
+
+    def __init__(self, response: str = ""):
+        self._response = response
+
+    async def chat(self, messages, temperature=0.1, max_tokens=2048) -> str:
+        return self._response
+
+
+@pytest_asyncio.fixture
+async def nm_with_llm(mock_embedding):
+    """NeuroMemory instance with mock LLM for full-pipeline tests."""
+    llm = MockLLMProvider(response="""```json
+{
+  "preferences": [
+    {"key": "language", "value": "Python", "confidence": 0.95}
+  ],
+  "facts": [
+    {"content": "在 Google 工作", "category": "work", "confidence": 0.98, "importance": 8},
+    {"content": "住在北京", "category": "location", "confidence": 0.90, "importance": 5}
+  ],
+  "episodes": [],
+  "triples": []
+}
+```""")
+    instance = NeuroMemory(
+        database_url=TEST_DATABASE_URL,
+        embedding=mock_embedding,
+        llm=llm,
+    )
+    await instance.init()
+    yield instance
+    await instance.close()
 
 
 # ---------------------------------------------------------------------------
@@ -683,3 +725,120 @@ class TestRecallEdgeCases:
         row = result.fetchone()
         assert row.access_count == 3
         assert row.last_accessed_at is not None
+
+
+# ===========================================================================
+# G. Full pipeline: add_message → extract_memories → recall
+# ===========================================================================
+
+class TestRecallFullPipeline:
+    """Test the complete flow: conversation messages → LLM extraction → recall.
+
+    Unlike other recall tests that use add_memory() directly, these tests
+    exercise the full pipeline through MemoryExtractionService with a mock LLM.
+    """
+
+    @pytest.mark.asyncio
+    async def test_extracted_facts_are_recallable(self, nm_with_llm):
+        """Facts extracted by LLM from conversation should appear in recall results."""
+        user_id = "pipeline_u1"
+
+        # Step 1: Add conversation messages
+        await nm_with_llm.conversations.add_message(
+            user_id=user_id, role="user",
+            content="我在 Google 工作，住在北京",
+        )
+        await nm_with_llm.conversations.add_message(
+            user_id=user_id, role="assistant",
+            content="了解了！",
+        )
+
+        # Step 2: Get unextracted messages and extract
+        messages = await nm_with_llm.conversations.get_unextracted_messages(user_id)
+        result = await nm_with_llm.extract_memories(user_id, messages)
+
+        assert result["facts_extracted"] == 2
+        assert result["preferences_extracted"] == 1
+
+        # Step 3: Recall should find the extracted memories
+        recall_result = await nm_with_llm.recall(user_id=user_id, query="Google 工作")
+        contents = [m["content"] for m in recall_result["merged"]]
+        assert any("Google" in c for c in contents)
+
+    @pytest.mark.asyncio
+    async def test_extracted_preferences_stored_in_kv(self, nm_with_llm):
+        """Preferences extracted by LLM should be stored in KV and queryable."""
+        user_id = "pipeline_u2"
+
+        await nm_with_llm.conversations.add_message(
+            user_id=user_id, role="user",
+            content="我喜欢用 Python 编程",
+        )
+        messages = await nm_with_llm.conversations.get_unextracted_messages(user_id)
+        await nm_with_llm.extract_memories(user_id, messages)
+
+        # Preferences should be in KV store
+        pref = await nm_with_llm.kv.get("preferences", user_id, "language")
+        assert pref is not None
+        assert pref.value == "Python"
+
+    @pytest.mark.asyncio
+    async def test_pipeline_recall_has_importance_from_extraction(self, nm_with_llm):
+        """Extracted facts should carry importance metadata into recall scoring."""
+        user_id = "pipeline_u3"
+
+        await nm_with_llm.conversations.add_message(
+            user_id=user_id, role="user",
+            content="我在 Google 工作",
+        )
+        messages = await nm_with_llm.conversations.get_unextracted_messages(user_id)
+        await nm_with_llm.extract_memories(user_id, messages)
+
+        recall_result = await nm_with_llm.recall(user_id=user_id, query="Google")
+        for r in recall_result["vector_results"]:
+            if "Google" in r["content"]:
+                # importance=8 from mock LLM → scaled to 0.8
+                assert r["importance"] >= 0.5
+
+    @pytest.mark.asyncio
+    async def test_reflect_extracts_and_marks_messages(self, nm_with_llm):
+        """reflect() should extract unprocessed conversations and mark them."""
+        user_id = "pipeline_u4"
+
+        await nm_with_llm.conversations.add_message(
+            user_id=user_id, role="user", content="我在 Google 工作",
+        )
+        await nm_with_llm.conversations.add_message(
+            user_id=user_id, role="assistant", content="了解了！",
+        )
+
+        # reflect() does extraction + insight generation
+        result = await nm_with_llm.reflect(user_id=user_id, limit=50)
+        assert result["conversations_processed"] > 0
+
+        # Extracted facts should be recallable
+        recall_result = await nm_with_llm.recall(user_id=user_id, query="Google")
+        assert len(recall_result["merged"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_pipeline_multiple_conversations_accumulate(self, nm_with_llm):
+        """Multiple conversation rounds should accumulate memories for recall."""
+        user_id = "pipeline_u5"
+
+        # Conversation round 1
+        await nm_with_llm.conversations.add_message(
+            user_id=user_id, role="user", content="我在 Google 工作",
+        )
+        msgs1 = await nm_with_llm.conversations.get_unextracted_messages(user_id)
+        await nm_with_llm.extract_memories(user_id, msgs1)
+
+        # Conversation round 2 (same mock LLM response, but that's OK for structure testing)
+        await nm_with_llm.conversations.add_message(
+            user_id=user_id, role="user", content="住在北京海淀区",
+        )
+        msgs2 = await nm_with_llm.conversations.get_unextracted_messages(user_id)
+        await nm_with_llm.extract_memories(user_id, msgs2)
+
+        # Should have memories from both rounds
+        recall_result = await nm_with_llm.recall(user_id=user_id, query="Google 北京", limit=10)
+        assert len(recall_result["merged"]) >= 2

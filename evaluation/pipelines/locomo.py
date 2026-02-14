@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -71,59 +72,64 @@ async def _ingest_conversation(
     base_ts = datetime(2023, 1, 1)
 
     for sess in conv.sessions:
-        session_id = f"conv{conv.conv_idx}_s{sess.session_idx}"
         ts = sess.timestamp or (base_ts + timedelta(days=sess.session_idx * 7))
 
         # Add messages for user_a perspective
+        sid_a = f"conv{conv.conv_idx}_a_s{sess.session_idx}"
         for msg in sess.messages:
             role_a = "user" if msg.speaker == conv.speaker_a else "assistant"
             content = f"{msg.speaker}: {msg.text}"
             await nm.conversations.add_message(
                 user_id=user_a, role=role_a, content=content,
-                session_id=session_id,
+                session_id=sid_a,
             )
 
         # Add messages for user_b perspective
+        sid_b = f"conv{conv.conv_idx}_b_s{sess.session_idx}"
         for msg in sess.messages:
             role_b = "user" if msg.speaker == conv.speaker_b else "assistant"
             content = f"{msg.speaker}: {msg.text}"
             await nm.conversations.add_message(
                 user_id=user_b, role=role_b, content=content,
-                session_id=session_id,
+                session_id=sid_b,
             )
 
         # Set timestamps to match dataset
-        await set_timestamps(nm, user_a, session_id, ts)
-        await set_timestamps(nm, user_b, session_id, ts)
+        await set_timestamps(nm, user_a, sid_a, ts)
+        await set_timestamps(nm, user_b, sid_b, ts)
 
-    # Extract memories in batches
+    # Reflect: extract memories + generate insights, in batches
     for uid in [user_a, user_b]:
-        await _extract_user_memories(cfg, nm, uid)
+        await _reflect_user(cfg, nm, uid)
 
     logger.info("Ingested conv %d", conv.conv_idx)
 
 
-async def _extract_user_memories(cfg: EvalConfig, nm, user_id: str) -> None:
-    """Extract memories from unextracted messages in batches."""
+async def _reflect_user(cfg: EvalConfig, nm, user_id: str) -> None:
+    """Repeatedly call reflect() until all messages are extracted.
+
+    reflect() processes up to `limit` unextracted messages per call,
+    so we loop until no more remain.
+    """
     batch_size = cfg.extraction_batch_size
+    round_idx = 0
     while True:
-        messages = await nm.conversations.get_unextracted_messages(
-            user_id, limit=batch_size,
-        )
-        if not messages:
-            break
         try:
-            stats = await nm.extract_memories(user_id, messages)
-            logger.info(
-                "Extracted for %s: facts=%d episodes=%d prefs=%d",
-                user_id,
-                stats.get("facts_extracted", 0),
-                stats.get("episodes_extracted", 0),
-                stats.get("preferences_extracted", 0),
-            )
+            result = await nm.reflect(user_id, limit=batch_size)
         except Exception as e:
-            logger.error("Extraction failed for %s: %s", user_id, e)
+            logger.error("Reflect failed for %s: %s", user_id, e)
             break
+        processed = result.get("conversations_processed", 0)
+        if processed == 0:
+            break
+        round_idx += 1
+        logger.info(
+            "Reflect[%s] round %d: processed=%d facts=%d prefs=%d insights=%d",
+            user_id, round_idx, processed,
+            result.get("facts_added", 0),
+            result.get("preferences_updated", 0),
+            result.get("insights_generated", 0),
+        )
 
 
 async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> None:
@@ -151,57 +157,82 @@ async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> No
                 if result_key in completed_keys:
                     continue
 
-                t0 = time.time()
+                for attempt in range(3):
+                    try:
+                        t0 = time.time()
 
-                # Recall from both speakers
-                recall_a = await nm.recall(
-                    user_a, qa.question, limit=cfg.recall_limit,
-                )
-                recall_b = await nm.recall(
-                    user_b, qa.question, limit=cfg.recall_limit,
-                )
+                        # Recall from both speakers
+                        decay_rate = cfg.decay_rate_days * 86400
+                        recall_a = await nm.recall(
+                            user_a, qa.question, limit=cfg.recall_limit,
+                            decay_rate=decay_rate,
+                        )
+                        recall_b = await nm.recall(
+                            user_b, qa.question, limit=cfg.recall_limit,
+                            decay_rate=decay_rate,
+                        )
 
-                # Merge and deduplicate
-                memories = _merge_memories(
-                    recall_a.get("merged", []),
-                    recall_b.get("merged", []),
-                )
+                        # Format memories per speaker
+                        memories_a = recall_a.get("merged", [])
+                        memories_b = recall_b.get("merged", [])
+                        mem_text_a = "\n".join(
+                            f"- {m.get('content', '')}" for m in memories_a
+                        ) or "No memories found."
+                        mem_text_b = "\n".join(
+                            f"- {m.get('content', '')}" for m in memories_b
+                        ) or "No memories found."
 
-                # Generate answer
-                memories_text = "\n".join(
-                    f"- {m.get('content', '')}" for m in memories
-                )
-                predicted = await answer_llm.chat([
-                    {"role": "system", "content": LOCOMO_ANSWER_SYSTEM.format(
-                        memories=memories_text,
-                    )},
-                    {"role": "user", "content": LOCOMO_ANSWER_USER.format(
-                        question=qa.question,
-                    )},
-                ], temperature=0.0, max_tokens=128)
+                        # Merge for counting
+                        memories = _merge_memories(memories_a, memories_b)
 
-                latency = time.time() - t0
+                        # Generate answer
+                        predicted = await answer_llm.chat([
+                            {"role": "system", "content": LOCOMO_ANSWER_SYSTEM.format(
+                                speaker_1=user_a,
+                                speaker_2=user_b,
+                                speaker_1_memories=mem_text_a,
+                                speaker_2_memories=mem_text_b,
+                            )},
+                            {"role": "user", "content": LOCOMO_ANSWER_USER.format(
+                                question=qa.question,
+                            )},
+                        ], temperature=0.0, max_tokens=128)
 
-                result = {
-                    "conv_idx": conv.conv_idx,
-                    "qa_idx": qa_idx,
-                    "question": qa.question,
-                    "gold_answer": qa.answer,
-                    "predicted": predicted.strip(),
-                    "category": qa.category,
-                    "num_memories": len(memories),
-                    "latency": round(latency, 2),
-                }
-                checkpoint["results"].append(result)
-                checkpoint["completed"].append(result_key)
-                completed_keys.add(result_key)
-                save_checkpoint(checkpoint_path, checkpoint)
+                        latency = time.time() - t0
 
-                logger.info(
-                    "Q[%s] cat=%d latency=%.1fs pred=%s",
-                    result_key, qa.category, latency,
-                    predicted.strip()[:60],
-                )
+                        result = {
+                            "conv_idx": conv.conv_idx,
+                            "qa_idx": qa_idx,
+                            "question": qa.question,
+                            "gold_answer": qa.answer,
+                            "predicted": predicted.strip(),
+                            "category": qa.category,
+                            "num_memories": len(memories),
+                            "latency": round(latency, 2),
+                        }
+                        checkpoint["results"].append(result)
+                        checkpoint["completed"].append(result_key)
+                        completed_keys.add(result_key)
+                        save_checkpoint(checkpoint_path, checkpoint)
+
+                        logger.info(
+                            "Q[%s] cat=%d latency=%.1fs pred=%s",
+                            result_key, qa.category, latency,
+                            predicted.strip()[:60],
+                        )
+                        break
+                    except Exception as e:
+                        if attempt < 2:
+                            logger.warning(
+                                "Q[%s] attempt %d failed: %s, retrying...",
+                                result_key, attempt + 1, e,
+                            )
+                            await asyncio.sleep(5)
+                        else:
+                            logger.error(
+                                "Q[%s] failed after 3 attempts: %s, skipping",
+                                result_key, e,
+                            )
     finally:
         await nm.close()
 
@@ -238,17 +269,12 @@ async def _evaluate(cfg: EvalConfig) -> None:
 
     # Compute metrics
     category_stats: dict[int, dict] = {}
+    total = len(results)
 
-    try:
-        from tqdm import tqdm
-        iterator = tqdm(results, desc="Evaluating")
-    except ImportError:
-        iterator = results
-
-    for r in iterator:
+    for idx, r in enumerate(results):
         cat = r["category"]
-        gold = r["gold_answer"]
-        pred = r["predicted"]
+        gold = str(r["gold_answer"])
+        pred = str(r["predicted"])
 
         f1 = compute_f1(pred, gold)
         bleu = compute_bleu1(pred, gold)
@@ -261,6 +287,12 @@ async def _evaluate(cfg: EvalConfig) -> None:
         stats["f1"] += f1
         stats["bleu1"] += bleu
         stats["judge"] += judge_score
+
+        if (idx + 1) % 50 == 0 or idx + 1 == total:
+            logger.info(
+                "Evaluate progress: %d/%d (%.0f%%) last_judge=%.0f",
+                idx + 1, total, (idx + 1) / total * 100, judge_score,
+            )
 
     # Print results
     cat_names = {

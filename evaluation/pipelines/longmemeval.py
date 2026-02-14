@@ -70,19 +70,24 @@ async def _ingest(cfg: EvalConfig, questions: list[LongMemEvalQuestion]) -> None
                 if sess.timestamp:
                     await set_timestamps(nm, user_id, session_id, sess.timestamp)
 
-            # Extract memories in batches
+            # Reflect: extract memories + generate insights, in batches
             batch_size = cfg.extraction_batch_size
+            round_idx = 0
             while True:
-                messages = await nm.conversations.get_unextracted_messages(
-                    user_id, limit=batch_size,
-                )
-                if not messages:
-                    break
                 try:
-                    await nm.extract_memories(user_id, messages)
+                    result = await nm.reflect(user_id, limit=batch_size)
                 except Exception as e:
-                    logger.error("Extraction failed for %s: %s", user_id, e)
+                    logger.error("Reflect failed for %s: %s", user_id, e)
                     break
+                processed = result.get("conversations_processed", 0)
+                if processed == 0:
+                    break
+                round_idx += 1
+                logger.info(
+                    "Reflect[%s] round %d: processed=%d insights=%d",
+                    user_id, round_idx, processed,
+                    result.get("insights_generated", 0),
+                )
 
             checkpoint["completed"].append(q.question_id)
             completed.add(q.question_id)

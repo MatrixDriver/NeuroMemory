@@ -417,15 +417,37 @@ class NeuroMemory:
                 )
                 if self._extraction_counts[user_id] >= self._extraction.reflection_interval:
                     self._extraction_counts[user_id] = 0
-                    try:
-                        await self.reflect(user_id)
-                    except Exception as e:
-                        logger.error("Auto-reflection failed: user=%s error=%s",
-                                     user_id, e, exc_info=True)
+                    # 后台异步执行 reflect，不阻塞当前对话流程
+                    # 使用 create_task 将 reflect 放入事件循环，立即返回
+                    asyncio.create_task(self._background_reflect(user_id))
 
         except Exception as e:
             logger.error("Auto-extraction failed: user=%s session=%s error=%s",
                          user_id, session_id, e, exc_info=True)
+
+    async def _background_reflect(self, user_id: str) -> None:
+        """后台异步执行 reflect，不阻塞对话流程。
+
+        这个方法被 asyncio.create_task() 调用，在后台执行记忆整理。
+        所有异常都会被捕获并记录日志，不会影响主流程。
+
+        Args:
+            user_id: 用户ID
+        """
+        try:
+            logger.info("后台记忆整理开始: user=%s", user_id)
+            result = await self.reflect(user_id=user_id)
+            logger.info(
+                "后台记忆整理完成: user=%s conversations=%d insights=%d",
+                user_id,
+                result.get("conversations_processed", 0),
+                result.get("insights_generated", 0),
+            )
+        except Exception as e:
+            logger.error(
+                "后台记忆整理失败: user=%s error=%s",
+                user_id, e, exc_info=True
+            )
 
     # -- Top-level convenience methods --
 
@@ -473,13 +495,20 @@ class NeuroMemory:
         """Extract memories from conversation messages using LLM."""
         if not self._llm:
             raise RuntimeError("LLM provider required for memory extraction")
+        from neuromemory.services.conversation import ConversationService
         from neuromemory.services.memory_extraction import MemoryExtractionService
         async with self._db.session() as session:
             svc = MemoryExtractionService(
                 session, self._embedding, self._llm,
                 graph_enabled=self._graph_enabled,
             )
-            return await svc.extract_from_messages(user_id, messages)
+            result = await svc.extract_from_messages(user_id, messages)
+            # Mark messages as extracted so they won't be re-processed
+            msg_ids = [m.id for m in messages if hasattr(m, "id")]
+            if msg_ids:
+                conv_svc = ConversationService(session)
+                await conv_svc.mark_messages_extracted(msg_ids)
+            return result
 
     async def recall(
         self,
@@ -598,10 +627,14 @@ class NeuroMemory:
                 extract_result = await extraction_svc.extract_from_messages(
                     user_id, unextracted
                 )
+                # Mark messages as extracted
+                msg_ids = [m.id for m in unextracted if hasattr(m, "id")]
+                if msg_ids:
+                    await conv_svc.mark_messages_extracted(msg_ids)
                 extraction_result["conversations_processed"] = len(unextracted)
-                extraction_result["facts_added"] = extract_result.get("facts_stored", 0)
-                extraction_result["preferences_updated"] = extract_result.get("preferences_stored", 0)
-                extraction_result["relations_added"] = extract_result.get("triples_stored", 0)
+                extraction_result["facts_added"] = extract_result.get("facts_extracted", 0)
+                extraction_result["preferences_updated"] = extract_result.get("preferences_extracted", 0)
+                extraction_result["relations_added"] = extract_result.get("triples_extracted", 0)
 
         # Step 2: Get all recent memories (including newly extracted ones)
         recent_memories: list[dict] = []

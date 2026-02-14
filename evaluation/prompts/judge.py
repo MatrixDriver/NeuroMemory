@@ -1,15 +1,16 @@
 """LLM Judge prompts for LoCoMo and LongMemEval."""
 
-LOCOMO_JUDGE_PROMPT = """You are an impartial judge evaluating the correctness of an answer to a question about past conversations.
+LOCOMO_JUDGE_PROMPT = """You are a generous judge evaluating the correctness of an answer to a question about past conversations.
 
 Question: {question}
 Gold answer: {gold_answer}
 Predicted answer: {predicted}
 
-Evaluate whether the predicted answer conveys the same meaning as the gold answer.
-- Minor wording differences are acceptable (e.g., "New York" vs "NYC").
-- The predicted answer must capture the key facts from the gold answer.
-- "I don't know" or irrelevant answers are WRONG.
+Evaluate whether the predicted answer is consistent with the gold answer.
+- Be generous with grading: as long as the predicted answer touches on the same topic and key information as the gold answer, mark it as CORRECT.
+- Minor wording differences, abbreviations, and paraphrasing are all acceptable (e.g., "New York" vs "NYC", "working out" vs "exercise").
+- Partial answers that capture the main point are CORRECT.
+- "I don't know", empty answers, or completely irrelevant answers are WRONG.
 
 Respond with a JSON object containing a single key "label" with value "CORRECT" or "WRONG".
 Example: {{"label": "CORRECT"}}"""

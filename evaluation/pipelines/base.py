@@ -19,7 +19,11 @@ logger = logging.getLogger(__name__)
 
 def create_embedding_provider(cfg: EvalConfig) -> EmbeddingProvider:
     """Create embedding provider from config."""
-    if cfg.embedding_provider == "openai":
+    if cfg.embedding_provider == "sentence_transformer":
+        from neuromemory.providers.sentence_transformer import SentenceTransformerEmbedding
+        model = cfg.embedding_model or "all-MiniLM-L6-v2"
+        return SentenceTransformerEmbedding(model=model)
+    elif cfg.embedding_provider == "openai":
         from neuromemory import OpenAIEmbedding
         kwargs = {"api_key": cfg.embedding_api_key}
         if cfg.embedding_model:
@@ -65,7 +69,6 @@ async def cleanup_user(nm: NeuroMemory, user_id: str) -> None:
             "conversations",
             "conversation_sessions",
             "embeddings",
-            "key_values",
             "graph_nodes",
             "graph_edges",
         ]:
@@ -73,6 +76,11 @@ async def cleanup_user(nm: NeuroMemory, user_id: str) -> None:
                 text(f"DELETE FROM {table} WHERE user_id = :uid"),
                 {"uid": user_id},
             )
+        # key_values uses scope_id instead of user_id
+        await session.execute(
+            text("DELETE FROM key_values WHERE scope_id = :uid"),
+            {"uid": user_id},
+        )
     logger.info("Cleaned up user: %s", user_id)
 
 
