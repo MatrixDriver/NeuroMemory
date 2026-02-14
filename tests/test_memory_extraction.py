@@ -310,3 +310,355 @@ async def test_extract_without_emotion_backward_compatible(db_session, mock_embe
     )
 
     assert result["facts_extracted"] == 1
+
+
+@pytest.mark.asyncio
+async def test_language_detection_and_persistence(db_session, mock_embedding):
+    """Test that language is auto-detected and saved to KV on first extraction."""
+    conv_svc = ConversationService(db_session)
+    kv_svc = KVService(db_session)
+
+    # First extraction with English conversation
+    _, _ = await conv_svc.add_messages_batch(
+        user_id="lang_user_en",
+        messages=[
+            {"role": "user", "content": "I work at Google as a backend engineer"},
+            {"role": "assistant", "content": "Nice to meet you!"},
+        ],
+    )
+    messages = await conv_svc.get_unextracted_messages(user_id="lang_user_en")
+
+    mock_llm = MockLLMProvider(response="""```json
+{
+  "preferences": [],
+  "facts": [{"content": "Works at Google", "category": "work", "confidence": 0.95}],
+  "episodes": []
+}
+```""")
+
+    extraction_svc = MemoryExtractionService(db_session, mock_embedding, mock_llm)
+    await extraction_svc.extract_from_messages(
+        user_id="lang_user_en",
+        messages=messages,
+    )
+
+    # Verify language was saved as "en"
+    lang_kv = await kv_svc.get("preferences", "lang_user_en", "language")
+    assert lang_kv is not None
+    assert lang_kv.value == "en"
+
+
+@pytest.mark.asyncio
+async def test_language_preference_reused(db_session, mock_embedding):
+    """Test that saved language preference is reused when conversation is mixed-language (low confidence)."""
+    kv_svc = KVService(db_session)
+    conv_svc = ConversationService(db_session)
+
+    # Manually set language preference to Chinese
+    await kv_svc.set("preferences", "lang_user_zh", "language", "zh")
+
+    # Add Chinese conversation (prefer zh stays zh)
+    _, _ = await conv_svc.add_messages_batch(
+        user_id="lang_user_zh",
+        messages=[{"role": "user", "content": "我喜欢编程和人工智能"}],
+    )
+    messages = await conv_svc.get_unextracted_messages(user_id="lang_user_zh")
+
+    # Track which prompt was used
+    prompt_used = None
+
+    class PromptCapturingLLM(LLMProvider):
+        async def chat(self, messages, temperature=0.1, max_tokens=2048):
+            nonlocal prompt_used
+            prompt_used = messages[0]["content"]
+            return """```json
+{"preferences": [], "facts": [{"content": "爱编程", "category": "hobby", "confidence": 0.9}], "episodes": []}
+```"""
+
+    extraction_svc = MemoryExtractionService(db_session, mock_embedding, PromptCapturingLLM())
+    await extraction_svc.extract_from_messages(
+        user_id="lang_user_zh",
+        messages=messages,
+    )
+
+    # Verify Chinese prompt was used (contains Chinese characters)
+    assert prompt_used is not None
+    chinese_chars = sum(1 for c in prompt_used if '\u4e00' <= c <= '\u9fff')
+    assert chinese_chars > 50  # Should have significant Chinese text
+
+
+@pytest.mark.asyncio
+async def test_language_switch_with_high_confidence(db_session, mock_embedding):
+    """Test language preference updates when conversation switches to another language."""
+    kv_svc = KVService(db_session)
+    conv_svc = ConversationService(db_session)
+
+    # Set initial preference to zh
+    await kv_svc.set("preferences", "lang_switch_user", "language", "zh")
+
+    # Add pure English conversation (high confidence)
+    _, _ = await conv_svc.add_messages_batch(
+        user_id="lang_switch_user",
+        messages=[
+            {"role": "user", "content": "I am switching to English now. This is a test."},
+            {"role": "assistant", "content": "Sure, I understand you're using English."},
+        ],
+    )
+    messages = await conv_svc.get_unextracted_messages(user_id="lang_switch_user")
+
+    mock_llm = MockLLMProvider(response="""```json
+{
+  "preferences": [],
+  "facts": [{"content": "Prefers English", "category": "personal", "confidence": 0.9}],
+  "episodes": []
+}
+```""")
+
+    extraction_svc = MemoryExtractionService(db_session, mock_embedding, mock_llm)
+    await extraction_svc.extract_from_messages(
+        user_id="lang_switch_user",
+        messages=messages,
+    )
+
+    # Verify language was updated to "en"
+    lang_kv = await kv_svc.get("preferences", "lang_switch_user", "language")
+    assert lang_kv.value == "en"
+
+
+@pytest.mark.asyncio
+async def test_language_switch_low_confidence_no_update(db_session, mock_embedding):
+    """Test language preference does NOT update with mixed-language conversation."""
+    kv_svc = KVService(db_session)
+    conv_svc = ConversationService(db_session)
+
+    # Set initial preference to zh
+    await kv_svc.set("preferences", "lang_mixed_user", "language", "zh")
+
+    # Add mixed-language conversation (low confidence)
+    _, _ = await conv_svc.add_messages_batch(
+        user_id="lang_mixed_user",
+        messages=[
+            {"role": "user", "content": "我喜欢 Python programming 和 AI"},
+            {"role": "assistant", "content": "了解了您的兴趣"},
+        ],
+    )
+    messages = await conv_svc.get_unextracted_messages(user_id="lang_mixed_user")
+
+    mock_llm = MockLLMProvider(response="""```json
+{
+  "preferences": [],
+  "facts": [{"content": "喜欢 Python 和 AI", "category": "hobby", "confidence": 0.9}],
+  "episodes": []
+}
+```""")
+
+    extraction_svc = MemoryExtractionService(db_session, mock_embedding, mock_llm)
+    await extraction_svc.extract_from_messages(
+        user_id="lang_mixed_user",
+        messages=messages,
+    )
+
+    # Verify language stayed as "zh" (not enough confidence to switch)
+    lang_kv = await kv_svc.get("preferences", "lang_mixed_user", "language")
+    assert lang_kv.value == "zh"
+
+
+@pytest.mark.asyncio
+async def test_detect_language_confidence():
+    """Test language detection confidence calculation."""
+    svc = MemoryExtractionService.__new__(MemoryExtractionService)
+
+    # Pure Chinese (high confidence)
+    confidence_zh = svc._detect_language_confidence("我在谷歌工作，主要做后端开发")
+    assert confidence_zh > 0.9
+
+    # Pure English (high confidence)
+    confidence_en = svc._detect_language_confidence("I work at Google as a backend engineer")
+    assert confidence_en > 0.9
+
+    # Mixed language (medium confidence)
+    confidence_mixed = svc._detect_language_confidence("我喜欢 Python programming")
+    assert 0.5 < confidence_mixed < 0.9  # Should be between pure and random
+
+    # Empty text
+    confidence_empty = svc._detect_language_confidence("")
+    assert confidence_empty == 0.5
+
+
+@pytest.mark.asyncio
+async def test_english_prompt_generation():
+    """Test that English prompt is generated correctly."""
+    svc = MemoryExtractionService.__new__(MemoryExtractionService)
+    svc._graph_enabled = False
+
+    prompt = svc._build_en_prompt("USER: I work at Google\nASSISTANT: Nice!")
+
+    # Should contain English instructions
+    assert "Extract structured memory information" in prompt
+    assert "Preferences" in prompt
+    assert "Facts" in prompt
+    assert "Episodes" in prompt
+    assert "JSON format" in prompt
+
+    # Should NOT contain Chinese
+    chinese_chars = sum(1 for c in prompt if '\u4e00' <= c <= '\u9fff')
+    assert chinese_chars == 0
+
+
+@pytest.mark.asyncio
+async def test_chinese_prompt_generation():
+    """Test that Chinese prompt is generated correctly."""
+    svc = MemoryExtractionService.__new__(MemoryExtractionService)
+    svc._graph_enabled = False
+
+    prompt = svc._build_zh_prompt("USER: 我在谷歌工作\nASSISTANT: 很好！")
+
+    # Should contain Chinese instructions
+    assert "分析以下对话" in prompt
+    assert "Preferences" in prompt or "偏好" in prompt
+    assert "Facts" in prompt or "事实" in prompt
+    assert "Episodes" in prompt or "情景" in prompt
+
+    # Should have significant Chinese content
+    chinese_chars = sum(1 for c in prompt if '\u4e00' <= c <= '\u9fff')
+    assert chinese_chars > 50
+
+
+@pytest.mark.asyncio
+async def test_auto_extract_on_add_message(db_session, mock_embedding):
+    """Test that auto_extract=True automatically extracts memories on add_message."""
+    from neuromemory._core import ConversationsFacade
+    from neuromemory.db import Database
+    from neuromemory.services.kv import KVService
+    from sqlalchemy import text
+
+    # Mock LLM for extraction
+    class MockExtractionLLM(LLMProvider):
+        async def chat(self, messages, temperature=0.1, max_tokens=2048):
+            return """```json
+{
+  "preferences": [{"key": "language", "value": "English", "confidence": 0.9}],
+  "facts": [{"content": "Works at Google", "category": "work", "confidence": 0.95, "importance": 8}],
+  "episodes": []
+}
+```"""
+
+    # Use session bind to create facade with auto_extract enabled
+    db = Database.__new__(Database)
+    db.engine = db_session.bind
+    db.session_factory = lambda: db_session
+
+    facade = ConversationsFacade(
+        db,
+        _auto_extract=True,
+        _embedding=mock_embedding,
+        _llm=MockExtractionLLM(),
+        _graph_enabled=False,
+    )
+
+    # Add a single message
+    msg = await facade.add_message(
+        user_id="auto_user",
+        role="user",
+        content="I work at Google as a software engineer",
+    )
+
+    # Verify memories were automatically extracted
+    result = await db_session.execute(
+        text("SELECT content, memory_type FROM embeddings WHERE user_id = :uid"),
+        {"uid": "auto_user"},
+    )
+    rows = list(result.fetchall())
+    assert len(rows) >= 1
+    assert any(row.memory_type == "fact" for row in rows)
+
+    # Check preferences in KV
+    kv_svc = KVService(db_session)
+    prefs = await kv_svc.list("preferences", "auto_user")
+    assert len(prefs) >= 1
+
+
+@pytest.mark.asyncio
+async def test_auto_extract_disabled(db_session, mock_embedding):
+    """Test that auto_extract=False does not extract on add_message."""
+    from neuromemory._core import ConversationsFacade
+    from neuromemory.db import Database
+    from sqlalchemy import text
+
+    db = Database.__new__(Database)
+    db.engine = db_session.bind
+    db.session_factory = lambda: db_session
+
+    facade = ConversationsFacade(
+        db,
+        _auto_extract=False,  # Disable auto-extraction
+        _embedding=mock_embedding,
+        _llm=MockLLMProvider(),
+        _graph_enabled=False,
+    )
+
+    # Add a message
+    await facade.add_message(
+        user_id="manual_user",
+        role="user",
+        content="I work at Google",
+    )
+
+    # Verify NO memories were extracted
+    result = await db_session.execute(
+        text("SELECT COUNT(*) FROM embeddings WHERE user_id = :uid"),
+        {"uid": "manual_user"},
+    )
+    count = result.scalar()
+    assert count == 0  # No auto-extraction
+
+
+@pytest.mark.asyncio
+async def test_auto_extract_batch_messages(db_session, mock_embedding):
+    """Test that auto_extract works with add_messages_batch."""
+    from neuromemory._core import ConversationsFacade
+    from neuromemory.db import Database
+    from sqlalchemy import text
+
+    class MockBatchLLM(LLMProvider):
+        async def chat(self, messages, temperature=0.1, max_tokens=2048):
+            return """```json
+{
+  "preferences": [],
+  "facts": [
+    {"content": "Works at Google", "category": "work", "confidence": 0.95},
+    {"content": "Likes Python programming", "category": "hobby", "confidence": 0.9}
+  ],
+  "episodes": []
+}
+```"""
+
+    db = Database.__new__(Database)
+    db.engine = db_session.bind
+    db.session_factory = lambda: db_session
+
+    facade = ConversationsFacade(
+        db,
+        _auto_extract=True,
+        _embedding=mock_embedding,
+        _llm=MockBatchLLM(),
+        _graph_enabled=False,
+    )
+
+    # Add batch messages
+    sid, ids = await facade.add_messages_batch(
+        user_id="batch_user",
+        messages=[
+            {"role": "user", "content": "I work at Google"},
+            {"role": "assistant", "content": "Great!"},
+            {"role": "user", "content": "I love Python programming"},
+        ],
+    )
+
+    # Verify memories were extracted
+    result = await db_session.execute(
+        text("SELECT COUNT(*) FROM embeddings WHERE user_id = :uid AND memory_type = 'fact'"),
+        {"uid": "batch_user"},
+    )
+    count = result.scalar()
+    assert count >= 1  # At least some facts extracted
