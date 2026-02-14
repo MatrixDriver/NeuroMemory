@@ -23,7 +23,7 @@ class Embedding(Base, TimestampMixin):
     user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list] = mapped_column(
-        Vector(None), nullable=False
+        Vector(_models._embedding_dims), nullable=False
     )
     memory_type: Mapped[str] = mapped_column(
         String(50), default="general"

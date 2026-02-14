@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
 
+import neuromemory.models as _models
 from neuromemory.models.base import Base, TimestampMixin
 
 
@@ -30,7 +31,7 @@ class Conversation(Base, TimestampMixin):
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[Optional[list[float]]] = mapped_column(
-        Vector(None), nullable=True  # v0.2.0: Store conversation embeddings for recall
+        Vector(_models._embedding_dims), nullable=True  # v0.2.0: Store conversation embeddings for recall
     )
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
     extracted: Mapped[bool] = mapped_column(
@@ -44,6 +45,12 @@ class Conversation(Base, TimestampMixin):
         Index("idx_conversations_session", "user_id", "session_id"),
         Index("idx_conversations_extraction", "user_id", "extracted"),
     )
+
+    @classmethod
+    def __declare_last__(cls):
+        """Set vector dimension from runtime config after all models declared."""
+        if cls.__table__.c.embedding.type.dim is None:
+            cls.__table__.c.embedding.type = Vector(_models._embedding_dims)
 
 
 class ConversationSession(Base, TimestampMixin):
