@@ -117,8 +117,9 @@ class ConversationsFacade:
             msg = await svc.add_message(user_id, role, content, session_id, metadata)
 
         # P1: Generate conversation embedding for recall (v0.2.0)
-        # 🚀 改为异步后台任务，不阻塞响应
-        if self._embedding:
+        # 🚀 优化：只对 user 消息计算 embedding，避免重复和浪费
+        # AI 回复是对用户的响应，检索时会造成重复，且没有新信息
+        if self._embedding and role == "user":
             asyncio.create_task(self._generate_conversation_embedding_async(msg))
 
         # Strategy-based extraction (old logic)
@@ -126,8 +127,8 @@ class ConversationsFacade:
             await self._on_message_added(user_id, msg.session_id, 1)
 
         # Auto-extract (new logic, like mem0)
-        # 🚀 改为异步后台任务，不阻塞响应
-        if self._auto_extract and self._llm and self._embedding:
+        # 🚀 优化：只对 user 消息提取记忆，AI 回复不包含用户信息
+        if self._auto_extract and self._llm and self._embedding and role == "user":
             asyncio.create_task(self._extract_single_message_async(user_id, msg.session_id, [msg]))
 
         return msg

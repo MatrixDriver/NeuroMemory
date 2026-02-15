@@ -34,3 +34,4 @@ evaluation/results/*.tmp
 # 临时文件
 nul
 Untitled
+.venv312/
