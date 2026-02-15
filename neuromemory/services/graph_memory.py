@@ -85,8 +85,20 @@ class GraphMemoryService:
                     count += 1
             except Exception as e:
                 logger.error("Failed to store triple %s: %s", triple, e)
+                # 事务失败时回滚，避免后续操作都失败
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    pass  # 如果已经回滚过了，忽略错误
         if count > 0:
-            await self.db.flush()
+            try:
+                await self.db.flush()
+            except Exception as e:
+                logger.error("Failed to flush after storing triples: %s", e)
+                try:
+                    await self.db.rollback()
+                except Exception:
+                    pass
         return count
 
     async def _store_single_triple(self, user_id: str, triple: dict[str, Any]) -> bool:
@@ -173,8 +185,10 @@ class GraphMemoryService:
         properties: dict[str, Any] | None = None,
     ) -> None:
         """Get-or-create a node."""
+        # 修复：查询时必须加上 user_id 过滤，确保用户隔离
         result = await self.db.execute(
             select(GraphNode).where(
+                GraphNode.user_id == user_id,
                 GraphNode.node_type == node_type.value,
                 GraphNode.node_id == node_id,
             )

@@ -57,7 +57,9 @@ class GraphNode(Base, TimestampMixin):
     properties: Mapped[dict] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
-        Index("ix_graph_nodes_lookup", "node_type", "node_id", unique=True),
+        # 修复：唯一索引必须包含 user_id，否则不同用户无法创建相同的节点
+        # 例如：两个用户都去"前海滑雪场"时，应该各自创建独立的节点
+        Index("ix_graph_nodes_lookup", "user_id", "node_type", "node_id", unique=True),
     )
 
 
@@ -78,8 +80,10 @@ class GraphEdge(Base, TimestampMixin):
     properties: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
+        # 修复：索引包含 user_id 以确保用户隔离和性能
         Index(
             "ix_graph_edges_lookup",
+            "user_id",
             "source_type", "source_id",
             "edge_type",
             "target_type", "target_id",
