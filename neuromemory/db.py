@@ -12,7 +12,10 @@ class Database:
     def __init__(self, url: str, pool_size: int = 10, echo: bool = False):
         self.engine = create_async_engine(url, pool_size=pool_size, echo=echo)
         self.session_factory = async_sessionmaker(
-            self.engine, class_=AsyncSession, expire_on_commit=False
+            self.engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autoflush=False,  # 禁用自动flush，由代码显式控制事务提交时机
         )
 
     @asynccontextmanager

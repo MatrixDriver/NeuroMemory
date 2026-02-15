@@ -417,12 +417,8 @@ Return format (JSON only, no other content):
                 count += 1
             except Exception as e:
                 logger.error("Failed to store preference %s: %s", key, e, exc_info=True)
-                # 事务失败时回滚
-                try:
-                    await self.db.rollback()
-                    logger.warning("已回滚事务（preference 存储失败）")
-                except Exception:
-                    pass
+                # 不在这里 rollback，让异常向上传播或继续处理下一个
+                # 最终的 commit/rollback 由 extract_from_messages 统一处理
         return count
 
     async def _store_facts(
@@ -465,12 +461,8 @@ Return format (JSON only, no other content):
                 count += 1
             except Exception as e:
                 logger.error("Failed to store fact: %s", e, exc_info=True)
-                # 事务失败时回滚
-                try:
-                    await self.db.rollback()
-                    logger.warning("已回滚事务（fact 存储失败）")
-                except Exception:
-                    pass
+                # 不在这里 rollback，让异常向上传播或继续处理下一个
+                # 最终的 commit/rollback 由 extract_from_messages 统一处理
 
         # 不在这里 commit，等待所有类型的记忆都存储完后统一 commit（保证原子性）
         return count
@@ -525,12 +517,8 @@ Return format (JSON only, no other content):
                 count += 1
             except Exception as e:
                 logger.error("Failed to store episode: %s", e, exc_info=True)
-                # 事务失败时回滚
-                try:
-                    await self.db.rollback()
-                    logger.warning("已回滚事务（episode 存储失败）")
-                except Exception:
-                    pass
+                # 不在这里 rollback，让异常向上传播或继续处理下一个
+                # 最终的 commit/rollback 由 extract_from_messages 统一处理
 
         # 不在这里 commit，等待所有类型的记忆都存储完后统一 commit（保证原子性）
         return count

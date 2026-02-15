@@ -77,6 +77,10 @@ class GraphMemoryService:
         Returns:
             Number of triples stored (ADD or UPDATE, not NOOP).
         """
+        # 跟踪本批次中已创建的节点，避免重复创建
+        # Key: (user_id, node_type, node_id)
+        self._created_nodes = set()
+
         count = 0
         for triple in triples:
             try:
@@ -84,21 +88,13 @@ class GraphMemoryService:
                 if stored:
                     count += 1
             except Exception as e:
-                logger.error("Failed to store triple %s: %s", triple, e)
-                # 事务失败时回滚，避免后续操作都失败
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass  # 如果已经回滚过了，忽略错误
-        if count > 0:
-            try:
-                await self.db.flush()
-            except Exception as e:
-                logger.error("Failed to flush after storing triples: %s", e)
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
+                logger.error("Failed to store triple %s: %s", triple, e, exc_info=True)
+                # 不在这里 rollback，让调用方统一处理事务
+                # 继续处理下一个 triple
+
+        # 清除本批次的节点跟踪
+        self._created_nodes = set()
+        # 不在这里 flush，让调用方统一 commit 时一起 flush
         return count
 
     async def _store_single_triple(self, user_id: str, triple: dict[str, Any]) -> bool:
@@ -159,21 +155,23 @@ class GraphMemoryService:
         )
         self.db.add(edge)
 
-        # Also attempt AGE cypher (best-effort, AGE may not be installed)
-        try:
-            cypher = f"""
-            MATCH (a:{subject_type.value} {{id: $source_id}})
-            MATCH (b:{object_type.value} {{id: $target_id}})
-            CREATE (a)-[r:{edge_type.value} $props]->(b)
-            RETURN r
-            """
-            await self._graph._execute_cypher(cypher, {
-                "source_id": subject_id,
-                "target_id": object_id,
-                "props": edge_props,
-            })
-        except Exception:
-            pass  # AGE not available, relational table is enough
+        # AGE sync 已禁用: AGE cypher 查询失败会中止整个事务
+        # 即使 Python 捕获异常，PostgreSQL 事务仍会被中止
+        # 未来如需启用，需要使用 SAVEPOINT 机制来隔离 AGE 查询的失败
+        # try:
+        #     cypher = f"""
+        #     MATCH (a:{subject_type.value} {{id: $source_id}})
+        #     MATCH (b:{object_type.value} {{id: $target_id}})
+        #     CREATE (a)-[r:{edge_type.value} $props]->(b)
+        #     RETURN r
+        #     """
+        #     await self._graph._execute_cypher(cypher, {
+        #         "source_id": subject_id,
+        #         "target_id": object_id,
+        #         "props": edge_props,
+        #     })
+        # except Exception:
+        #     pass  # AGE not available, relational table is enough
 
         return True
 
@@ -185,6 +183,12 @@ class GraphMemoryService:
         properties: dict[str, Any] | None = None,
     ) -> None:
         """Get-or-create a node."""
+        # 检查本批次是否已创建此节点（避免重复插入）
+        node_key = (user_id, node_type.value, node_id)
+        if hasattr(self, '_created_nodes') and node_key in self._created_nodes:
+            logger.debug(f"节点已在本批次中创建，跳过: {node_type.value}:{node_id}")
+            return
+
         # 修复：查询时必须加上 user_id 过滤，确保用户隔离
         result = await self.db.execute(
             select(GraphNode).where(
@@ -203,21 +207,24 @@ class GraphMemoryService:
             properties=properties,
         )
         self.db.add(node)
-        logger.debug(f"准备 flush 创建节点: {node_type.value}:{node_id}")
-        try:
-            await self.db.flush()
-            logger.debug(f"✅ flush 成功")
-        except Exception as e:
-            logger.error(f"❌ flush 失败（可能触发了待处理的其他 SQL）: {e}", exc_info=True)
-            raise
+        logger.debug(f"添加节点到 session: {node_type.value}:{node_id}")
 
-        # Best-effort AGE sync
-        try:
-            props = {**(properties or {}), "id": node_id, "node_type": node_type.value}
-            cypher = f"CREATE (n:{node_type.value} $props) RETURN n"
-            await self._graph._execute_cypher(cypher, {"props": props})
-        except Exception:
-            pass
+        # 记录本批次已创建的节点
+        if hasattr(self, '_created_nodes'):
+            self._created_nodes.add(node_key)
+
+        # 不在这里 flush，避免触发待处理的其他 SQL 导致事务提前失败
+        # 让调用方统一 commit 时一起 flush 所有对象
+
+        # AGE sync 已禁用: AGE cypher 查询失败会中止整个事务
+        # 即使 Python 捕获异常，PostgreSQL 事务仍会被中止
+        # 未来如需启用，需要使用 SAVEPOINT 机制来隔离 AGE 查询的失败
+        # try:
+        #     props = {**(properties or {}), "id": node_id, "node_type": node_type.value}
+        #     cypher = f"CREATE (n:{node_type.value} $props) RETURN n"
+        #     await self._graph._execute_cypher(cypher, {"props": props})
+        # except Exception:
+        #     pass
 
     async def _resolve_conflict(
         self,
