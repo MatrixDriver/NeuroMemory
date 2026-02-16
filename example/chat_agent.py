@@ -237,7 +237,7 @@ async def handle_prefs_command(nm: NeuroMemory, args: str):
     parts = args.strip().split(maxsplit=1)
     if not parts:
         # 列出所有偏好
-        prefs = await nm.kv.list("preferences", USER_ID)
+        prefs = await nm.kv.list(USER_ID, "preferences")
         if not prefs:
             print("  没有保存的偏好。")
             return
@@ -248,14 +248,14 @@ async def handle_prefs_command(nm: NeuroMemory, args: str):
 
     if len(parts) == 1:
         # 查询单个偏好
-        val = await nm.kv.get("preferences", USER_ID, parts[0])
+        val = await nm.kv.get(USER_ID, "preferences", parts[0])
         if val is None:
             print(f"  偏好 '{parts[0]}' 未设置。")
         else:
             print(f"  {parts[0]} = {val.value}")
     else:
         # 设置偏好
-        await nm.kv.set("preferences", USER_ID, parts[0], parts[1])
+        await nm.kv.set(USER_ID, "preferences", parts[0], parts[1])
         print(f"  已设置: {parts[0]} = {parts[1]}")
 
 

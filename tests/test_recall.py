@@ -779,7 +779,7 @@ class TestRecallFullPipeline:
         await nm_with_llm.extract_memories(user_id, messages)
 
         # Preferences should be in KV store
-        pref = await nm_with_llm.kv.get("preferences", user_id, "language")
+        pref = await nm_with_llm.kv.get(user_id, "preferences", "language")
         assert pref is not None
         assert pref.value == "Python"
 

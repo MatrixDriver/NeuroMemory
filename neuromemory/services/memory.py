@@ -233,25 +233,15 @@ class MemoryService:
     async def get_memory_by_id(
         self,
         memory_id: str | uuid.UUID,
-        user_id: Optional[str] = None,
+        user_id: str,
     ) -> Optional[Embedding]:
-        """Get a single memory by ID.
-
-        Args:
-            memory_id: UUID of the memory
-            user_id: Optional user_id for access control
-
-        Returns:
-            Embedding object or None if not found
-        """
+        """Get a single memory by ID with ownership check."""
         if isinstance(memory_id, str):
             memory_id = uuid.UUID(memory_id)
 
-        conditions = [Embedding.id == memory_id]
-        if user_id:
-            conditions.append(Embedding.user_id == user_id)
-
-        stmt = select(Embedding).where(and_(*conditions))
+        stmt = select(Embedding).where(
+            and_(Embedding.id == memory_id, Embedding.user_id == user_id)
+        )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 

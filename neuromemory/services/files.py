@@ -228,33 +228,23 @@ class FileService:
     async def get_document(
         self,
         file_id: uuid.UUID,
-        user_id: str | None = None,
+        user_id: str,
     ) -> Document | None:
-        """Get a single document by ID.
-
-        Args:
-            file_id: Document UUID.
-            user_id: If provided, enforce ownership check (recommended).
-        """
-        conditions = [Document.id == file_id]
-        if user_id:
-            conditions.append(Document.user_id == user_id)
+        """Get a single document by ID with ownership check."""
         result = await self.db.execute(
-            select(Document).where(*conditions)
+            select(Document).where(
+                Document.id == file_id,
+                Document.user_id == user_id,
+            )
         )
         return result.scalar_one_or_none()
 
     async def delete_document(
         self,
         file_id: uuid.UUID,
-        user_id: str | None = None,
+        user_id: str,
     ) -> bool:
-        """Delete document from storage and database.
-
-        Args:
-            file_id: Document UUID.
-            user_id: If provided, enforce ownership check (recommended).
-        """
+        """Delete document from storage and database with ownership check."""
         doc = await self.get_document(file_id, user_id)
         if not doc:
             return False

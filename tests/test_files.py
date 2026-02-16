@@ -109,9 +109,13 @@ async def test_get_document(db_session, mock_embedding, mock_storage):
     doc = await svc.upload(user_id="u1", filename="test.txt", file_data=b"test content")
     await db_session.commit()
 
-    result = await svc.get_document(doc.id)
+    result = await svc.get_document(doc.id, "u1")
     assert result is not None
     assert result.filename == "test.txt"
+
+    # Different user should not see it
+    result2 = await svc.get_document(doc.id, "other-user")
+    assert result2 is None
 
 
 @pytest.mark.asyncio
@@ -120,17 +124,21 @@ async def test_delete_document(db_session, mock_embedding, mock_storage):
     doc = await svc.upload(user_id="u1", filename="test.txt", file_data=b"test")
     await db_session.commit()
 
-    deleted = await svc.delete_document(doc.id)
+    # Different user cannot delete
+    deleted = await svc.delete_document(doc.id, "other-user")
+    assert deleted is False
+
+    deleted = await svc.delete_document(doc.id, "u1")
     assert deleted is True
 
-    result = await svc.get_document(doc.id)
+    result = await svc.get_document(doc.id, "u1")
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_delete_nonexistent(db_session, mock_embedding, mock_storage):
     svc = FileService(db_session, mock_embedding, mock_storage)
-    deleted = await svc.delete_document(uuid.uuid4())
+    deleted = await svc.delete_document(uuid.uuid4(), "u1")
     assert deleted is False
 
 

@@ -53,40 +53,43 @@ class ExtractionStrategy:
 
 
 class KVFacade:
-    """Key-value storage facade."""
+    """Key-value storage facade.
+
+    user_id is used as scope_id internally to enforce user isolation.
+    """
 
     def __init__(self, db: Database):
         self._db = db
 
-    async def set(self, namespace: str, scope_id: str, key: str, value):
+    async def set(self, user_id: str, namespace: str, key: str, value):
         from neuromemory.services.kv import KVService
         async with self._db.session() as session:
             svc = KVService(session)
-            return await svc.set(namespace, scope_id, key, value)
+            return await svc.set(namespace, user_id, key, value)
 
-    async def get(self, namespace: str, scope_id: str, key: str):
+    async def get(self, user_id: str, namespace: str, key: str):
         from neuromemory.services.kv import KVService
         async with self._db.session() as session:
             svc = KVService(session)
-            return await svc.get(namespace, scope_id, key)
+            return await svc.get(namespace, user_id, key)
 
-    async def list(self, namespace: str, scope_id: str, prefix: str | None = None, limit: int = 100):
+    async def list(self, user_id: str, namespace: str, prefix: str | None = None, limit: int = 100):
         from neuromemory.services.kv import KVService
         async with self._db.session() as session:
             svc = KVService(session)
-            return await svc.list(namespace, scope_id, prefix, limit)
+            return await svc.list(namespace, user_id, prefix, limit)
 
-    async def delete(self, namespace: str, scope_id: str, key: str) -> bool:
+    async def delete(self, user_id: str, namespace: str, key: str) -> bool:
         from neuromemory.services.kv import KVService
         async with self._db.session() as session:
             svc = KVService(session)
-            return await svc.delete(namespace, scope_id, key)
+            return await svc.delete(namespace, user_id, key)
 
-    async def batch_set(self, namespace: str, scope_id: str, items: dict):
+    async def batch_set(self, user_id: str, namespace: str, items: dict):
         from neuromemory.services.kv import KVService
         async with self._db.session() as session:
             svc = KVService(session)
-            return await svc.batch_set(namespace, scope_id, items)
+            return await svc.batch_set(namespace, user_id, items)
 
 
 class ConversationsFacade:

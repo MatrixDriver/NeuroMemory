@@ -156,7 +156,7 @@ class SearchService:
 
         # Update access tracking asynchronously
         if results:
-            await self._update_access_tracking([r["id"] for r in results])
+            await self._update_access_tracking(user_id, [r["id"] for r in results])
 
         return results
 
@@ -287,23 +287,24 @@ class SearchService:
 
         # Update access tracking
         if results:
-            await self._update_access_tracking([r["id"] for r in results])
+            await self._update_access_tracking(user_id, [r["id"] for r in results])
 
         return results
 
-    async def _update_access_tracking(self, ids: list[str]) -> None:
+    async def _update_access_tracking(self, user_id: str, ids: list[str]) -> None:
         """Update access_count and last_accessed_at for retrieved memories."""
         if not ids:
             return
         try:
-            # Use individual parameterized placeholders for safety
             placeholders = ", ".join(f":id_{i}" for i in range(len(ids)))
             params = {f"id_{i}": id_ for i, id_ in enumerate(ids)}
+            params["user_id"] = user_id
             sql = text(f"""
                 UPDATE embeddings
                 SET access_count = access_count + 1,
                     last_accessed_at = NOW()
                 WHERE id IN ({placeholders})
+                  AND user_id = :user_id
             """)
             await self.db.execute(sql, params)
             await self.db.commit()
