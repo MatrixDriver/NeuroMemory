@@ -227,7 +227,8 @@ async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> No
                                 "Q[%s] attempt %d failed: %s, retrying...",
                                 result_key, attempt + 1, e,
                             )
-                            await asyncio.sleep(5)
+                            # Longer delay to avoid API rate limiting
+                            await asyncio.sleep(15)
                         else:
                             logger.error(
                                 "Q[%s] failed after 3 attempts: %s, skipping",

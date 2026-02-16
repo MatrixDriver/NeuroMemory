@@ -1,0 +1,107 @@
+{
+  "test_id": "2025-02-15_baseline",
+  "test_name": "LoCoMo Baseline Test",
+  "timestamp": "2025-02-15T00:00:00+08:00",
+  "benchmark": "locomo",
+  "dataset": "locomo10.json",
+
+  "environment": {
+    "neuromemory_commit": "5c9672d2",
+    "neuromemory_branch": "master",
+    "neuromemory_version": "v0.2.0",
+    "eval_commit": "5c9672d2",
+    "database": {
+      "type": "postgresql",
+      "version": "16.x",
+      "host": "localhost:5432",
+      "isolation": "shared",
+      "extensions": ["pgvector", "age"]
+    },
+    "embedding": {
+      "provider": "siliconflow",
+      "model": "BAAI/bge-m3",
+      "dimensions": 1024
+    },
+    "llm": {
+      "provider": "deepseek",
+      "model": "deepseek-chat",
+      "base_url": "https://api.deepseek.com/v1"
+    },
+    "judge": {
+      "provider": "deepseek",
+      "model": "deepseek-chat"
+    }
+  },
+
+  "optimizations": [
+    "基础对话召回功能",
+    "时序记忆提取 (Episode with people/location)",
+    "pgvector 维度验证修复"
+  ],
+
+  "performance": {
+    "ingest_phase": {
+      "duration_hours": 24.0,
+      "conversations": 10,
+      "note": "约24小时完成10个对话的记忆提取"
+    },
+    "query_phase": {
+      "duration_hours": null,
+      "questions": 1540,
+      "note": "未记录"
+    },
+    "evaluate_phase": {
+      "duration_hours": null,
+      "note": "未记录"
+    },
+    "total_duration_hours": 30.0,
+    "estimate": true
+  },
+
+  "results": {
+    "total_questions": 1540,
+    "overall": {
+      "f1": 0.081,
+      "bleu1": 0.062,
+      "judge": 0.125
+    },
+    "by_category": {
+      "1": {
+        "name": "multi-hop",
+        "count": 282,
+        "f1": 0.104,
+        "bleu1": 0.073,
+        "judge": 0.121
+      },
+      "2": {
+        "name": "temporal",
+        "count": 321,
+        "f1": 0.024,
+        "bleu1": 0.018,
+        "judge": 0.028
+      },
+      "3": {
+        "name": "open-domain",
+        "count": 96,
+        "f1": 0.068,
+        "bleu1": 0.041,
+        "judge": 0.135
+      },
+      "4": {
+        "name": "single-hop",
+        "count": 841,
+        "f1": 0.097,
+        "bleu1": 0.078,
+        "judge": 0.163
+      }
+    }
+  },
+
+  "issues": [
+    "数据库未隔离，测试过程中数据被删除",
+    "Ingest 阶段耗时过长",
+    "Temporal 类别得分极低 (0.028)"
+  ],
+
+  "notes": "基线测试，用于后续性能对比。主要问题是速度慢和数据库不稳定。"
+}

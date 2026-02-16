@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "created": "2025-02-16",
+    "description": "NeuroMemory LoCoMo 基准测试历史记录",
+    "benchmark": "locomo",
+    "dataset": "locomo10.json"
+  },
+
+  "tests": [
+    {
+      "test_id": "2025-02-15_baseline",
+      "date": "2025-02-15",
+      "name": "Baseline Test",
+      "commit": "5c9672d2",
+      "branch": "master",
+      "judge_score": 0.125,
+      "file": "2025-02-15_baseline.json",
+      "notes": "基线测试"
+    },
+    {
+      "test_id": "2025-02-16_perf_opt",
+      "date": "2025-02-16",
+      "name": "Performance Optimization Test",
+      "commit": "e7c0f3d5",
+      "branch": "eval/locomo-improvements",
+      "judge_score": 0.274,
+      "improvement_vs_previous": 119.0,
+      "file": "2025-02-16_perf_opt.json",
+      "notes": "性能优化版本：速度提升24倍，质量提升119%"
+    }
+  ],
+
+  "latest": {
+    "test_id": "2025-02-16_perf_opt",
+    "judge_score": 0.274,
+    "commit": "e7c0f3d5"
+  },
+
+  "best": {
+    "judge_score": {
+      "test_id": "2025-02-16_perf_opt",
+      "score": 0.274
+    },
+    "ingest_speed": {
+      "test_id": "2025-02-16_perf_opt",
+      "duration_hours": 1.0
+    }
+  }
+}

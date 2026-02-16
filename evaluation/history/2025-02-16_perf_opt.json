@@ -1,0 +1,436 @@
+{
+  "test_id": "2025-02-16_perf_opt",
+  "test_name": "LoCoMo Performance Optimization Test",
+  "timestamp": "2025-02-16T00:58:09+08:00",
+  "benchmark": "locomo",
+  "dataset": "locomo10.json",
+  "environment": {
+    "neuromemory_commit": "e7c0f3d5",
+    "neuromemory_branch": "eval/locomo-improvements",
+    "neuromemory_version": "v0.2.1-dev",
+    "eval_commit": "e7c0f3d5",
+    "database": {
+      "type": "postgresql",
+      "version": "16.11",
+      "host": "localhost:5433",
+      "isolation": "dedicated_container",
+      "container": "neuromemory-eval-db",
+      "extensions": [
+        "pgvector",
+        "age"
+      ]
+    },
+    "embedding": {
+      "provider": "siliconflow",
+      "model": "BAAI/bge-m3",
+      "dimensions": 1024
+    },
+    "llm": {
+      "provider": "deepseek",
+      "model": "deepseek-chat",
+      "base_url": "https://api.deepseek.com/v1"
+    },
+    "judge": {
+      "provider": "deepseek",
+      "model": "deepseek-chat"
+    }
+  },
+  "optimizations": [
+    "perf: 只对 user 消息计算 embedding 和提取记忆 (commit f4ecf955)",
+    "perf: 优化记忆召回性能 - 后台任务 + embedding 缓存 (commit a4e9783c)",
+    "修复知识图谱多用户隔离 Bug (commit 001fa571)",
+    "改进记忆提取的事务原子性和错误处理 (commit 9896939f)",
+    "添加多用户和事务一致性集成测试 (commit ca6ae16d)",
+    "修复图谱存储的事务一致性和批量重复问题 (commit e7c0f3d5)",
+    "使用独立 PostgreSQL 容器避免数据丢失"
+  ],
+  "performance": {
+    "ingest_phase": {
+      "duration_hours": 1.0,
+      "duration_minutes": 60,
+      "start_time": "00:58:10",
+      "end_time": "01:58:23",
+      "conversations": 10,
+      "avg_minutes_per_conv": 6.0,
+      "speedup_vs_baseline": 24.0
+    },
+    "query_phase": {
+      "duration_hours": 1.67,
+      "duration_minutes": 100,
+      "start_time": "01:58:23",
+      "end_time": "03:38:00",
+      "questions": 1540,
+      "avg_seconds_per_question": 3.9
+    },
+    "evaluate_phase": {
+      "duration_hours": 1.47,
+      "duration_minutes": 88,
+      "start_time": "03:38:00",
+      "end_time": "04:26:29",
+      "questions": 1540,
+      "avg_seconds_per_judge": 3.4
+    },
+    "total_duration_hours": 3.47,
+    "total_duration_minutes": 208,
+    "estimate": false
+  },
+  "results": {
+    "total_questions": 1540,
+    "overall": {
+      "f1": 0.145,
+      "bleu1": 0.114,
+      "judge": 0.274
+    },
+    "by_category": {
+      "1": {
+        "name": "multi-hop",
+        "count": 282,
+        "f1": 0.126,
+        "bleu1": 0.087,
+        "judge": 0.305
+      },
+      "2": {
+        "name": "temporal",
+        "count": 321,
+        "f1": 0.049,
+        "bleu1": 0.035,
+        "judge": 0.087
+      },
+      "3": {
+        "name": "open-domain",
+        "count": 96,
+        "f1": 0.168,
+        "bleu1": 0.125,
+        "judge": 0.344
+      },
+      "4": {
+        "name": "single-hop",
+        "count": 841,
+        "f1": 0.185,
+        "bleu1": 0.152,
+        "judge": 0.327
+      }
+    }
+  },
+  "improvements_vs_baseline": {
+    "overall": {
+      "f1": {
+        "delta": 0.064,
+        "percent": 79.0
+      },
+      "bleu1": {
+        "delta": 0.052,
+        "percent": 84.0
+      },
+      "judge": {
+        "delta": 0.149,
+        "percent": 119.0
+      }
+    },
+    "by_category": {
+      "1": {
+        "judge_delta": 0.184,
+        "judge_percent": 152.0
+      },
+      "2": {
+        "judge_delta": 0.059,
+        "judge_percent": 211.0
+      },
+      "3": {
+        "judge_delta": 0.209,
+        "judge_percent": 155.0
+      },
+      "4": {
+        "judge_delta": 0.164,
+        "judge_percent": 101.0
+      }
+    },
+    "performance": {
+      "ingest_speedup": 24.0,
+      "total_speedup": 8.6
+    }
+  },
+  "key_findings": [
+    "性能优化效果显著：Ingest 阶段提速 24 倍",
+    "所有类别得分全面提升，整体 Judge 分数提升 119%",
+    "Temporal 类别提升最大（+211%），但绝对分数仍然最低 (0.087)",
+    "Open-domain 类别表现最好 (0.344)",
+    "独立容器成功避免了数据丢失问题"
+  ],
+  "issues": [
+    "Temporal 类别得分仍然偏低，需要增强时间推理能力",
+    "需要专门优化时间信息的提取和存储"
+  ],
+  "notes": "重大性能优化版本。通过只对 user 消息提取记忆、后台任务、embedding 缓存等优化，实现了速度和质量的双重提升。独立数据库容器确保了测试稳定性。",
+  "category_optimization_analysis": {
+    "1": {
+      "name": "Multi-hop (多跳推理)",
+      "current_score": 0.305,
+      "count": 282,
+      "difficulty": "高",
+      "characteristics": [
+        "需要综合多个记忆片段才能回答",
+        "涉及实体间的关系推理",
+        "需要知识图谱支持",
+        "示例: '她研究了什么?' 需要先找到'她计划领养'，再找'研究了领养机构'"
+      ],
+      "current_issues": [
+        "知识图谱构建不完善，实体和关系提取不准确",
+        "多跳推理路径搜索效率低",
+        "召回的记忆片段可能不相关或不完整",
+        "缺少实体链接和关系推理能力"
+      ],
+      "optimization_recommendations": [
+        {
+          "priority": "P0",
+          "title": "增强知识图谱构建",
+          "description": "改进实体识别和关系提取的准确性",
+          "implementation": [
+            "在 memory_extraction.py 中增强 triple 提取的 prompt",
+            "使用更强的 NER 模型识别人物、地点、事件实体",
+            "提取更多类型的关系（因果、时序、归属等）",
+            "存储实体的别名和共指消解信息"
+          ],
+          "expected_improvement": "+20-30%",
+          "files_to_modify": [
+            "neuromemory/services/memory_extraction.py",
+            "neuromemory/services/graph_memory.py"
+          ]
+        },
+        {
+          "priority": "P1",
+          "title": "实现多跳推理路径搜索",
+          "description": "支持图数据库的路径查询",
+          "implementation": [
+            "使用 AGE (Apache AGE) 的 Cypher 查询实现路径搜索",
+            "实现 1-hop, 2-hop, 3-hop 查询",
+            "根据问题类型选择合适的搜索深度",
+            "对路径结果进行排序和过滤"
+          ],
+          "expected_improvement": "+15-25%",
+          "files_to_modify": [
+            "neuromemory/services/graph_memory.py",
+            "neuromemory/_core.py"
+          ]
+        },
+        {
+          "priority": "P1",
+          "title": "混合检索策略",
+          "description": "结合向量召回和图查询",
+          "implementation": [
+            "先用向量召回找到相关记忆",
+            "提取记忆中的实体",
+            "在图中查找实体的关联记忆",
+            "合并两种召回结果"
+          ],
+          "expected_improvement": "+10-15%",
+          "files_to_modify": [
+            "neuromemory/services/search.py",
+            "neuromemory/_core.py"
+          ]
+        }
+      ]
+    },
+    "2": {
+      "name": "Temporal (时序记忆)",
+      "current_score": 0.087,
+      "count": 321,
+      "difficulty": "极高",
+      "characteristics": [
+        "需要记住和推理时间信息",
+        "包含绝对时间（'7 May 2023'）和相对时间（'昨天'，'4年前'）",
+        "需要时间计算能力",
+        "示例: '她什么时候去的支持小组?' 对话说'昨天'，session时间是8 May，需推算出7 May"
+      ],
+      "current_issues": [
+        "时间信息提取不准确或缺失",
+        "metadata 中没有标准化的时间字段",
+        "缺少时间推理能力（相对时间转绝对时间）",
+        "没有利用 session timestamp 信息",
+        "时间范围查询不支持"
+      ],
+      "optimization_recommendations": [
+        {
+          "priority": "P0",
+          "title": "专门的时间信息提取",
+          "description": "识别并标准化时间表达式",
+          "implementation": [
+            "在 Episode 提取时专门提取时间信息",
+            "使用时间解析库（如 dateutil, dateparser）标准化时间",
+            "在 metadata 中添加 'timestamp' 字段（ISO 8601格式）",
+            "同时保留原始时间表达式（'yesterday', 'last week'）",
+            "提取时间类型（绝对/相对/模糊）"
+          ],
+          "expected_improvement": "+50-80%",
+          "files_to_modify": [
+            "neuromemory/services/memory_extraction.py",
+            "neuromemory/models/memory.py"
+          ]
+        },
+        {
+          "priority": "P0",
+          "title": "时间推理和计算",
+          "description": "将相对时间转换为绝对时间",
+          "implementation": [
+            "利用 ConversationSession 的时间戳",
+            "实现相对时间计算：'yesterday' + session_date = 具体日期",
+            "在 LLM prompt 中提供 session 时间上下文",
+            "实现时间跨度计算（'4 years ago'）",
+            "支持时间范围表达（'June 2023', 'the week before X'）"
+          ],
+          "expected_improvement": "+40-60%",
+          "files_to_modify": [
+            "neuromemory/services/memory_extraction.py",
+            "neuromemory/services/conversation.py"
+          ]
+        },
+        {
+          "priority": "P1",
+          "title": "时间索引和查询优化",
+          "description": "支持基于时间的高效检索",
+          "implementation": [
+            "在 embeddings 表添加时间索引",
+            "支持时间范围过滤（WHERE timestamp BETWEEN ...）",
+            "对 'When...' 问题优先使用时间字段过滤",
+            "实现时间线视图（按时间排序的记忆）"
+          ],
+          "expected_improvement": "+20-30%",
+          "files_to_modify": [
+            "neuromemory/services/search.py",
+            "neuromemory/models/memory.py"
+          ]
+        },
+        {
+          "priority": "P2",
+          "title": "时间感知的召回策略",
+          "description": "根据问题类型选择召回策略",
+          "implementation": [
+            "识别时间类问题（When, How long, What time）",
+            "对时间问题，优先召回包含时间信息的记忆",
+            "按时间相关性排序结果",
+            "合并向量召回和时间过滤"
+          ],
+          "expected_improvement": "+10-15%",
+          "files_to_modify": [
+            "neuromemory/services/search.py"
+          ]
+        }
+      ]
+    },
+    "3": {
+      "name": "Open-domain (开放域)",
+      "current_score": 0.344,
+      "count": 96,
+      "difficulty": "中",
+      "characteristics": [
+        "涉及广泛的知识领域",
+        "需要理解和推理概念性知识",
+        "可能需要常识推理",
+        "示例: '她可能会追求什么教育领域?' 需要从兴趣和经历推断"
+      ],
+      "current_issues": [
+        "虽然得分最高，但仍有提升空间",
+        "概念性记忆的提取可能不够全面",
+        "推理能力依赖 LLM，召回质量影响大"
+      ],
+      "optimization_recommendations": [
+        {
+          "priority": "P1",
+          "title": "增强概念性知识提取",
+          "description": "提取更多抽象和推理性的 fact",
+          "implementation": [
+            "改进 fact 提取 prompt，关注意图、计划、兴趣、能力",
+            "提取因果关系和推理链",
+            "存储用户的偏好、价值观、目标等抽象信息",
+            "增加 'concept' 类型的记忆"
+          ],
+          "expected_improvement": "+10-20%",
+          "files_to_modify": [
+            "neuromemory/services/memory_extraction.py"
+          ]
+        },
+        {
+          "priority": "P2",
+          "title": "改进语义召回精度",
+          "description": "优化向量检索的相关性",
+          "implementation": [
+            "使用更大的 top_k（当前是10，可以增加到20-30）",
+            "实现重排序（reranking）机制",
+            "使用更好的 embedding 模型（如 bge-large, gte-large）",
+            "调整向量相似度阈值"
+          ],
+          "expected_improvement": "+5-10%",
+          "files_to_modify": [
+            "neuromemory/services/search.py"
+          ]
+        }
+      ]
+    },
+    "4": {
+      "name": "Single-hop (单跳)",
+      "current_score": 0.327,
+      "count": 841,
+      "difficulty": "中",
+      "characteristics": [
+        "直接事实查询，一跳就能得到答案",
+        "通常是简单的实体属性或事件描述",
+        "占比最大（54.6%）",
+        "示例: '她的身份是什么?' 直接回答 'Transgender woman'"
+      ],
+      "current_issues": [
+        "召回精度不够，可能召回不相关记忆",
+        "Fact 提取的完整性和准确性有待提高",
+        "缺少精确匹配机制（关键词、实体匹配）"
+      ],
+      "optimization_recommendations": [
+        {
+          "priority": "P0",
+          "title": "优化 Fact 提取的准确性",
+          "description": "提取更准确、更完整的事实性记忆",
+          "implementation": [
+            "改进 fact 提取 prompt，要求提取原子化的事实",
+            "每个 fact 应该是独立、完整的陈述",
+            "提取实体的属性、状态、行为",
+            "避免重复和冗余的 fact"
+          ],
+          "expected_improvement": "+15-25%",
+          "files_to_modify": [
+            "neuromemory/services/memory_extraction.py"
+          ]
+        },
+        {
+          "priority": "P1",
+          "title": "增加关键词匹配",
+          "description": "结合 BM25 等传统检索方法",
+          "implementation": [
+            "在 content 字段上建立全文索引",
+            "实现 BM25 关键词检索",
+            "混合向量召回和关键词召回（hybrid search）",
+            "根据查询类型动态调整权重"
+          ],
+          "expected_improvement": "+10-15%",
+          "files_to_modify": [
+            "neuromemory/services/search.py",
+            "neuromemory/models/memory.py"
+          ]
+        },
+        {
+          "priority": "P1",
+          "title": "Metadata 精确过滤",
+          "description": "支持基于 metadata 的结构化查询",
+          "implementation": [
+            "提取更多结构化信息到 metadata（人物、地点、主题）",
+            "支持 metadata 过滤查询（WHERE metadata->>'person' = 'Caroline'）",
+            "实现实体锚定查询（针对特定人物的记忆）",
+            "组合向量召回 + metadata 过滤"
+          ],
+          "expected_improvement": "+10-15%",
+          "files_to_modify": [
+            "neuromemory/services/search.py",
+            "neuromemory/services/memory_extraction.py"
+          ]
+        }
+      ]
+    }
+  }
+}
