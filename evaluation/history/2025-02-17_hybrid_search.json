@@ -1,0 +1,167 @@
+{
+  "test_id": "2025-02-17_hybrid_search",
+  "test_name": "混合搜索 + 记忆提取增强 (性能下降)",
+  "timestamp": "2026-02-16T17:23:05.743872",
+  "benchmark": "locomo",
+  "dataset": "locomo10.json",
+  "environment": {
+    "neuromemory_commit": "8a8188f1",
+    "neuromemory_branch": "eval/locomo-test",
+    "neuromemory_version": "v0.2.x-dev",
+    "eval_commit": "8a8188f1",
+    "database": {
+      "type": "postgresql",
+      "version": "16.x",
+      "host": "localhost:5433",
+      "isolation": "dedicated_container",
+      "extensions": [
+        "pgvector",
+        "age"
+      ]
+    },
+    "embedding": {
+      "provider": "siliconflow",
+      "model": "BAAI/bge-m3",
+      "dimensions": 1024
+    },
+    "llm": {
+      "provider": "deepseek",
+      "model": "deepseek-chat"
+    },
+    "judge": {
+      "provider": "deepseek",
+      "model": "deepseek-chat"
+    }
+  },
+  "optimizations": [
+    "feat: 向量 + BM25 混合搜索（RRF 融合排名）",
+    "feat: fact 提取要求原子化 + 代词消解 + 完整主谓宾",
+    "feat: 增加概念性知识提取（意图/计划/价值观等）",
+    "feat: 注入会话时间上下文计算相对→绝对时间",
+    "feat: 新增 event_after/event_before 时间过滤",
+    "feat: recall 默认 limit 10→20",
+    "fix: 用户数据隔离修复（files.py, graph.py）",
+    "⚠️ 实际结果：性能全面下降 -32.7%"
+  ],
+  "performance": {
+    "ingest_phase": {
+      "duration_hours": 0,
+      "duration_minutes": 0,
+      "note": "使用 Conv 0 checkpoint，未重新运行 ingest"
+    },
+    "query_phase": {
+      "duration_hours": 1.58,
+      "duration_minutes": 95,
+      "start_time": "14:57",
+      "end_time": "16:32",
+      "questions": 1540,
+      "avg_seconds_per_question": 3.7,
+      "failed_questions": 0,
+      "retry_warnings": 5
+    },
+    "evaluate_phase": {
+      "duration_hours": 0.85,
+      "duration_minutes": 51,
+      "start_time": "16:32",
+      "end_time": "17:23",
+      "questions": 1540,
+      "avg_seconds_per_judge": 2.0
+    },
+    "total_duration_hours": 2.43,
+    "total_duration_minutes": 146
+  },
+  "results": {
+    "total_questions": 1540,
+    "overall": {
+      "f1": 0.10102754171867653,
+      "bleu1": 0.07928054020350325,
+      "judge": 0.18441558441558442
+    },
+    "by_category": {
+      "2": {
+        "count": 321,
+        "f1": 0.04475788144012444,
+        "bleu1": 0.03173541414520865,
+        "judge": 0.0778816199376947
+      },
+      "3": {
+        "count": 96,
+        "f1": 0.08861611847212336,
+        "bleu1": 0.06721937456715422,
+        "judge": 0.21875
+      },
+      "1": {
+        "count": 282,
+        "f1": 0.10859405853460108,
+        "bleu1": 0.07685569002667136,
+        "judge": 0.1950354609929078
+      },
+      "4": {
+        "count": 841,
+        "f1": 0.12138461643805062,
+        "bleu1": 0.09961783522807956,
+        "judge": 0.21759809750297265
+      }
+    }
+  },
+  "key_findings": [
+    "⚠️ 性能全面下降：整体 Judge 分数从 0.274 下降到 0.1844（-32.7%）",
+    "所有类别得分均下降：Multi-hop -36.1%, Temporal -10.5%, Open-domain -36.4%, Single-hop -33.5%",
+    "Query 阶段零失败：1540 个问题全部成功处理，仅 5 次重试警告",
+    "测试执行稳定：无 API 限流问题，处理速度稳定（3.7秒/问题）",
+    "Temporal 类别下降最小（-10.5%），说明时间相关优化可能有正向作用"
+  ],
+  "issues": [
+    "🔴 严重性能倒退：新代码导致所有类别性能显著下降",
+    "可能原因 1：混合搜索（BM25 + Vector）实现有问题，candidate_limit = limit * 4 引入太多噪音",
+    "可能原因 2：recall 默认 limit 从 10 增加到 20，召回了过多不相关记忆",
+    "可能原因 3：增强的 fact 提取（原子化、代词消解）可能提取质量不高",
+    "可能原因 4：RRF 融合权重不合理，导致相关性排序变差",
+    "需要回滚代码或调试混合搜索实现"
+  ],
+  "notes": "本轮测试同步了 commit 8a8188f1 的代码，包含大量记忆提取和搜索优化。理论上这些优化应该提升性能，但实际测试结果显示性能全面下降 32.7%。这是一个意外的结果，需要深入分析代码变更，找出性能下降的根本原因。建议：1) 检查混合搜索实现；2) 降低 recall limit 回到 10；3) 验证 fact 提取质量；4) 调整 RRF 权重或候选集大小。",
+  "regression_analysis": {
+    "vs_baseline": "2025-02-16_perf_opt",
+    "overall_change": {
+      "judge_delta": -0.0896,
+      "judge_percent": -32.7,
+      "f1_delta": -0.0440,
+      "f1_percent": -30.3,
+      "bleu1_delta": -0.0347,
+      "bleu1_percent": -30.4
+    },
+    "by_category": {
+      "1_multi_hop": {
+        "baseline": 0.305,
+        "current": 0.1950,
+        "delta": -0.110,
+        "percent": -36.1
+      },
+      "2_temporal": {
+        "baseline": 0.087,
+        "current": 0.0779,
+        "delta": -0.0091,
+        "percent": -10.5
+      },
+      "3_open_domain": {
+        "baseline": 0.344,
+        "current": 0.2188,
+        "delta": -0.1252,
+        "percent": -36.4
+      },
+      "4_single_hop": {
+        "baseline": 0.327,
+        "current": 0.2176,
+        "delta": -0.1094,
+        "percent": -33.5
+      }
+    },
+    "suspected_causes": [
+      "混合搜索 candidate_limit 过大（limit * 4）",
+      "recall limit 增加导致噪音增加",
+      "BM25 实现可能有 bug 或权重不合理",
+      "RRF 融合算法可能存在问题",
+      "增强的 fact 提取质量不如预期"
+    ]
+  }
+}
