@@ -1,0 +1,234 @@
+{
+  "test_id": "2025-02-17_complete_test",
+  "test_name": "LoCoMo Complete Test with Fixed Conv 8-9",
+  "timestamp": "2025-02-17T17:48:22+08:00",
+  "benchmark": "locomo",
+  "dataset": "locomo10.json",
+  "environment": {
+    "neuromemory_commit": "e5066cc5",
+    "neuromemory_branch": "main",
+    "neuromemory_version": "v0.2.0+",
+    "eval_commit": "e5066cc5",
+    "database": {
+      "type": "postgresql",
+      "version": "16.11",
+      "host": "localhost:5433",
+      "database": "locomo_test",
+      "isolation": "dedicated_database",
+      "container": "neuromemory-eval-db",
+      "extensions": [
+        "pgvector",
+        "age"
+      ]
+    },
+    "embedding": {
+      "provider": "siliconflow",
+      "model": "BAAI/bge-m3",
+      "dimensions": 1024
+    },
+    "llm": {
+      "provider": "deepseek",
+      "model": "deepseek-chat",
+      "base_url": "https://api.deepseek.com/v1"
+    },
+    "judge": {
+      "provider": "deepseek",
+      "model": "deepseek-chat"
+    }
+  },
+  "key_improvements": [
+    "数据完整性保证：所有 Conv 0-9 数据完整",
+    "Conv 8-9 重新提取：解决了 DeepSeek 402 错误后重新运行",
+    "使用独立数据库 locomo_test 避免数据混淆",
+    "建立了验证脚本和测试指南 (TESTING_GUIDE.md)",
+    "测试流程标准化"
+  ],
+  "issues_resolved": [
+    "修复了 Conv 8-9 记忆数为 0 的问题",
+    "解决了 DeepSeek API 余额不足导致的提取失败",
+    "清理了数据库残留数据",
+    "确保了所有 user_id 格式正确"
+  ],
+  "performance": {
+    "ingest_phase": {
+      "duration_minutes": 71,
+      "start_time": "17:48:22",
+      "end_time": "18:59:22",
+      "conversations": 10,
+      "total_memories": 14314,
+      "breakdown": {
+        "conv_0_7": {
+          "duration_minutes": 57,
+          "memories": 11225
+        },
+        "conv_8_9_retry": {
+          "duration_minutes": 14,
+          "memories": 3089
+        }
+      },
+      "avg_minutes_per_conv": 7.1
+    },
+    "query_phase": {
+      "duration_minutes": 98.15,
+      "start_time": "19:14:49",
+      "end_time": "20:52:58",
+      "questions": 1540,
+      "success_rate": 1.0,
+      "avg_seconds_per_question": 3.82,
+      "questions_per_minute": 15.69
+    },
+    "evaluate_phase": {
+      "duration_minutes": 51.9,
+      "start_time": "20:53:30",
+      "end_time": "21:45:24",
+      "judgments": 1540,
+      "avg_seconds_per_judgment": 2.02,
+      "judgments_per_minute": 29.67
+    },
+    "total_duration_minutes": 221,
+    "total_duration_hours": 3.68
+  },
+  "results": {
+    "total_questions": 1540,
+    "overall": {
+      "f1": 0.2452,
+      "bleu1": 0.1976,
+      "judge": 0.4312
+    },
+    "by_category": {
+      "1": {
+        "name": "multi-hop",
+        "count": 282,
+        "f1": 0.2296,
+        "bleu1": 0.1686,
+        "judge": 0.4752
+      },
+      "2": {
+        "name": "temporal",
+        "count": 321,
+        "f1": 0.0885,
+        "bleu1": 0.0614,
+        "judge": 0.1589
+      },
+      "3": {
+        "name": "open-domain",
+        "count": 96,
+        "f1": 0.1943,
+        "bleu1": 0.1386,
+        "judge": 0.4479
+      },
+      "4": {
+        "name": "single-hop",
+        "count": 841,
+        "f1": 0.3160,
+        "bleu1": 0.2660,
+        "judge": 0.5184
+      }
+    }
+  },
+  "improvements_vs_baseline": {
+    "baseline_test": "2025-02-16_perf_opt",
+    "baseline_judge": 0.274,
+    "current_judge": 0.4312,
+    "overall": {
+      "f1": {
+        "baseline": 0.145,
+        "current": 0.2452,
+        "delta": 0.1002,
+        "percent_improvement": 69.1
+      },
+      "bleu1": {
+        "baseline": 0.114,
+        "current": 0.1976,
+        "delta": 0.0836,
+        "percent_improvement": 73.3
+      },
+      "judge": {
+        "baseline": 0.274,
+        "current": 0.4312,
+        "delta": 0.1572,
+        "percent_improvement": 57.4
+      }
+    },
+    "by_category": {
+      "1": {
+        "name": "multi-hop",
+        "baseline_judge": 0.305,
+        "current_judge": 0.4752,
+        "judge_delta": 0.1702,
+        "judge_percent": 55.8
+      },
+      "2": {
+        "name": "temporal",
+        "baseline_judge": 0.087,
+        "current_judge": 0.1589,
+        "judge_delta": 0.0719,
+        "judge_percent": 82.6
+      },
+      "3": {
+        "name": "open-domain",
+        "baseline_judge": 0.344,
+        "current_judge": 0.4479,
+        "judge_delta": 0.1039,
+        "judge_percent": 30.2
+      },
+      "4": {
+        "name": "single-hop",
+        "baseline_judge": 0.327,
+        "current_judge": 0.5184,
+        "judge_delta": 0.1914,
+        "judge_percent": 58.5
+      }
+    }
+  },
+  "key_findings": [
+    "历史性突破：Judge Score 从 0.274 提升至 0.431 (+57.4%)",
+    "所有类别全面提升，其中 Temporal 提升最显著 (+82.6%)",
+    "Single-hop 表现最佳 (0.518)，占比最大，对整体影响显著",
+    "Temporal 仍是最大痛点 (0.159)，需要专门优化",
+    "数据完整性验证机制有效防止了测试错误"
+  ],
+  "remaining_issues": [
+    "Temporal (时序推理) 得分仍然偏低 (0.159)，需要实现专门的时间信息提取和推理",
+    "Multi-hop (多跳推理) 有提升空间 (0.475)，需要增强知识图谱",
+    "Single-hop 虽然最高 (0.518) 但距离 0.6+ 仍有差距"
+  ],
+  "next_actions": [
+    {
+      "priority": "P0",
+      "action": "实现时间信息提取和标准化",
+      "expected_improvement": "+90-120% on Temporal, +11% on Overall",
+      "estimated_days": "3-5"
+    },
+    {
+      "priority": "P0",
+      "action": "实现混合检索 (BM25 + Vector)",
+      "expected_improvement": "+12% on Single-hop, +8% on Overall",
+      "estimated_days": "3-4"
+    },
+    {
+      "priority": "P1",
+      "action": "优化 Fact 提取原子化",
+      "expected_improvement": "+7-12% on Single-hop",
+      "estimated_days": "2-3"
+    },
+    {
+      "priority": "P1",
+      "action": "增强知识图谱构建和路径查询",
+      "expected_improvement": "+16% on Multi-hop, +8% on Overall",
+      "estimated_days": "5-7"
+    }
+  ],
+  "test_quality": {
+    "data_completeness": "100%",
+    "api_stability": "Excellent (after DeepSeek recharge)",
+    "test_reproducibility": "High (with validation scripts)",
+    "database_isolation": "Excellent (dedicated locomo_test db)"
+  },
+  "notes": "本次测试实现了历史性突破，相比上次测试 (2025-02-16) Judge Score 提升 57.4%。关键成功因素包括：1) 数据完整性保证（所有 Conv 0-9）；2) Conv 8-9 重新提取（解决 402 错误后）；3) 独立数据库避免数据混淆；4) 测试流程标准化。下一步重点是时间推理能力提升和混合检索实现。",
+  "documentation": {
+    "analysis_report": "evaluation/history/2025-02-17_complete_test_analysis.md",
+    "testing_guide": "evaluation/TESTING_GUIDE.md",
+    "results_file": "evaluation/results/locomo_results.json"
+  }
+}

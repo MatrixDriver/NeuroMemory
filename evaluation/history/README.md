@@ -142,6 +142,7 @@ print(f'Improvement: +{(current[\"results\"][\"overall\"][\"judge\"] - baseline[
 |------|---------|--------|-----------|------|
 | 2025-02-15 | Baseline | 5c9672d2 | 0.125 | - |
 | 2025-02-16 | Perf Opt | e7c0f3d5 | 0.274 | +119% |
+| 2025-02-17 | Complete Test | e5066cc5 | 0.431 | +57% |
 
 ## 关键里程碑
 
@@ -155,6 +156,13 @@ print(f'Improvement: +{(current[\"results\"][\"overall\"][\"judge\"] - baseline[
 - Judge 分数: 0.274 (+119%)
 - Ingest 耗时: 1 小时 (24倍提升)
 - 优化：只对 user 消息提取记忆 + embedding 缓存
+
+### 2025-02-17: Complete Test (历史性突破)
+- Judge 分数: 0.431 (+57%)
+- 数据完整性保证：所有 Conv 0-9 完整
+- Conv 8-9 修复：解决 DeepSeek 402 错误后重新提取
+- 详细分析：见 `2025-02-17_complete_test_analysis.md`
+- 下一步：时间信息提取 + 混合检索（预期突破 0.55）
 
 ## 未来优化方向
 

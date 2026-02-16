@@ -27,19 +27,31 @@
       "improvement_vs_previous": 119.0,
       "file": "2025-02-16_perf_opt.json",
       "notes": "性能优化版本：速度提升24倍，质量提升119%"
+    },
+    {
+      "test_id": "2025-02-17_complete_test",
+      "date": "2025-02-17",
+      "name": "Complete Test with Fixed Conv 8-9",
+      "commit": "e5066cc5",
+      "branch": "main",
+      "judge_score": 0.4312,
+      "improvement_vs_previous": 57.4,
+      "file": "2025-02-17_complete_test.json",
+      "analysis_file": "2025-02-17_complete_test_analysis.md",
+      "notes": "历史性突破：数据完整性保证 + Conv 8-9 修复，Judge 分数从 0.274 提升至 0.431"
     }
   ],
 
   "latest": {
-    "test_id": "2025-02-16_perf_opt",
-    "judge_score": 0.274,
-    "commit": "e7c0f3d5"
+    "test_id": "2025-02-17_complete_test",
+    "judge_score": 0.4312,
+    "commit": "e5066cc5"
   },
 
   "best": {
     "judge_score": {
-      "test_id": "2025-02-16_perf_opt",
-      "score": 0.274
+      "test_id": "2025-02-17_complete_test",
+      "score": 0.4312
     },
     "ingest_speed": {
       "test_id": "2025-02-16_perf_opt",
