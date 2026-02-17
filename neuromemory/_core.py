@@ -612,36 +612,11 @@ class NeuroMemory:
                 if self._extraction_counts[user_id] >= self._extraction.reflection_interval:
                     self._extraction_counts[user_id] = 0
                     # 后台异步执行 reflect，不阻塞当前对话流程
-                    # 使用 create_task 将 reflect 放入事件循环，立即返回
-                    asyncio.create_task(self._background_reflect(user_id))
+                    await self.reflect(user_id, background=True)
 
         except Exception as e:
             logger.error("Auto-extraction failed: user=%s session=%s error=%s",
                          user_id, session_id, e, exc_info=True)
-
-    async def _background_reflect(self, user_id: str) -> None:
-        """后台异步执行 reflect，不阻塞对话流程。
-
-        这个方法被 asyncio.create_task() 调用，在后台执行记忆整理。
-        所有异常都会被捕获并记录日志，不会影响主流程。
-
-        Args:
-            user_id: 用户ID
-        """
-        try:
-            logger.info("后台记忆整理开始: user=%s", user_id)
-            result = await self.reflect(user_id=user_id)
-            logger.info(
-                "后台记忆整理完成: user=%s conversations=%d insights=%d",
-                user_id,
-                result.get("conversations_processed", 0),
-                result.get("insights_generated", 0),
-            )
-        except Exception as e:
-            logger.error(
-                "后台记忆整理失败: user=%s error=%s",
-                user_id, e, exc_info=True
-            )
 
     # -- Top-level convenience methods --
 
@@ -655,7 +630,7 @@ class NeuroMemory:
         """Add a memory with auto-generated embedding."""
         from neuromemory.services.search import SearchService
         async with self._db.session() as session:
-            svc = SearchService(session, self._embedding)
+            svc = SearchService(session, self._embedding, self._db.pg_search_available)
             return await svc.add_memory(user_id, content, memory_type, metadata)
 
     async def search(
@@ -677,7 +652,7 @@ class NeuroMemory:
         query_embedding = await self._cached_embed(query)
 
         async with self._db.session() as session:
-            svc = SearchService(session, self._embedding)
+            svc = SearchService(session, self._embedding, self._db.pg_search_available)
             return await svc.search(
                 user_id, query, limit, memory_type, created_after, created_before,
                 query_embedding=query_embedding
@@ -746,7 +721,7 @@ class NeuroMemory:
         # 1. Search extracted memories (existing)
         vector_results = []
         async with self._db.session() as session:
-            svc = SearchService(session, self._embedding)
+            svc = SearchService(session, self._embedding, self._db.pg_search_available)
             vector_results = await svc.scored_search(
                 user_id, query, limit,
                 decay_rate=decay_rate or DEFAULT_DECAY_RATE,
@@ -773,15 +748,59 @@ class NeuroMemory:
                 )
                 graph_results.extend(user_facts)
 
+        # 4. Fetch emotion profile for user context
+        emotion_context: str | None = None
+        try:
+            from sqlalchemy import text as sql_text
+            async with self._db.session() as session:
+                row = (await session.execute(
+                    sql_text("""
+                        SELECT latest_state, dominant_emotions
+                        FROM emotion_profiles WHERE user_id = :uid
+                    """),
+                    {"uid": user_id},
+                )).first()
+                if row and row.latest_state:
+                    emotion_context = row.latest_state
+        except Exception as e:
+            logger.debug("Failed to fetch emotion profile: %s", e)
+
         # Deduplicate by content
         seen_contents: set[str] = set()
         merged: list[dict] = []
+
+        # Inject emotion profile as leading context (helps open-domain questions)
+        if emotion_context:
+            merged.append({
+                "content": f"[Emotion Profile] {emotion_context}",
+                "source": "emotion_profile",
+                "memory_type": "emotion_profile",
+            })
 
         for r in vector_results:
             content = r.get("content", "")
             if content not in seen_contents:
                 seen_contents.add(content)
-                merged.append({**r, "source": "vector"})
+                entry = {**r, "source": "vector"}
+                # Enrich content with metadata for LLM context
+                prefix_parts: list[str] = []
+                ts = r.get("extracted_timestamp")
+                if ts:
+                    ts_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)[:10]
+                    prefix_parts.append(ts_str)
+                meta = r.get("metadata") or {}
+                emotion = meta.get("emotion") if isinstance(meta, dict) else None
+                if emotion and isinstance(emotion, dict):
+                    label = emotion.get("label", "")
+                    valence = emotion.get("valence")
+                    if label:
+                        prefix_parts.append(f"sentiment: {label}")
+                    elif valence is not None:
+                        tone = "positive" if valence > 0.2 else "negative" if valence < -0.2 else "neutral"
+                        prefix_parts.append(f"sentiment: {tone}")
+                if prefix_parts:
+                    entry["content"] = f"[{' | '.join(prefix_parts)}] {content}"
+                merged.append(entry)
 
         for r in conversation_results:
             content = r.get("content", "")
@@ -870,94 +889,176 @@ class NeuroMemory:
     async def reflect(
         self,
         user_id: str,
-        limit: int = 50,
-    ) -> dict:
-        """Generate insights and update emotion profile from existing memories.
+        batch_size: int = 50,
+        background: bool = False,
+    ) -> dict | None:
+        """Generate insights and update emotion profile from un-reflected memories.
 
-        **v0.2.0 Update**: Simplified to focus on insight generation and emotion profiling.
-        Basic memory extraction (facts, preferences, relations) is now handled automatically
-        by `add_message()` when `auto_extract=True` (default).
+        Uses a watermark (``last_reflected_at`` on EmotionProfile) to only
+        process memories that haven't been analyzed yet.  Internally paginates
+        through the new memories in batches so the LLM context stays bounded.
 
-        This method performs:
-        1. Generates pattern/summary insights from recent memories
-        2. Updates emotion profile from emotion-tagged memories
-
-        Requires LLM provider.
+        First call: processes all memories.  Subsequent calls: only new ones.
 
         Args:
             user_id: The user to reflect about.
-            limit: Max number of recent memories to analyze.
+            batch_size: Number of memories per LLM call.
+            background: If True, run in background via asyncio.create_task()
+                        and return immediately with None.
 
         Returns:
-            {
-                "insights_generated": int,
-                "insights": [{"content": "...", "category": "pattern|summary"}],
-                "emotion_profile": {"latest_state": "...", "valence_avg": ...}
-            }
+            Result dict when background=False; None when background=True.
         """
+        if background:
+            async def _safe_reflect():
+                try:
+                    await self._reflect_impl(user_id, batch_size)
+                except Exception as e:
+                    logger.error("Background reflect failed: user=%s error=%s", user_id, e)
+            asyncio.create_task(_safe_reflect())
+            return None
+        return await self._reflect_impl(user_id, batch_size)
+
+    async def _reflect_impl(
+        self,
+        user_id: str,
+        batch_size: int = 50,
+    ) -> dict:
+        """Internal implementation of reflect()."""
         if not self._llm:
             raise RuntimeError("LLM provider required for reflection")
 
         from neuromemory.services.reflection import ReflectionService
+        from sqlalchemy import text as sql_text
 
-        # Step 1: Get all recent memories (already extracted by add_message)
-        recent_memories: list[dict] = []
+        # --- Read watermark ---
+        watermark = None
         async with self._db.session() as session:
-            from sqlalchemy import text as sql_text
-            result = await session.execute(
-                sql_text("""
-                    SELECT id, content, memory_type, metadata, created_at
-                    FROM embeddings
-                    WHERE user_id = :user_id AND memory_type != 'insight'
-                    ORDER BY created_at DESC
-                    LIMIT :limit
-                """),
-                {"user_id": user_id, "limit": limit},
-            )
-            for row in result.fetchall():
-                recent_memories.append({
-                    "id": str(row.id),
-                    "content": row.content,
-                    "memory_type": row.memory_type,
-                    "metadata": row.metadata,
-                    "created_at": row.created_at,
-                })
+            row = (await session.execute(
+                sql_text("SELECT last_reflected_at FROM emotion_profiles WHERE user_id = :uid"),
+                {"uid": user_id},
+            )).first()
+            if row and row.last_reflected_at:
+                watermark = row.last_reflected_at
 
-        if not recent_memories:
+        # --- Count un-reflected memories (cheap) ---
+        async with self._db.session() as session:
+            where = "user_id = :uid AND memory_type != 'insight'"
+            params: dict = {"uid": user_id}
+            if watermark:
+                where += " AND created_at > :wm"
+                params["wm"] = watermark
+            cnt = (await session.execute(
+                sql_text(f"SELECT COUNT(*) FROM embeddings WHERE {where}"), params,
+            )).scalar() or 0
+
+        if cnt == 0:
             return {
+                "memories_analyzed": 0,
                 "insights_generated": 0,
                 "insights": [],
                 "emotion_profile": None,
             }
 
-        # Step 2: Get existing insights to avoid duplication
+        # --- Seed existing insights for dedup ---
         existing_insights: list[dict] = []
         async with self._db.session() as session:
             result = await session.execute(
                 sql_text("""
-                    SELECT content, metadata
-                    FROM embeddings
-                    WHERE user_id = :user_id AND memory_type = 'insight'
-                    ORDER BY created_at DESC
-                    LIMIT 20
+                    SELECT content, metadata FROM embeddings
+                    WHERE user_id = :uid AND memory_type = 'insight'
+                    ORDER BY created_at DESC LIMIT 50
                 """),
-                {"user_id": user_id},
+                {"uid": user_id},
             )
-            for row in result.fetchall():
+            existing_insights = [
+                {"content": r.content, "metadata": r.metadata}
+                for r in result.fetchall()
+            ]
+
+        # --- Paginate through un-reflected memories ---
+        all_insights: list[dict] = []
+        total_analyzed = 0
+        offset = 0
+        emotion_profile = None
+        max_created_at = watermark  # track new watermark
+
+        while True:
+            batch: list[dict] = []
+            async with self._db.session() as session:
+                where = "user_id = :uid AND memory_type != 'insight'"
+                params = {"uid": user_id, "lim": batch_size, "off": offset}
+                if watermark:
+                    where += " AND created_at > :wm"
+                    params["wm"] = watermark
+                result = await session.execute(
+                    sql_text(f"""
+                        SELECT id, content, memory_type, metadata, created_at
+                        FROM embeddings WHERE {where}
+                        ORDER BY created_at ASC
+                        LIMIT :lim OFFSET :off
+                    """),
+                    params,
+                )
+                for row in result.fetchall():
+                    batch.append({
+                        "id": str(row.id),
+                        "content": row.content,
+                        "memory_type": row.memory_type,
+                        "metadata": row.metadata,
+                        "created_at": row.created_at,
+                    })
+                    if max_created_at is None or row.created_at > max_created_at:
+                        max_created_at = row.created_at
+
+            if not batch:
+                break
+
+            total_analyzed += len(batch)
+
+            async with self._db.session() as session:
+                svc = ReflectionService(session, self._embedding, self._llm)
+                batch_result = await svc.reflect(
+                    user_id, batch, existing_insights or None,
+                )
+
+            batch_insights = batch_result.get("insights", [])
+            all_insights.extend(batch_insights)
+            for ins in batch_insights:
                 existing_insights.append({
-                    "content": row.content,
-                    "metadata": row.metadata,
+                    "content": ins.get("content", ""),
+                    "metadata": {"category": ins.get("category", "pattern")},
                 })
 
-        # Step 3: Generate insights and update emotion profile
-        async with self._db.session() as session:
-            reflection_svc = ReflectionService(session, self._embedding, self._llm)
-            reflection_result = await reflection_svc.reflect(
-                user_id, recent_memories, existing_insights or None,
+            if emotion_profile is None:
+                emotion_profile = batch_result.get("emotion_profile")
+
+            logger.info(
+                "Reflect[%s] batch offset=%d: analyzed=%d insights=%d (total=%d/%d)",
+                user_id, offset, len(batch), len(batch_insights), len(all_insights), cnt,
             )
 
+            if len(batch) < batch_size:
+                break
+            offset += batch_size
+
+        # --- Advance watermark ---
+        if max_created_at is not None:
+            async with self._db.session() as session:
+                await session.execute(
+                    sql_text("""
+                        INSERT INTO emotion_profiles (user_id, last_reflected_at)
+                        VALUES (:uid, :ts)
+                        ON CONFLICT (user_id) DO UPDATE
+                            SET last_reflected_at = EXCLUDED.last_reflected_at
+                    """),
+                    {"uid": user_id, "ts": max_created_at},
+                )
+                await session.commit()
+
         return {
-            "insights_generated": len(reflection_result["insights"]),
-            "insights": reflection_result["insights"],
-            "emotion_profile": reflection_result["emotion_profile"],
+            "memories_analyzed": total_analyzed,
+            "insights_generated": len(all_insights),
+            "insights": all_insights,
+            "emotion_profile": emotion_profile,
         }

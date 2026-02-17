@@ -28,17 +28,25 @@ from evaluation.prompts.answer import LOCOMO_ANSWER_SYSTEM, LOCOMO_ANSWER_USER
 logger = logging.getLogger(__name__)
 
 
-async def run_locomo(cfg: EvalConfig, phase: str | None = None) -> None:
-    """Run LoCoMo evaluation (all phases or a specific one)."""
+async def run_locomo(cfg: EvalConfig, phase: str | None = None, conv_filter: int | None = None) -> None:
+    """Run LoCoMo evaluation (all phases or a specific one).
+
+    Args:
+        conv_filter: If set, only run on this conversation index.
+    """
     conversations = load_locomo(cfg.locomo_data_path)
     logger.info("Loaded %d LoCoMo conversations", len(conversations))
+
+    if conv_filter is not None:
+        conversations = [c for c in conversations if c.conv_idx == conv_filter]
+        logger.info("Filtered to conv %d (%d conversations)", conv_filter, len(conversations))
 
     if phase is None or phase == "ingest":
         await _ingest(cfg, conversations)
     if phase is None or phase == "query":
         await _query(cfg, conversations)
     if phase is None or phase == "evaluate":
-        await _evaluate(cfg)
+        await _evaluate(cfg, conv_filter=conv_filter)
 
 
 async def _ingest(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> None:
@@ -76,12 +84,13 @@ async def _ingest_conversation(
 
         # Add messages for user_a perspective
         sid_a = f"conv{conv.conv_idx}_a_s{sess.session_idx}"
+        msg_meta = {"session_timestamp": ts.isoformat()}
         for msg in sess.messages:
             role_a = "user" if msg.speaker == conv.speaker_a else "assistant"
             content = f"{msg.speaker}: {msg.text}"
             await nm.conversations.add_message(
                 user_id=user_a, role=role_a, content=content,
-                session_id=sid_a,
+                session_id=sid_a, metadata=msg_meta,
             )
 
         # Add messages for user_b perspective
@@ -91,7 +100,7 @@ async def _ingest_conversation(
             content = f"{msg.speaker}: {msg.text}"
             await nm.conversations.add_message(
                 user_id=user_b, role=role_b, content=content,
-                session_id=sid_b,
+                session_id=sid_b, metadata=msg_meta,
             )
 
         # Set timestamps to match dataset
@@ -106,30 +115,17 @@ async def _ingest_conversation(
 
 
 async def _reflect_user(cfg: EvalConfig, nm, user_id: str) -> None:
-    """Repeatedly call reflect() until all messages are extracted.
-
-    reflect() processes up to `limit` unextracted messages per call,
-    so we loop until no more remain.
-    """
-    batch_size = cfg.extraction_batch_size
-    round_idx = 0
-    while True:
-        try:
-            result = await nm.reflect(user_id, limit=batch_size)
-        except Exception as e:
-            logger.error("Reflect failed for %s: %s", user_id, e)
-            break
-        processed = result.get("conversations_processed", 0)
-        if processed == 0:
-            break
-        round_idx += 1
+    """Call reflect() to generate insights from all memories."""
+    try:
+        result = await nm.reflect(user_id, batch_size=cfg.extraction_batch_size)
         logger.info(
-            "Reflect[%s] round %d: processed=%d facts=%d prefs=%d insights=%d",
-            user_id, round_idx, processed,
-            result.get("facts_added", 0),
-            result.get("preferences_updated", 0),
+            "Reflect[%s]: analyzed=%d insights=%d",
+            user_id,
+            result.get("memories_analyzed", 0),
             result.get("insights_generated", 0),
         )
+    except Exception as e:
+        logger.error("Reflect failed for %s: %s", user_id, e)
 
 
 async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> None:
@@ -256,11 +252,15 @@ def _merge_memories(
     return merged
 
 
-async def _evaluate(cfg: EvalConfig) -> None:
+async def _evaluate(cfg: EvalConfig, conv_filter: int | None = None) -> None:
     """Phase 3: Compute metrics on query results."""
     checkpoint_path = os.path.join(cfg.results_dir, "locomo_query_checkpoint.json")
     checkpoint = load_checkpoint(checkpoint_path)
     results = checkpoint.get("results", [])
+
+    if conv_filter is not None:
+        results = [r for r in results if r.get("conv_idx") == conv_filter]
+        logger.info("Filtered evaluate to conv %d: %d results", conv_filter, len(results))
 
     if not results:
         logger.error("No query results found. Run query phase first.")

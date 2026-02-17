@@ -15,7 +15,7 @@ services:
     ports:
       - "5433:5432"  # 使用 5433 端口避免冲突
     volumes:
-      - pgdata_eval:/var/lib/postgresql/data
+      - pgdata_eval:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U neuromemory"]
       interval: 5s

@@ -70,6 +70,13 @@ class EmotionProfile(Base, TimestampMixin):
         comment='Topic-emotion map, e.g., {"工作": {"valence": -0.5}, "技术": {"valence": 0.7}}'
     )
 
+    # === Reflection watermark ===
+    last_reflected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Watermark: max created_at of memories analyzed by reflect(). "
+                "Next reflect() only processes memories newer than this."
+    )
+
     # === Provenance ===
     source_memory_ids: Mapped[list | None] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=True,

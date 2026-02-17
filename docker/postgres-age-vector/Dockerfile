@@ -1,29 +1,20 @@
-# PostgreSQL 16 with Apache AGE and pgvector
-FROM postgres:16
+# PostgreSQL 18 with Apache AGE, pgvector, and pg_search (ParadeDB)
+# ParadeDB already includes pgvector and pg_search
+FROM paradedb/paradedb:latest
 
-# Install build dependencies
+# Install build dependencies for AGE
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
-    postgresql-server-dev-16 \
+    postgresql-server-dev-18 \
     libpq-dev \
     flex \
     bison \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pgvector
+# Install Apache AGE for PG18
 RUN cd /tmp && \
-    git clone --branch v0.7.0 https://github.com/pgvector/pgvector.git && \
-    cd pgvector && \
-    make clean && \
-    make OPTFLAGS="" && \
-    make install && \
-    cd / && \
-    rm -rf /tmp/pgvector
-
-# Install Apache AGE
-RUN cd /tmp && \
-    git clone --branch release/PG16/1.6.0 https://github.com/apache/age.git && \
+    git clone --branch release/PG18/1.7.0 https://github.com/apache/age.git && \
     cd age && \
     make PG_CONFIG=/usr/bin/pg_config install && \
     cd / && \
@@ -34,6 +25,7 @@ RUN echo "#!/bin/bash" > /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "set -e" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo 'psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL' >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "    CREATE EXTENSION IF NOT EXISTS vector;" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
+    echo "    CREATE EXTENSION IF NOT EXISTS pg_search;" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "    CREATE EXTENSION IF NOT EXISTS age;" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "    LOAD 'age';" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "    SET search_path = ag_catalog, '\$user', public;" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \

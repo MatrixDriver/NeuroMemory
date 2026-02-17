@@ -1,0 +1,37 @@
+{
+  "test_id": "2025-02-17_temporal_pgsearch",
+  "date": "2025-02-17",
+  "name": "Temporal Extraction + pg_search BM25",
+  "branch": "master",
+  "judge_score": 0.610,
+  "improvement_vs_previous": 41.5,
+  "total_questions": 1534,
+  "overall": {
+    "f1": 0.361,
+    "bleu1": 0.297,
+    "judge": 0.610
+  },
+  "by_category": {
+    "1_multi_hop": { "count": 281, "f1": 0.271, "bleu1": 0.192, "judge": 0.612 },
+    "2_temporal": { "count": 317, "f1": 0.401, "bleu1": 0.331, "judge": 0.574 },
+    "3_open_domain": { "count": 96, "f1": 0.232, "bleu1": 0.185, "judge": 0.417 },
+    "4_single_hop": { "count": 840, "f1": 0.392, "bleu1": 0.331, "judge": 0.645 }
+  },
+  "changes": [
+    "TemporalExtractor: 纯 Python 规则引擎提取时间戳",
+    "extracted_timestamp 列: 独立索引列替代 JSONB 字符串比较",
+    "session_timestamp 传递: 从评测数据集传入正确的会话时间",
+    "3 级时间戳解析: LLM ISO → LLM 文本 regex → 内容文本提取",
+    "pg_search BM25: ParadeDB Tantivy 替代 PostgreSQL tsvector",
+    "Docker 升级: ParadeDB PG18 + pgvector 0.8.1 + AGE 1.7.0",
+    "BM25 查询消毒: 处理撇号等特殊字符",
+    "Recall 结果时间标注: 内容前缀 [YYYY-MM-DD]"
+  ],
+  "infrastructure": {
+    "database": "PostgreSQL 18 (ParadeDB)",
+    "extensions": ["pgvector 0.8.1", "pg_search 0.21.8", "AGE 1.7.0"],
+    "embedding": "SiliconFlow BAAI/bge-m3",
+    "llm": "DeepSeek-chat",
+    "judge": "DeepSeek-chat"
+  }
+}

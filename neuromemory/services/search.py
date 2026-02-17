@@ -20,10 +20,26 @@ DEFAULT_DECAY_RATE = 86400 * 30
 RRF_K = 60
 
 
+def _sanitize_bm25_query(query: str) -> str:
+    """Sanitize query text for pg_search BM25 parser.
+
+    paradedb.parse() uses Tantivy query syntax where certain characters
+    (quotes, apostrophes, special operators) can cause parse errors.
+    """
+    # Remove characters that break Tantivy query parser
+    sanitized = query.replace("'", " ").replace("'", " ").replace("'", " ")
+    # Remove other Tantivy special chars
+    for ch in ['"', '"', '"', '(', ')', '[', ']', '{', '}', '~', '^', '\\']:
+        sanitized = sanitized.replace(ch, " ")
+    # Collapse multiple spaces
+    return " ".join(sanitized.split())
+
+
 class SearchService:
-    def __init__(self, db: AsyncSession, embedding: EmbeddingProvider):
+    def __init__(self, db: AsyncSession, embedding: EmbeddingProvider, pg_search_available: bool = False):
         self.db = db
         self._embedding = embedding
+        self._pg_search = pg_search_available
 
     async def add_memory(
         self,
@@ -76,7 +92,8 @@ class SearchService:
         vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
 
         filters = "user_id = :user_id"
-        params: dict = {"user_id": user_id, "limit": limit, "query_text": query}
+        bm25_query = _sanitize_bm25_query(query) if self._pg_search else query
+        params: dict = {"user_id": user_id, "limit": limit, "query_text": bm25_query}
 
         if memory_type:
             filters += " AND memory_type = :memory_type"
@@ -91,28 +108,30 @@ class SearchService:
             params["created_before"] = created_before
 
         if event_after:
-            filters += " AND metadata->>'timestamp' >= :event_after"
+            filters += " AND extracted_timestamp >= :event_after"
             params["event_after"] = event_after
 
         if event_before:
-            filters += " AND metadata->>'timestamp' <= :event_before"
+            filters += " AND extracted_timestamp <= :event_before"
             params["event_before"] = event_before
 
         # Hybrid search: RRF fusion of vector and BM25 results
-        # Fetch more candidates from each source for better fusion
-        candidate_limit = limit * 4
+        candidate_limit = limit * 2 if self._pg_search else limit * 4
 
-        sql = text(
-            f"""
-            WITH vector_ranked AS (
-                SELECT id, content, memory_type, metadata, created_at,
-                       1 - (embedding <=> '{vector_str}'::vector) AS vector_score,
-                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}'::vector) AS vector_rank
+        if self._pg_search:
+            bm25_cte = f"""
+            bm25_ranked AS (
+                SELECT id,
+                       paradedb.score(id) AS bm25_score,
+                       ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
                 FROM embeddings
                 WHERE {filters}
-                ORDER BY embedding <=> '{vector_str}'::vector
+                  AND id @@@ paradedb.parse(:query_text)
+                ORDER BY bm25_score DESC
                 LIMIT {candidate_limit}
-            ),
+            )"""
+        else:
+            bm25_cte = f"""
             bm25_ranked AS (
                 SELECT id,
                        ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) AS bm25_score,
@@ -124,8 +143,22 @@ class SearchService:
                   AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
                 ORDER BY bm25_score DESC
                 LIMIT {candidate_limit}
-            )
+            )"""
+
+        sql = text(
+            f"""
+            WITH vector_ranked AS (
+                SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
+                       1 - (embedding <=> '{vector_str}'::vector) AS vector_score,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}'::vector) AS vector_rank
+                FROM embeddings
+                WHERE {filters}
+                ORDER BY embedding <=> '{vector_str}'::vector
+                LIMIT {candidate_limit}
+            ),
+            {bm25_cte}
             SELECT v.id, v.content, v.memory_type, v.metadata, v.created_at,
+                   v.extracted_timestamp,
                    v.vector_score,
                    COALESCE(b.bm25_score, 0) AS bm25_score,
                    (1.0 / ({RRF_K} + v.vector_rank))
@@ -147,6 +180,7 @@ class SearchService:
                 "memory_type": row.memory_type,
                 "metadata": row.metadata,
                 "created_at": row.created_at,
+                "extracted_timestamp": row.extracted_timestamp,
                 "score": round(float(row.rrf_score), 4),
                 "vector_score": round(float(row.vector_score), 4),
                 "bm25_score": round(float(row.bm25_score), 4),
@@ -194,34 +228,37 @@ class SearchService:
         vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
 
         filters = "user_id = :user_id"
-        params: dict = {"user_id": user_id, "limit": limit, "decay_rate": decay_rate, "query_text": query}
+        bm25_query = _sanitize_bm25_query(query) if self._pg_search else query
+        params: dict = {"user_id": user_id, "limit": limit, "decay_rate": decay_rate, "query_text": bm25_query}
 
         if memory_type:
             filters += " AND memory_type = :memory_type"
             params["memory_type"] = memory_type
 
         if event_after:
-            filters += " AND metadata->>'timestamp' >= :event_after"
+            filters += " AND extracted_timestamp >= :event_after"
             params["event_after"] = event_after
 
         if event_before:
-            filters += " AND metadata->>'timestamp' <= :event_before"
+            filters += " AND extracted_timestamp <= :event_before"
             params["event_before"] = event_before
 
-        candidate_limit = limit * 4
+        candidate_limit = limit * 2 if self._pg_search else limit * 4
 
-        sql = text(
-            f"""
-            WITH vector_ranked AS (
-                SELECT id, content, memory_type, metadata, created_at,
-                       access_count, last_accessed_at,
-                       1 - (embedding <=> '{vector_str}'::vector) AS vector_score,
-                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}'::vector) AS vector_rank
+        if self._pg_search:
+            bm25_cte = f"""
+            bm25_ranked AS (
+                SELECT id,
+                       paradedb.score(id) AS bm25_score,
+                       ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
                 FROM embeddings
                 WHERE {filters}
-                ORDER BY embedding <=> '{vector_str}'::vector
+                  AND id @@@ paradedb.parse(:query_text)
+                ORDER BY bm25_score DESC
                 LIMIT {candidate_limit}
-            ),
+            ),"""
+        else:
+            bm25_cte = f"""
             bm25_ranked AS (
                 SELECT id,
                        ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) AS bm25_score,
@@ -233,7 +270,21 @@ class SearchService:
                   AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
                 ORDER BY bm25_score DESC
                 LIMIT {candidate_limit}
+            ),"""
+
+        sql = text(
+            f"""
+            WITH vector_ranked AS (
+                SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
+                       access_count, last_accessed_at,
+                       1 - (embedding <=> '{vector_str}'::vector) AS vector_score,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}'::vector) AS vector_rank
+                FROM embeddings
+                WHERE {filters}
+                ORDER BY embedding <=> '{vector_str}'::vector
+                LIMIT {candidate_limit}
             ),
+            {bm25_cte}
             hybrid AS (
                 SELECT v.*,
                        COALESCE(b.bm25_score, 0) AS bm25_score,
@@ -243,7 +294,7 @@ class SearchService:
                 FROM vector_ranked v
                 LEFT JOIN bm25_ranked b ON v.id = b.id
             )
-            SELECT id, content, memory_type, metadata, created_at,
+            SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
                    access_count, last_accessed_at,
                    vector_score AS relevance,
                    bm25_score,
@@ -275,6 +326,7 @@ class SearchService:
                 "memory_type": row.memory_type,
                 "metadata": row.metadata,
                 "created_at": row.created_at,
+                "extracted_timestamp": row.extracted_timestamp,
                 "relevance": round(float(row.relevance), 4),
                 "bm25_score": round(float(row.bm25_score), 4),
                 "rrf_score": round(float(row.rrf_score), 4),

@@ -39,19 +39,29 @@
       "file": "2025-02-17_complete_test.json",
       "analysis_file": "2025-02-17_complete_test_analysis.md",
       "notes": "历史性突破：数据完整性保证 + Conv 8-9 修复，Judge 分数从 0.274 提升至 0.431"
+    },
+    {
+      "test_id": "2025-02-17_temporal_pgsearch",
+      "date": "2025-02-17",
+      "name": "Temporal Extraction + pg_search BM25",
+      "branch": "master",
+      "judge_score": 0.610,
+      "improvement_vs_previous": 41.5,
+      "file": "2025-02-17_temporal_pgsearch.json",
+      "analysis_file": "2025-02-17_temporal_pgsearch_analysis.md",
+      "notes": "时间提取系统 + ParadeDB pg_search BM25，Judge 0.431 → 0.610 (+41.5%)，累计 +388%"
     }
   ],
 
   "latest": {
-    "test_id": "2025-02-17_complete_test",
-    "judge_score": 0.4312,
-    "commit": "e5066cc5"
+    "test_id": "2025-02-17_temporal_pgsearch",
+    "judge_score": 0.610
   },
 
   "best": {
     "judge_score": {
-      "test_id": "2025-02-17_complete_test",
-      "score": 0.4312
+      "test_id": "2025-02-17_temporal_pgsearch",
+      "score": 0.610
     },
     "ingest_speed": {
       "test_id": "2025-02-16_perf_opt",

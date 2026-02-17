@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,7 @@ from neuromemory.models.memory import Embedding
 from neuromemory.providers.embedding import EmbeddingProvider
 from neuromemory.providers.llm import LLMProvider
 from neuromemory.services.kv import KVService
+from neuromemory.services.temporal import TemporalExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class MemoryExtractionService:
         self._embedding = embedding
         self._llm = llm
         self._graph_enabled = graph_enabled
+        self._temporal = TemporalExtractor()
 
     async def extract_from_messages(
         self,
@@ -52,20 +55,36 @@ class MemoryExtractionService:
                 "messages_processed": 0,
             }
 
-        message_dicts = [
-            {
+        message_dicts = []
+        for msg in messages:
+            # Prefer metadata session_timestamp over created_at for accurate
+            # temporal context (eval pipeline backfills this with dataset time)
+            meta = getattr(msg, "metadata_", None) or {}
+            ts = meta.get("session_timestamp") or (
+                msg.created_at.isoformat() if msg.created_at else None
+            )
+            message_dicts.append({
                 "role": msg.role,
                 "content": msg.content,
-                "created_at": msg.created_at.isoformat() if msg.created_at else None,
-            }
-            for msg in messages
-        ]
+                "created_at": ts,
+            })
 
         classified = await self._classify_messages(message_dicts, user_id)
         logger.info(f"分类完成: {len(classified.get('preferences', []))} prefs, "
                    f"{len(classified.get('facts', []))} facts, "
                    f"{len(classified.get('episodes', []))} episodes, "
                    f"{len(classified.get('triples', []))} triples")
+
+        # Parse session_timestamp for temporal post-processing
+        session_ts = self._get_session_timestamp(message_dicts)
+        ref_time: datetime | None = None
+        if session_ts:
+            try:
+                ref_time = datetime.fromisoformat(session_ts)
+                if ref_time.tzinfo is None:
+                    ref_time = ref_time.replace(tzinfo=timezone.utc)
+            except ValueError:
+                ref_time = None
 
         try:
             prefs_count = await self._store_preferences(user_id, classified["preferences"])
@@ -75,14 +94,14 @@ class MemoryExtractionService:
             prefs_count = 0
 
         try:
-            facts_count = await self._store_facts(user_id, classified["facts"])
+            facts_count = await self._store_facts(user_id, classified["facts"], ref_time)
             logger.info(f"✅ 存储 facts 成功: {facts_count}")
         except Exception as e:
             logger.error(f"❌ 存储 facts 失败: {e}", exc_info=True)
             facts_count = 0
 
         try:
-            episodes_count = await self._store_episodes(user_id, classified["episodes"])
+            episodes_count = await self._store_episodes(user_id, classified["episodes"], ref_time)
             logger.info(f"✅ 存储 episodes 成功: {episodes_count}")
         except Exception as e:
             logger.error(f"❌ 存储 episodes 失败: {e}", exc_info=True)
@@ -284,7 +303,7 @@ class MemoryExtractionService:
    - 格式: {{"content": "事实描述", "category": "分类", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "情感描述"}} 或 null}}
    - category 可选: work, skill, hobby, personal, education, location, health, relationship, finance
    - importance: 对用户的重要程度（1=随口一提, 5=日常信息, 9=非常重要如生日/重大事件, 10=核心身份信息）
-   - emotion: 如果对话中有明显情感色彩则填写，否则设为 null
+   - emotion: 标注该事实相关的情感基调。大多数对话都带有情感色彩（积极/消极/中性），请尽量标注。仅当内容完全是客观事实（如"用户住在北京"）时才设为 null
    - entities: 提取该事实中提到的人名、地点和关键主题
 
    **Facts 关键规则**:
@@ -315,7 +334,7 @@ class MemoryExtractionService:
 
 4. **注意事项**:
    - importance: 根据内容对用户生活的重要程度打分
-   - emotion: 只标注对话文本中明显表达的情感，不推测用户内心感受
+   - emotion: 尽量标注情感基调（包括隐含的情感），仅完全客观无情感的内容才设为 null
    - 全文代词消解：将所有代词还原为实际名称
    - 提取对话中所有提到的人物的信息，不仅仅是用户自己
    - 同时提取具体事实和概念性/抽象信息（计划、兴趣、价值观、推理链）
@@ -379,7 +398,7 @@ Extract the following memories:
    - Format: {{"content": "fact description", "category": "category", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "emotion"}} or null}}
    - Category options: work, skill, hobby, personal, education, location, health, relationship, finance
    - Importance: significance to user's life (1=casual mention, 5=daily info, 9=very important like birthday/major events, 10=core identity)
-   - Emotion: only tag if conversation explicitly shows emotion, otherwise null
+   - Emotion: tag the emotional tone for this fact. Most conversations carry emotional undertones (positive/negative/neutral) — tag them. Only set null for purely objective facts like "User lives in Beijing"
    - entities: extract people names, locations, and key topics mentioned in this fact
 
    **CRITICAL rules for Facts**:
@@ -410,7 +429,7 @@ Extract the following memories:
 
 4. **Guidelines**:
    - Importance: rate based on significance to user's life
-   - Emotion: only tag emotions explicitly expressed in conversation, do not infer
+   - Emotion: tag emotional tone including implicit sentiment. Only set null for purely objective content
    - Resolve ALL pronoun references to actual names throughout
    - Extract facts about ALL people mentioned, not just the user
    - Extract both concrete facts AND conceptual/abstract information (plans, interests, values, reasoning)
@@ -504,10 +523,47 @@ Return format (JSON only, no other content):
                 # 最终的 commit/rollback 由 extract_from_messages 统一处理
         return count
 
+    def _resolve_timestamp(
+        self,
+        llm_timestamp: str | None,
+        timestamp_original: str | None,
+        content: str,
+        ref_time: datetime | None,
+    ) -> datetime | None:
+        """Three-level timestamp resolution.
+
+        1. LLM returned a valid ISO date -> use directly
+        2. LLM returned raw text (e.g. "yesterday") -> TemporalExtractor converts
+        3. Nothing from LLM -> TemporalExtractor tries content text
+        """
+        # Level 1: LLM returned valid ISO date
+        if llm_timestamp:
+            try:
+                dt = datetime.fromisoformat(llm_timestamp)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except ValueError:
+                # Not a valid ISO date, try as text in level 2
+                result = self._temporal.extract(llm_timestamp, ref_time)
+                if result:
+                    return result
+
+        # Level 2: LLM returned original text expression
+        if timestamp_original:
+            result = self._temporal.extract(timestamp_original, ref_time)
+            if result:
+                return result
+
+        # Level 3: Try extracting from content text
+        result = self._temporal.extract(content, ref_time)
+        return result
+
     async def _store_facts(
         self,
         user_id: str,
         facts: list[dict],
+        ref_time: datetime | None = None,
     ) -> int:
         # Filter valid facts
         valid_facts = [f for f in facts if f.get("content")]
@@ -546,12 +602,22 @@ Return format (JSON only, no other content):
                 entities = fact.get("entities")
                 if entities and isinstance(entities, dict):
                     meta["entities"] = entities
+
+                # Resolve timestamp for facts (some facts have temporal info)
+                resolved_ts = self._resolve_timestamp(
+                    fact.get("timestamp"),
+                    fact.get("timestamp_original"),
+                    content,
+                    ref_time,
+                )
+
                 embedding_obj = Embedding(
                     user_id=user_id,
                     content=content,
                     embedding=embedding_vector,
                     memory_type="fact",
                     metadata_=meta,
+                    extracted_timestamp=resolved_ts,
                 )
                 self.db.add(embedding_obj)
                 count += 1
@@ -564,6 +630,7 @@ Return format (JSON only, no other content):
         self,
         user_id: str,
         episodes: list[dict],
+        ref_time: datetime | None = None,
     ) -> int:
         # Filter valid episodes
         valid_episodes = [e for e in episodes if e.get("content")]
@@ -589,8 +656,19 @@ Return format (JSON only, no other content):
                 confidence = episode.get("confidence", 1.0)
                 importance = episode.get("importance")
                 emotion = episode.get("emotion")
+
+                # Resolve timestamp using 3-level strategy
+                resolved_ts = self._resolve_timestamp(
+                    timestamp, timestamp_original, content, ref_time,
+                )
+
+                # Update metadata timestamp with resolved value
+                meta_timestamp = timestamp
+                if resolved_ts and not meta_timestamp:
+                    meta_timestamp = resolved_ts.isoformat()
+
                 meta = {
-                    "timestamp": timestamp,
+                    "timestamp": meta_timestamp,
                     "confidence": confidence,
                     "extracted_from": "conversation",
                 }
@@ -617,6 +695,7 @@ Return format (JSON only, no other content):
                     embedding=embedding_vector,
                     memory_type="episodic",
                     metadata_=meta,
+                    extracted_timestamp=resolved_ts,
                 )
                 self.db.add(embedding_obj)
                 count += 1

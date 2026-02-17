@@ -35,9 +35,13 @@ class Embedding(Base, TimestampMixin):
     last_accessed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+    extracted_timestamp: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
 
     __table_args__ = (
         Index("ix_emb_user", "user_id"),
+        Index("ix_emb_user_ts", "user_id", "extracted_timestamp"),
     )
 
     @classmethod

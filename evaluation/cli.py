@@ -35,6 +35,12 @@ def main() -> None:
         help="Run a specific phase only (default: all phases)",
     )
     parser.add_argument(
+        "--conv",
+        type=int,
+        default=None,
+        help="Run only a specific conversation index (e.g. --conv 0)",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging",
@@ -52,7 +58,7 @@ def main() -> None:
 
     if args.benchmark == "locomo":
         from evaluation.pipelines.locomo import run_locomo
-        asyncio.run(run_locomo(cfg, phase=args.phase))
+        asyncio.run(run_locomo(cfg, phase=args.phase, conv_filter=args.conv))
     elif args.benchmark == "longmemeval":
         from evaluation.pipelines.longmemeval import run_longmemeval
         asyncio.run(run_longmemeval(cfg, phase=args.phase))
