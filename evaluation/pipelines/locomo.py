@@ -107,25 +107,7 @@ async def _ingest_conversation(
         await set_timestamps(nm, user_a, sid_a, ts)
         await set_timestamps(nm, user_b, sid_b, ts)
 
-    # Reflect: extract memories + generate insights, in batches
-    for uid in [user_a, user_b]:
-        await _reflect_user(cfg, nm, uid)
-
     logger.info("Ingested conv %d", conv.conv_idx)
-
-
-async def _reflect_user(cfg: EvalConfig, nm, user_id: str) -> None:
-    """Call reflect() to generate insights from all memories."""
-    try:
-        result = await nm.reflect(user_id, batch_size=cfg.extraction_batch_size)
-        logger.info(
-            "Reflect[%s]: analyzed=%d insights=%d",
-            user_id,
-            result.get("memories_analyzed", 0),
-            result.get("insights_generated", 0),
-        )
-    except Exception as e:
-        logger.error("Reflect failed for %s: %s", user_id, e)
 
 
 async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> None:
