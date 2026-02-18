@@ -783,16 +783,21 @@ class NeuroMemory:
                 seen_contents.add(content)
                 merged.append({**r, "source": "conversation"})
 
+        # Graph results as separate context (not mixed into merged)
+        # Format as triples for LLM context
+        graph_context: list[str] = []
         for r in graph_results:
-            content = r.get("content", "")
-            if content and content not in seen_contents:
-                seen_contents.add(content)
-                merged.append({**r, "source": "graph"})
+            subj = r.get("subject", "")
+            rel = r.get("relation", "")
+            obj = r.get("object", "")
+            if subj and rel and obj:
+                graph_context.append(f"{subj} → {rel} → {obj}")
 
         return {
             "vector_results": vector_results,
             "conversation_results": conversation_results,
             "graph_results": graph_results,
+            "graph_context": graph_context,
             "merged": merged[:limit],
         }
 

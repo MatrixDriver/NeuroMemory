@@ -178,17 +178,27 @@ async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> No
                             f"- {m.get('content', '')}" for m in memories_b
                         ) or "No memories found."
 
+                        # Collect graph context (separate from memories)
+                        graph_ctx_a = recall_a.get("graph_context", [])
+                        graph_ctx_b = recall_b.get("graph_context", [])
+                        all_graph = list(dict.fromkeys(graph_ctx_a + graph_ctx_b))  # dedup, preserve order
+                        graph_section = ""
+                        if all_graph:
+                            graph_lines = "\n".join(f"- {t}" for t in all_graph[:20])
+                            graph_section = f"\n\nKnown relationships:\n{graph_lines}"
+
                         # Merge for counting
                         memories = _merge_memories(memories_a, memories_b)
 
                         # Generate answer
+                        system_content = LOCOMO_ANSWER_SYSTEM.format(
+                            speaker_1=user_a,
+                            speaker_2=user_b,
+                            speaker_1_memories=mem_text_a,
+                            speaker_2_memories=mem_text_b,
+                        ) + graph_section
                         predicted = await answer_llm.chat([
-                            {"role": "system", "content": LOCOMO_ANSWER_SYSTEM.format(
-                                speaker_1=user_a,
-                                speaker_2=user_b,
-                                speaker_1_memories=mem_text_a,
-                                speaker_2_memories=mem_text_b,
-                            )},
+                            {"role": "system", "content": system_content},
                             {"role": "user", "content": LOCOMO_ANSWER_USER.format(
                                 question=qa.question,
                             )},
