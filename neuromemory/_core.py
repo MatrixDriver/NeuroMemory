@@ -734,19 +734,45 @@ class NeuroMemory:
             query_embedding=query_embedding,  # 传递预计算的 embedding
         )
 
-        # 3. Search graph entities
+        # 3. Search graph entities via known-entity matching
         graph_results: list[dict] = []
         if self._graph_enabled:
+            from sqlalchemy import text as sql_text
             from neuromemory.services.graph_memory import GraphMemoryService
+
+            # Find known entities that appear in the query (substring match)
+            matched_entities: list[str] = []
+            async with self._db.session() as session:
+                result = await session.execute(
+                    sql_text(
+                        "SELECT DISTINCT node_id FROM graph_nodes "
+                        "WHERE user_id = :uid"
+                    ),
+                    {"uid": user_id},
+                )
+                query_lower = query.lower()
+                for row in result.fetchall():
+                    node_id = row.node_id
+                    # Match if entity name appears in query (skip "user")
+                    if node_id != "user" and len(node_id) > 1 and node_id in query_lower:
+                        matched_entities.append(node_id)
+
+            # Always include user's own facts
+            matched_entities.append(user_id)
+            logger.debug("Graph entity match: query=%s matched=%s", query[:50], matched_entities)
+
             async with self._db.session() as session:
                 graph_svc = GraphMemoryService(session)
-                graph_results = await graph_svc.find_entity_facts(
-                    user_id, query, limit,
-                )
-                user_facts = await graph_svc.find_entity_facts(
-                    user_id, user_id, limit,
-                )
-                graph_results.extend(user_facts)
+                seen_triples: set[str] = set()
+                for entity in matched_entities:
+                    facts = await graph_svc.find_entity_facts(
+                        user_id, entity, limit,
+                    )
+                    for f in facts:
+                        key = f"{f.get('subject')}|{f.get('relation')}|{f.get('object')}"
+                        if key not in seen_triples:
+                            seen_triples.add(key)
+                            graph_results.append(f)
 
         # 4. Read user profile from KV store
         user_profile: dict[str, str | list[str]] = {}
