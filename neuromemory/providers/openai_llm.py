@@ -24,20 +24,48 @@ class OpenAILLM(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 2048,
     ) -> str:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        is_reasoner = "reasoner" in self._model
+
+        # Reasoner models: merge system+user into single user message, skip temperature
+        if is_reasoner:
+            converted = []
+            for msg in messages:
+                role = "user" if msg["role"] == "system" else msg["role"]
+                # Merge consecutive user messages
+                if converted and converted[-1]["role"] == "user" and role == "user":
+                    converted[-1]["content"] += "\n\n" + msg["content"]
+                else:
+                    converted.append({"role": role, "content": msg["content"]})
+            messages = converted
+
+        body = {
+            "model": self._model,
+            "messages": messages,
+        }
+        if is_reasoner:
+            # Reasoner needs more tokens: reasoning_tokens + content tokens
+            body["max_tokens"] = max(max_tokens, 4096)
+        else:
+            body["max_tokens"] = max_tokens
+            body["temperature"] = temperature
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
                 f"{self._base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": self._model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                },
+                json=body,
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            msg = data["choices"][0]["message"]
+            content = msg.get("content") or ""
+            # Reasoner models may put the answer in reasoning_content
+            if is_reasoner and not content.strip():
+                reasoning = msg.get("reasoning_content") or ""
+                # Extract last paragraph as the answer
+                lines = [l.strip() for l in reasoning.strip().split("\n") if l.strip()]
+                content = lines[-1] if lines else ""
+            return content

@@ -82,3 +82,14 @@ class EvalConfig:
     decay_rate_days: int = field(
         default_factory=lambda: int(os.environ.get("DECAY_RATE_DAYS", "365"))
     )
+
+    # Optional separate LLM for answer generation (e.g. deepseek-reasoner)
+    answer_llm_model: str = field(
+        default_factory=lambda: os.environ.get("ANSWER_LLM_MODEL", "")
+    )
+    answer_llm_api_key: str = field(
+        default_factory=lambda: os.environ.get("ANSWER_LLM_API_KEY", "")
+    )
+    answer_llm_base_url: str = field(
+        default_factory=lambda: os.environ.get("ANSWER_LLM_BASE_URL", "")
+    )

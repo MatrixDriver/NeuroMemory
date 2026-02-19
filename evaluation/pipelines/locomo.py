@@ -119,7 +119,17 @@ async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> No
     checkpoint = load_checkpoint(checkpoint_path)
     completed_keys = set(checkpoint["completed"])
 
-    answer_llm = nm._llm
+    # Use separate answer LLM if configured (e.g. deepseek-reasoner)
+    if cfg.answer_llm_model:
+        from neuromemory.providers.openai_llm import OpenAILLM
+        answer_llm = OpenAILLM(
+            api_key=cfg.answer_llm_api_key or cfg.llm_api_key,
+            model=cfg.answer_llm_model,
+            base_url=cfg.answer_llm_base_url or cfg.llm_base_url,
+        )
+        logger.info("Using separate answer LLM: %s", cfg.answer_llm_model)
+    else:
+        answer_llm = nm._llm
 
     try:
         for conv in conversations:
@@ -154,10 +164,10 @@ async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> No
                         memories_a = recall_a.get("merged", [])
                         memories_b = recall_b.get("merged", [])
                         mem_text_a = "\n".join(
-                            f"- {m.get('content', '')}" for m in memories_a
+                            f"- {m.get('display_content') or m.get('content', '')}" for m in memories_a
                         ) or "No memories found."
                         mem_text_b = "\n".join(
-                            f"- {m.get('content', '')}" for m in memories_b
+                            f"- {m.get('display_content') or m.get('content', '')}" for m in memories_b
                         ) or "No memories found."
 
                         # Collect graph context (separate from memories)

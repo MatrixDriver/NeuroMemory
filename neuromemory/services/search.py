@@ -71,15 +71,15 @@ class SearchService:
         created_after: datetime | None = None,
         created_before: datetime | None = None,
         query_embedding: list[float] | None = None,
-        event_after: str | None = None,
-        event_before: str | None = None,
+        event_after: datetime | None = None,
+        event_before: datetime | None = None,
     ) -> list[dict]:
         """Hybrid search: vector similarity + BM25 keyword search, merged via RRF.
 
         Args:
             query_embedding: Optional pre-computed embedding to avoid recomputation
-            event_after: Filter episodes by metadata timestamp >= this ISO date
-            event_before: Filter episodes by metadata timestamp <= this ISO date
+            event_after: Filter episodes by extracted_timestamp >= this datetime
+            event_before: Filter episodes by extracted_timestamp <= this datetime
         """
         if query_embedding is not None:
             query_vector = query_embedding
@@ -202,8 +202,8 @@ class SearchService:
         memory_type: str | None = None,
         decay_rate: float = DEFAULT_DECAY_RATE,
         query_embedding: list[float] | None = None,
-        event_after: str | None = None,
-        event_before: str | None = None,
+        event_after: datetime | None = None,
+        event_before: datetime | None = None,
         exclude_types: list[str] | None = None,
     ) -> list[dict]:
         """Three-factor scored search with BM25 hybrid: relevance x recency x importance.
@@ -215,8 +215,8 @@ class SearchService:
 
         Args:
             query_embedding: Optional pre-computed embedding to avoid recomputation
-            event_after: Filter episodes by metadata timestamp >= this ISO date
-            event_before: Filter episodes by metadata timestamp <= this ISO date
+            event_after: Filter episodes by extracted_timestamp >= this datetime
+            event_before: Filter episodes by extracted_timestamp <= this datetime
         """
         if query_embedding is not None:
             query_vector = query_embedding

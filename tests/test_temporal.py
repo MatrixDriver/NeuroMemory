@@ -231,3 +231,44 @@ class TestEdgeCases:
         ref = datetime(2023, 6, 15, 12, 0, 0)  # No timezone
         result = extractor.extract("yesterday", ref)
         assert result == datetime(2023, 6, 14, tzinfo=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Time range extraction (for query-side temporal filtering)
+# ---------------------------------------------------------------------------
+
+class TestExtractTimeRange:
+    def test_in_month(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("When did X go camping in June?", ref_time)
+        assert after == datetime(2023, 6, 1, tzinfo=timezone.utc)
+        assert before == datetime(2023, 7, 1, tzinfo=timezone.utc)
+
+    def test_in_month_with_year(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("What happened in March 2022?", ref_time)
+        assert after == datetime(2022, 3, 1, tzinfo=timezone.utc)
+        assert before == datetime(2022, 4, 1, tzinfo=timezone.utc)
+
+    def test_during_summer(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("When did Caroline attend a parade during the summer?", ref_time)
+        assert after == datetime(2023, 6, 1, tzinfo=timezone.utc)
+        assert before == datetime(2023, 9, 1, tzinfo=timezone.utc)
+
+    def test_in_year(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("What did she do in 2022?", ref_time)
+        assert after == datetime(2022, 1, 1, tzinfo=timezone.utc)
+        assert before == datetime(2023, 1, 1, tzinfo=timezone.utc)
+
+    def test_no_time_expression(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("When did Caroline go to school?", ref_time)
+        assert after is None
+        assert before is None
+
+    def test_empty_query(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("", ref_time)
+        assert after is None
+        assert before is None
+
+    def test_december_wraps_year(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("What happened in December 2023?", ref_time)
+        assert after == datetime(2023, 12, 1, tzinfo=timezone.utc)
+        assert before == datetime(2024, 1, 1, tzinfo=timezone.utc)

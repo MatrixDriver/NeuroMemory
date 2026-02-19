@@ -89,7 +89,7 @@ async def test_recall_surfaces_emotion_label(mock_embedding):
         # Find the memory (skip emotion_profile if present)
         memory_items = [m for m in merged if m.get("source") == "vector"]
         assert len(memory_items) >= 1
-        assert "sentiment: excited" in memory_items[0]["content"]
+        assert "sentiment: excited" in memory_items[0].get("display_content", memory_items[0]["content"])
     finally:
         await nm.close()
 
@@ -117,7 +117,7 @@ async def test_recall_valence_fallback(mock_embedding):
 
         memory_items = [m for m in merged if m.get("source") == "vector"]
         assert len(memory_items) >= 1
-        assert "sentiment: negative" in memory_items[0]["content"]
+        assert "sentiment: negative" in memory_items[0].get("display_content", memory_items[0]["content"])
     finally:
         await nm.close()
 
@@ -145,7 +145,7 @@ async def test_recall_neutral_valence(mock_embedding):
 
         memory_items = [m for m in merged if m.get("source") == "vector"]
         assert len(memory_items) >= 1
-        assert "sentiment: neutral" in memory_items[0]["content"]
+        assert "sentiment: neutral" in memory_items[0].get("display_content", memory_items[0]["content"])
     finally:
         await nm.close()
 
@@ -169,7 +169,7 @@ async def test_recall_no_emotion_metadata(mock_embedding):
 
         memory_items = [m for m in merged if m.get("source") == "vector"]
         assert len(memory_items) >= 1
-        assert "sentiment:" not in memory_items[0]["content"]
+        assert "sentiment:" not in memory_items[0].get("display_content", memory_items[0]["content"])
     finally:
         await nm.close()
 
@@ -207,7 +207,7 @@ async def test_recall_surfaces_extracted_timestamp(mock_embedding):
         memory_items = [m for m in merged if m.get("source") == "vector"]
         assert len(memory_items) >= 1
         # The date prefix should contain "2023-05" (exact day may shift by timezone)
-        assert "2023-05" in memory_items[0]["content"]
-        assert "Birthday party" in memory_items[0]["content"]
+        assert "2023-05" in memory_items[0].get("display_content", memory_items[0]["content"])
+        assert "Birthday party" in memory_items[0].get("display_content", memory_items[0]["content"])
     finally:
         await nm.close()

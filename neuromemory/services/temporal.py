@@ -100,6 +100,85 @@ class TemporalExtractor:
     _EN_QUARTER_RE = re.compile(r"Q([1-4])[\s,]*(\d{4})", re.IGNORECASE)
     _ZH_QUARTER_RE = re.compile(r"(\d{4})年?第?([一二三四1-4])季度")
 
+    # Month name patterns for time range extraction from queries
+    _MONTH_RANGE_RE = re.compile(
+        r"\b(?:in|during|around)\s+"
+        r"(january|february|march|april|may|june|july|august|september|"
+        r"october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|"
+        r"oct|nov|dec)\.?"
+        r"(?:\s+(\d{4}))?",
+        re.IGNORECASE,
+    )
+    _YEAR_RANGE_RE = re.compile(r"\b(?:in|during|around)\s+(\d{4})\b", re.IGNORECASE)
+    _SEASON_RANGE_RE = re.compile(
+        r"\b(?:in|during|around)?\s*(?:the\s+)?"
+        r"(spring|summer|fall|autumn|winter)"
+        r"(?:\s+(?:of\s+)?(\d{4}))?",
+        re.IGNORECASE,
+    )
+
+    def extract_time_range(
+        self, query: str, reference_time: datetime | None = None
+    ) -> tuple[datetime | None, datetime | None]:
+        """Extract a time range from a query for temporal filtering.
+
+        Looks for phrases like "in June", "during 2023", "in the summer",
+        "in May 2023" and returns (event_after, event_before) bounds.
+
+        Returns (None, None) if no temporal expression found.
+        """
+        if not query:
+            return None, None
+
+        ref = reference_time or datetime.now(timezone.utc)
+        if ref.tzinfo is None:
+            ref = ref.replace(tzinfo=timezone.utc)
+
+        # Try "in/during Month [Year]"
+        m = self._MONTH_RANGE_RE.search(query)
+        if m:
+            month_str = m.group(1).rstrip('.').lower()
+            month = self._EN_MONTH_MAP.get(month_str)
+            if month:
+                year = int(m.group(2)) if m.group(2) else ref.year
+                start = datetime(year, month, 1, tzinfo=ref.tzinfo)
+                # End = start of next month
+                if month == 12:
+                    end = datetime(year + 1, 1, 1, tzinfo=ref.tzinfo)
+                else:
+                    end = datetime(year, month + 1, 1, tzinfo=ref.tzinfo)
+                return start, end
+
+        # Try "in/during [the] season [year]"
+        m = self._SEASON_RANGE_RE.search(query)
+        if m:
+            season = m.group(1).lower()
+            season_months = {
+                "spring": (3, 6), "summer": (6, 9),
+                "fall": (9, 12), "autumn": (9, 12), "winter": (12, 3),
+            }
+            start_m, end_m = season_months.get(season, (None, None))
+            if start_m is not None:
+                year = int(m.group(2)) if m.group(2) else ref.year
+                if season == "winter":
+                    start = datetime(year, 12, 1, tzinfo=ref.tzinfo)
+                    end = datetime(year + 1, 3, 1, tzinfo=ref.tzinfo)
+                else:
+                    start = datetime(year, start_m, 1, tzinfo=ref.tzinfo)
+                    end = datetime(year, end_m, 1, tzinfo=ref.tzinfo)
+                return start, end
+
+        # Try "in/during Year"
+        m = self._YEAR_RANGE_RE.search(query)
+        if m:
+            year = int(m.group(1))
+            if 1900 <= year <= 2100:
+                start = datetime(year, 1, 1, tzinfo=ref.tzinfo)
+                end = datetime(year + 1, 1, 1, tzinfo=ref.tzinfo)
+                return start, end
+
+        return None, None
+
     def extract(self, text: str, reference_time: datetime | None = None) -> datetime | None:
         """Extract a timestamp from text.
 

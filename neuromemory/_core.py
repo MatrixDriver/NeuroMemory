@@ -725,8 +725,26 @@ class NeuroMemory:
             vector_results = await svc.scored_search(
                 user_id, query, limit,
                 decay_rate=decay_rate or DEFAULT_DECAY_RATE,
-                query_embedding=query_embedding,  # 传递预计算的 embedding
+                query_embedding=query_embedding,
             )
+
+            # 1b. For temporal queries ("when"/"how long"), boost episodic memories
+            # which have extracted_timestamps (74% coverage vs 0.6% for facts)
+            query_lower = query.lower().strip()
+            if query_lower.startswith(("when ", "how long ")):
+                episodic_results = await svc.scored_search(
+                    user_id, query, limit,
+                    decay_rate=decay_rate or DEFAULT_DECAY_RATE,
+                    query_embedding=query_embedding,
+                    memory_type="episodic",
+                )
+                # Merge: episodic results get priority, dedup by id
+                seen_ids = {r["id"] for r in episodic_results}
+                for r in vector_results:
+                    if r["id"] not in seen_ids:
+                        seen_ids.add(r["id"])
+                        episodic_results.append(r)
+                vector_results = episodic_results[:limit]
 
         # 2. Search original conversations (P1: mem0-style)
         conversation_results = await self._search_conversations(
@@ -803,6 +821,12 @@ class NeuroMemory:
                 if ts:
                     ts_str = ts.strftime("%Y-%m-%d") if hasattr(ts, "strftime") else str(ts)[:10]
                     prefix_parts.append(ts_str)
+                mtype = r.get("memory_type", "")
+                if mtype:
+                    prefix_parts.append(mtype)
+                imp = r.get("importance")
+                if imp is not None and imp >= 7:
+                    prefix_parts.append(f"importance={imp}")
                 meta = r.get("metadata") or {}
                 emotion = meta.get("emotion") if isinstance(meta, dict) else None
                 if emotion and isinstance(emotion, dict):
@@ -814,7 +838,7 @@ class NeuroMemory:
                         tone = "positive" if valence > 0.2 else "negative" if valence < -0.2 else "neutral"
                         prefix_parts.append(f"sentiment: {tone}")
                 if prefix_parts:
-                    entry["content"] = f"[{' | '.join(prefix_parts)}] {content}"
+                    entry["display_content"] = f"[{' | '.join(prefix_parts)}] {content}"
                 merged.append(entry)
 
         for r in conversation_results:
