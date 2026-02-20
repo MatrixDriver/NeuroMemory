@@ -714,19 +714,49 @@ class NeuroMemory:
             }
         """
         from neuromemory.services.search import SearchService, DEFAULT_DECAY_RATE
+        from neuromemory.services.temporal import TemporalExtractor
 
         # 🚀 Compute query embedding once, reuse for all searches
         query_embedding = await self._cached_embed(query)
 
-        # 1. Search extracted memories (existing)
+        # Extract time range from query for temporal filtering
+        temporal = TemporalExtractor()
+        event_after, event_before = temporal.extract_time_range(query)
+
+        # 1. Search extracted memories
         vector_results = []
         async with self._db.session() as session:
             svc = SearchService(session, self._embedding, self._db.pg_search_available)
-            vector_results = await svc.scored_search(
-                user_id, query, limit,
-                decay_rate=decay_rate or DEFAULT_DECAY_RATE,
-                query_embedding=query_embedding,  # 传递预计算的 embedding
-            )
+            if event_after or event_before:
+                # Temporal query detected: search episodic with time filter + fact without
+                episodic_results = await svc.scored_search(
+                    user_id, query, limit,
+                    decay_rate=decay_rate or DEFAULT_DECAY_RATE,
+                    query_embedding=query_embedding,
+                    memory_type="episodic",
+                    event_after=event_after,
+                    event_before=event_before,
+                )
+                fact_results = await svc.scored_search(
+                    user_id, query, limit,
+                    decay_rate=decay_rate or DEFAULT_DECAY_RATE,
+                    query_embedding=query_embedding,
+                    exclude_types=["episodic"],
+                )
+                # Merge: episodic first (time-filtered), then facts, dedup by id
+                seen_ids = {r["id"] for r in episodic_results}
+                merged_temporal = list(episodic_results)
+                for r in fact_results:
+                    if r["id"] not in seen_ids:
+                        seen_ids.add(r["id"])
+                        merged_temporal.append(r)
+                vector_results = merged_temporal[:limit]
+            else:
+                vector_results = await svc.scored_search(
+                    user_id, query, limit,
+                    decay_rate=decay_rate or DEFAULT_DECAY_RATE,
+                    query_embedding=query_embedding,
+                )
 
         # 2. Search original conversations (P1: mem0-style)
         conversation_results = await self._search_conversations(
