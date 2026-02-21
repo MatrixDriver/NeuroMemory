@@ -342,6 +342,10 @@ class MemoryExtractionService:
    - entities: 提取该事实中提到的人名、地点和关键主题
 
    **Facts 关键规则**:
+   - Facts 只捕获**持久、可复用的属性**：职业、爱好、技能、性格、关系、价值观、偏好等
+   - 一次性事件（"昨天去了X"、"上周做了Y"）应放入 Episodes，**不要**同时作为 Fact 重复。若该事件揭示了持久特征，提取推断出的属性（如"用户喜欢古典音乐"），而非复述事件本身
+   - 错误示范: "用户去悉尼歌剧院听贝多芬交响乐"（一次性事件，应放 Episodes）
+   - 正确示范: "用户喜欢古典音乐" 或 "用户对贝多芬感兴趣"（从事件推断的持久偏好）
    - 每个 fact 必须是原子的：一条 fact 只包含一个独立信息
    - 每个 fact 必须有明确的主语（禁止使用代词如"他/她/它"）
    - 必须将代词还原为实际名称："她在那里工作" → "Caroline 在心理咨询中心工作"
@@ -448,6 +452,10 @@ Extract the following memories:
    - entities: extract people names, locations, and key topics mentioned in this fact
 
    **CRITICAL rules for Facts**:
+   - Facts capture only **persistent, reusable attributes**: occupation, hobbies, skills, personality, relationships, values, preferences, etc.
+   - One-time events ("went to X yesterday", "did Y last week") belong in Episodes — do NOT duplicate them as Facts. If an event reveals a lasting trait, extract the inferred attribute (e.g. "The user enjoys classical music"), not a restatement of the event itself.
+   - BAD: "The user went to Sydney Opera House to listen to Beethoven" (one-time event → put in Episodes)
+   - GOOD: "The user enjoys classical music" or "The user is a fan of Beethoven" (persistent preference inferred from the event)
    - Each fact MUST be atomic: one single piece of information per fact
    - Each fact MUST be self-contained with explicit subject (never use pronouns like "she/he/they")
    - Always resolve pronouns to actual names: "She works there" → "Caroline works at the counseling center"
