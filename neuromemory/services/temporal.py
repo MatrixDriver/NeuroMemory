@@ -117,15 +117,53 @@ class TemporalExtractor:
         re.IGNORECASE,
     )
 
+    # Chinese time range patterns for query temporal filtering
+    # 后天/大后天 (must come before 前天/昨天 to avoid partial match)
+    _ZH_RANGE_DAY_AFTER_TOMORROW = re.compile(r"后天|大后天")
+    # 明天
+    _ZH_RANGE_TOMORROW = re.compile(r"明天")
+    # 前天/大前天
+    _ZH_RANGE_DAY_BEFORE_YESTERDAY = re.compile(r"前天|大前天")
+    # 昨天
+    _ZH_RANGE_YESTERDAY = re.compile(r"昨天")
+    # 最近/近期/近来 → last 30 days
+    _ZH_RANGE_RECENT = re.compile(r"最近|近期|近来|这段时间|最近一段时间")
+    # 今天/今日 → today
+    _ZH_RANGE_TODAY = re.compile(r"今天|今日")
+    # 这周/本周/这个星期 → this week
+    _ZH_RANGE_THIS_WEEK = re.compile(r"这周|本周|这个星期|这个周")
+    # 上周/上个星期 → last week
+    _ZH_RANGE_LAST_WEEK = re.compile(r"上周|上个星期|上个周|上一周")
+    # 这个月/本月 → this month
+    _ZH_RANGE_THIS_MONTH = re.compile(r"这个月|这月|本月")
+    # 上个月/上月 → last month
+    _ZH_RANGE_LAST_MONTH = re.compile(r"上个月|上月|上一个月")
+    # 今年 → this year
+    _ZH_RANGE_THIS_YEAR = re.compile(r"今年")
+    # 去年 → last year
+    _ZH_RANGE_LAST_YEAR = re.compile(r"去年")
+    # X月 (e.g. 5月, 十一月) → that month in current year
+    _ZH_RANGE_MONTH_NUM = re.compile(r"(\d{1,2})月(?![\d日])")
+    _ZH_RANGE_MONTH_CN = re.compile(
+        r"(一|二|三|四|五|六|七|八|九|十|十一|十二)月(?![\d日])"
+    )
+    # YYYY年 → that year
+    _ZH_RANGE_YEAR_NUM = re.compile(r"(\d{4})年")
+
+    _ZH_CN_MONTH_MAP = {
+        "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6,
+        "七": 7, "八": 8, "九": 9, "十": 10, "十一": 11, "十二": 12,
+    }
+
     def extract_time_range(
         self, query: str, reference_time: datetime | None = None
     ) -> tuple[datetime | None, datetime | None]:
         """Extract a time range from a query for temporal filtering.
 
-        Looks for phrases like "in June", "during 2023", "in the summer",
-        "in May 2023" and returns (event_after, event_before) bounds.
+        Handles both English ("in June", "during 2023", "in the summer") and
+        Chinese ("最近", "这周", "上个月", "今年", "5月") time expressions.
 
-        Returns (None, None) if no temporal expression found.
+        Returns (event_after, event_before) bounds, or (None, None) if not found.
         """
         if not query:
             return None, None
@@ -133,6 +171,112 @@ class TemporalExtractor:
         ref = reference_time or datetime.now(timezone.utc)
         if ref.tzinfo is None:
             ref = ref.replace(tzinfo=timezone.utc)
+
+        # --- Chinese time ranges (checked before English to avoid false matches) ---
+
+        def _day_range(base: datetime) -> tuple[datetime, datetime]:
+            """Return [start-of-day, start-of-next-day) for a given date."""
+            start = base.replace(hour=0, minute=0, second=0, microsecond=0)
+            return start, start + timedelta(days=1)
+
+        # 后天/大后天 (checked before 前天 to avoid prefix clash)
+        if self._ZH_RANGE_DAY_AFTER_TOMORROW.search(query):
+            return _day_range(ref + timedelta(days=2))
+
+        # 明天
+        if self._ZH_RANGE_TOMORROW.search(query):
+            return _day_range(ref + timedelta(days=1))
+
+        # 前天/大前天 (checked before 昨天)
+        if self._ZH_RANGE_DAY_BEFORE_YESTERDAY.search(query):
+            return _day_range(ref - timedelta(days=2))
+
+        # 昨天
+        if self._ZH_RANGE_YESTERDAY.search(query):
+            return _day_range(ref - timedelta(days=1))
+
+        # 最近/近期 → last 30 days
+        if self._ZH_RANGE_RECENT.search(query):
+            return ref - timedelta(days=30), ref
+
+        # 今天/今日 → today
+        if self._ZH_RANGE_TODAY.search(query):
+            start = ref.replace(hour=0, minute=0, second=0, microsecond=0)
+            return start, ref
+
+        # 这周/本周 → Monday of this week to now
+        if self._ZH_RANGE_THIS_WEEK.search(query):
+            start = (ref - timedelta(days=ref.weekday())).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            return start, ref
+
+        # 上周 → last full week (Mon–Sun)
+        if self._ZH_RANGE_LAST_WEEK.search(query):
+            this_monday = (ref - timedelta(days=ref.weekday())).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            start = this_monday - timedelta(weeks=1)
+            end = this_monday
+            return start, end
+
+        # 这个月/本月 → first day of this month to now
+        if self._ZH_RANGE_THIS_MONTH.search(query):
+            start = ref.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            return start, ref
+
+        # 上个月 → last full month
+        if self._ZH_RANGE_LAST_MONTH.search(query):
+            first_this = ref.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            month = first_this.month - 1 or 12
+            year = first_this.year if first_this.month > 1 else first_this.year - 1
+            start = first_this.replace(year=year, month=month)
+            return start, first_this
+
+        # 今年 → this year so far
+        if self._ZH_RANGE_THIS_YEAR.search(query):
+            start = ref.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            return start, ref
+
+        # 去年 → full last year
+        if self._ZH_RANGE_LAST_YEAR.search(query):
+            start = ref.replace(year=ref.year - 1, month=1, day=1,
+                                hour=0, minute=0, second=0, microsecond=0)
+            end = ref.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            return start, end
+
+        # YYYY年 → that year
+        m = self._ZH_RANGE_YEAR_NUM.search(query)
+        if m:
+            year = int(m.group(1))
+            if 1900 <= year <= 2100:
+                start = datetime(year, 1, 1, tzinfo=ref.tzinfo)
+                end = datetime(year + 1, 1, 1, tzinfo=ref.tzinfo)
+                return start, end
+
+        # X月 (数字) → that month in current year, e.g. "5月发生了什么"
+        m = self._ZH_RANGE_MONTH_NUM.search(query)
+        if m:
+            month = int(m.group(1))
+            if 1 <= month <= 12:
+                year = ref.year
+                start = datetime(year, month, 1, tzinfo=ref.tzinfo)
+                end = datetime(year, month + 1, 1, tzinfo=ref.tzinfo) if month < 12 \
+                    else datetime(year + 1, 1, 1, tzinfo=ref.tzinfo)
+                return start, end
+
+        # 一月/二月/… → that month in current year
+        m = self._ZH_RANGE_MONTH_CN.search(query)
+        if m:
+            month = self._ZH_CN_MONTH_MAP.get(m.group(1))
+            if month:
+                year = ref.year
+                start = datetime(year, month, 1, tzinfo=ref.tzinfo)
+                end = datetime(year, month + 1, 1, tzinfo=ref.tzinfo) if month < 12 \
+                    else datetime(year + 1, 1, 1, tzinfo=ref.tzinfo)
+                return start, end
+
+        # --- English time ranges ---
 
         # Try "in/during Month [Year]"
         m = self._MONTH_RANGE_RE.search(query)
@@ -142,7 +286,6 @@ class TemporalExtractor:
             if month:
                 year = int(m.group(2)) if m.group(2) else ref.year
                 start = datetime(year, month, 1, tzinfo=ref.tzinfo)
-                # End = start of next month
                 if month == 12:
                     end = datetime(year + 1, 1, 1, tzinfo=ref.tzinfo)
                 else:

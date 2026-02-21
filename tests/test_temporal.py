@@ -272,3 +272,89 @@ class TestExtractTimeRange:
         after, before = extractor.extract_time_range("What happened in December 2023?", ref_time)
         assert after == datetime(2023, 12, 1, tzinfo=timezone.utc)
         assert before == datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+    # --- Chinese time range tests (ref_time = 2023-06-15 Thu) ---
+
+    def test_zh_yesterday(self, extractor, ref_time):
+        # ref_time = 2023-06-15, yesterday = 2023-06-14
+        after, before = extractor.extract_time_range("昨天我们聊了什么", ref_time)
+        assert after == datetime(2023, 6, 14, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == datetime(2023, 6, 15, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_zh_day_before_yesterday(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("前天发生了什么", ref_time)
+        assert after == datetime(2023, 6, 13, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == datetime(2023, 6, 14, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_zh_tomorrow(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("明天有什么安排", ref_time)
+        assert after == datetime(2023, 6, 16, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == datetime(2023, 6, 17, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_zh_day_after_tomorrow(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("后天的计划", ref_time)
+        assert after == datetime(2023, 6, 17, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == datetime(2023, 6, 18, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_zh_recent(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("最近我们聊了什么", ref_time)
+        assert after == ref_time - __import__("datetime").timedelta(days=30)
+        assert before == ref_time
+
+    def test_zh_today(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("今天发生了什么", ref_time)
+        assert after == datetime(2023, 6, 15, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == ref_time
+
+    def test_zh_this_week(self, extractor, ref_time):
+        # ref_time is Thursday 2023-06-15, Mon = 2023-06-12
+        after, before = extractor.extract_time_range("这周我们聊了什么", ref_time)
+        assert after == datetime(2023, 6, 12, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == ref_time
+
+    def test_zh_last_week(self, extractor, ref_time):
+        # last week = Mon 2023-06-05 to Mon 2023-06-12
+        after, before = extractor.extract_time_range("上周有什么事", ref_time)
+        assert after == datetime(2023, 6, 5, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == datetime(2023, 6, 12, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_zh_this_month(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("这个月发生了什么", ref_time)
+        assert after == datetime(2023, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == ref_time
+
+    def test_zh_last_month(self, extractor, ref_time):
+        # last month = May 2023
+        after, before = extractor.extract_time_range("上个月的事情", ref_time)
+        assert after == datetime(2023, 5, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == datetime(2023, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_zh_this_year(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("今年有什么大事", ref_time)
+        assert after == datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == ref_time
+
+    def test_zh_last_year(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("去年发生了什么", ref_time)
+        assert after == datetime(2022, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert before == datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    def test_zh_year_num(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("2022年的事", ref_time)
+        assert after == datetime(2022, 1, 1, tzinfo=timezone.utc)
+        assert before == datetime(2023, 1, 1, tzinfo=timezone.utc)
+
+    def test_zh_month_num(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("3月我们聊了什么", ref_time)
+        assert after == datetime(2023, 3, 1, tzinfo=timezone.utc)
+        assert before == datetime(2023, 4, 1, tzinfo=timezone.utc)
+
+    def test_zh_month_cn(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("三月份发生的事", ref_time)
+        assert after == datetime(2023, 3, 1, tzinfo=timezone.utc)
+        assert before == datetime(2023, 4, 1, tzinfo=timezone.utc)
+
+    def test_zh_no_time(self, extractor, ref_time):
+        after, before = extractor.extract_time_range("你叫什么名字", ref_time)
+        assert after is None
+        assert before is None
