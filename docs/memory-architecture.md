@@ -8,10 +8,10 @@ NeuroMemory 采用混合记忆架构，根据记忆类型选择最适合的存�
 
 | 记忆类型 | 认知科学对应 | 存储方式 | 检索方式 | 示例 |
 |----------|------------|----------|---------|------|
-| **偏好 Preferences** | 语义记忆 | KV | 精确 key 查找 | `language=zh-CN` |
 | **事实 Facts** | 语义记忆 | 图三元组 + 向量（双写） | 图遍历 + 向量搜索 | "在 Google 工作" |
 | **情景 Episodes** | 情景记忆 | 向量 embedding | 语义相似搜索 | "昨天面试了一家公司" |
 | **关系 Triples** | 语义记忆 | 图边 | 实体遍历 | `(user)-[HAS_SKILL]->(Python)` |
+| **偏好 Preferences** | 语义记忆 | KV (Profile) | 精确 key 查找 | `["喜欢喝咖啡", "偏好深色模式"]` |
 
 ### 为什么双写事实？
 
@@ -27,10 +27,10 @@ NeuroMemory 采用混合记忆架构，根据记忆类型选择最适合的存�
   ▼
 LLM 记忆提取 (MemoryExtractionService)
   │
-  ├── Preferences → KV Store (精确查找)
   ├── Facts → Embedding Store (语义搜索) + Graph Store (关系查询)
   ├── Episodes → Embedding Store (语义搜索)
-  └── Triples → Graph Store (实体关系)
+  ├── Triples → Graph Store (实体关系)
+  └── Profile Updates (含偏好) → KV Store (精确查找)
 ```
 
 ## 时态模型
@@ -174,7 +174,7 @@ nm = NeuroMemory(
 |------|------------|------|-----|--------|
 | 向量记忆 | pgvector | Qdrant | pgvector | 多种 |
 | 图记忆 | Apache AGE | Neo4j | Neo4j | NetworkX/Neo4j |
-| KV 偏好 | PostgreSQL | - | - | - |
+| KV 画像/偏好 | PostgreSQL (Profile) | - | - | - |
 | 时态模型 | valid_from/until | - | 双时态 | - |
 | 冲突解决 | 启发式规则 | LLM | LLM | - |
 | 部署方式 | Python 框架 | 托管 API | 托管 API | Python 框架 |
@@ -183,4 +183,4 @@ nm = NeuroMemory(
 NeuroMemory 的优势在于：
 - **单一数据库**：PostgreSQL 同时提供关系、向量、图能力，无需部署多个数据库
 - **框架模式**：直接嵌入 agent 程序，无需部署和维护独立服务
-- **KV 偏好**：专门的偏好存储，精确查找无需语义搜索
+- **KV 画像**：用户画像（含偏好）存入 Profile，精确查找无需语义搜索

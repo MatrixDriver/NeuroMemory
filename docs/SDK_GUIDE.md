@@ -1,7 +1,7 @@
 # NeuroMemory 使用指南
 
 > **Python 版本**: 3.10+
-> **最后更新**: 2026-02-11
+> **最后更新**: 2026-02-21
 
 ---
 
@@ -133,9 +133,10 @@ embedding = await nm.add_memory(
 |------|------|------|
 | `fact` | 事实性知识 | "Python 是一种编程语言" |
 | `episodic` | 事件记录 | "昨天参加了项目会议" |
-| `preference` | 用户偏好 | "我喜欢喝咖啡" |
 | `document` | 文档内容 | 自动从文件提取 |
 | `general` | 通用（默认） | 其他 |
+
+> **注**：用户偏好（如"喜欢喝咖啡"）由 LLM 自动提取后存入 profile（KV 存储），不作为独立记忆类型。
 
 ### 3.2 语义检索
 
@@ -170,16 +171,16 @@ for r in results:
 
 ```python
 # 设置（支持任意 JSON 值）
-await nm.kv.set("alice", "preferences", "language", "zh-CN")
-await nm.kv.set("alice", "preferences", "theme", {"mode": "dark"})
+await nm.kv.set("alice", "config", "language", "zh-CN")
+await nm.kv.set("alice", "config", "theme", {"mode": "dark"})
 await nm.kv.set("global", "settings", "max_tokens", 4096)
 
 # 获取
-value = await nm.kv.get("alice", "preferences", "language")
+value = await nm.kv.get("alice", "config", "language")
 # 返回 "zh-CN"，不存在返回 None
 
 # 删除
-deleted = await nm.kv.delete("alice", "preferences", "language")
+deleted = await nm.kv.delete("alice", "config", "language")
 # 返回 True/False
 ```
 
@@ -187,15 +188,15 @@ deleted = await nm.kv.delete("alice", "preferences", "language")
 
 ```python
 # 列出 namespace + scope 下所有键值
-items = await nm.kv.list("alice", "preferences")
+items = await nm.kv.list("alice", "config")
 for item in items:
     print(f"{item.key}: {item.value}")
 
 # 按前缀过滤
-items = await nm.kv.list("alice", "preferences", prefix="theme")
+items = await nm.kv.list("alice", "config", prefix="theme")
 
 # 批量设置
-await nm.kv.batch_set("alice", "preferences", {
+await nm.kv.batch_set("alice", "config", {
     "language": "zh-CN",
     "theme": {"mode": "dark"},
     "font_size": 14,
@@ -420,7 +421,7 @@ results = await nm.graph.query(
 
 ## 8. 记忆提取
 
-需要配置 `LLMProvider`。从对话中自动提取偏好、事实和事件。
+需要配置 `LLMProvider`。从对话中自动提取事实、事件和关系，偏好存入用户画像。
 
 ### 8.1 基础用法
 
@@ -451,10 +452,11 @@ stats = await nm.extract_memories(user_id="alice")
 
 ```python
 {
-    "preferences_extracted": 1,   # 存入 KV（key: "preferred_language", value: "Python"）
     "facts_extracted": 1,         # 存入 embeddings（content: "在 Google 担任 ML 工程师"）
     "episodes_extracted": 0,
+    "triples_extracted": 0,       # 存入图数据库
     "messages_processed": 3,
+    "profile_updates": 1,         # 偏好等存入用户画像（profile）
 }
 ```
 

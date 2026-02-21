@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from neuromemory.models.graph import EdgeType, GraphEdge, GraphNode, NodeType
-from neuromemory.services.graph import GraphService
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +65,6 @@ class GraphMemoryService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        self._graph = GraphService(db)
 
     async def store_triples(self, user_id: str, triples: list[dict[str, Any]]) -> int:
         """Store a batch of triples into the graph.
@@ -155,24 +153,6 @@ class GraphMemoryService:
         )
         self.db.add(edge)
 
-        # AGE sync 已禁用: AGE cypher 查询失败会中止整个事务
-        # 即使 Python 捕获异常，PostgreSQL 事务仍会被中止
-        # 未来如需启用，需要使用 SAVEPOINT 机制来隔离 AGE 查询的失败
-        # try:
-        #     cypher = f"""
-        #     MATCH (a:{subject_type.value} {{id: $source_id}})
-        #     MATCH (b:{object_type.value} {{id: $target_id}})
-        #     CREATE (a)-[r:{edge_type.value} $props]->(b)
-        #     RETURN r
-        #     """
-        #     await self._graph._execute_cypher(cypher, {
-        #         "source_id": subject_id,
-        #         "target_id": object_id,
-        #         "props": edge_props,
-        #     })
-        # except Exception:
-        #     pass  # AGE not available, relational table is enough
-
         return True
 
     async def _ensure_node(
@@ -212,19 +192,6 @@ class GraphMemoryService:
         # 记录本批次已创建的节点
         if hasattr(self, '_created_nodes'):
             self._created_nodes.add(node_key)
-
-        # 不在这里 flush，避免触发待处理的其他 SQL 导致事务提前失败
-        # 让调用方统一 commit 时一起 flush 所有对象
-
-        # AGE sync 已禁用: AGE cypher 查询失败会中止整个事务
-        # 即使 Python 捕获异常，PostgreSQL 事务仍会被中止
-        # 未来如需启用，需要使用 SAVEPOINT 机制来隔离 AGE 查询的失败
-        # try:
-        #     props = {**(properties or {}), "id": node_id, "node_type": node_type.value}
-        #     cypher = f"CREATE (n:{node_type.value} $props) RETURN n"
-        #     await self._graph._execute_cypher(cypher, {"props": props})
-        # except Exception:
-        #     pass
 
     async def _resolve_conflict(
         self,

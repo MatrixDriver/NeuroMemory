@@ -157,24 +157,27 @@ async with NeuroMemory(
 
 ### 4.1 KV 存储
 
-通用键值存储，适合存储用户偏好、配置等：
+通用键值存储，适合存储用户配置等：
 
 ```python
 # 存储
-await nm.kv.set("alice", "preferences", "language", "zh-CN")
-await nm.kv.set("alice", "preferences", "theme", {"mode": "dark", "color": "blue"})
+await nm.kv.set("alice", "config", "language", "zh-CN")
+await nm.kv.set("alice", "config", "theme", {"mode": "dark", "color": "blue"})
 
 # 读取
-value = await nm.kv.get("alice", "preferences", "language")
+value = await nm.kv.get("alice", "config", "language")
 print(value)  # "zh-CN"
 
 # 列出
-items = await nm.kv.list("alice", "preferences")
+items = await nm.kv.list("alice", "config")
 for item in items:
     print(f"  {item.key}: {item.value}")
 
 # 删除
-await nm.kv.delete("alice", "preferences", "language")
+await nm.kv.delete("alice", "config", "language")
+
+# 注：用户偏好由 LLM 自动提取到 profile namespace
+# prefs = await nm.kv.get("alice", "profile", "preferences")
 ```
 
 ### 4.2 对话管理
@@ -302,8 +305,8 @@ async with NeuroMemory(
     # 自动提取记忆
     stats = await nm.extract_memories(user_id="alice")
     print(f"Extracted: {stats['facts_extracted']} facts, "
-          f"{stats['preferences_extracted']} preferences, "
-          f"{stats['episodes_extracted']} episodes")
+          f"{stats['episodes_extracted']} episodes, "
+          f"{stats['triples_extracted']} triples")
 ```
 
 ---

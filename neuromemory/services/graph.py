@@ -1,24 +1,22 @@
-"""Graph database service using Apache AGE."""
+"""Graph database service using relational tables."""
 
 from __future__ import annotations
 
-import json
 import uuid
 from typing import Any, Optional
 
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from neuromemory.models.graph import EdgeType, GraphEdge, GraphNode, NodeType
 
 
 class GraphService:
-    """Service for managing graph data with Apache AGE."""
+    """Service for managing graph data with relational tables."""
 
     def __init__(self, db: AsyncSession, user_id: Optional[str] = None):
         self.db = db
         self.user_id = user_id
-        self.graph_name = "neuromemory_graph"
 
     def _effective_user_id(self, user_id: Optional[str] = None) -> str:
         """Resolve user_id from parameter or instance default."""
@@ -26,36 +24,6 @@ class GraphService:
         if not uid:
             raise ValueError("user_id is required for graph operations")
         return uid
-
-    async def _execute_cypher(self, cypher: str, params: dict[str, Any] = None) -> list[dict]:
-        """Execute a Cypher query using AGE."""
-        query = text(f"""
-            SELECT * FROM ag_catalog.cypher(
-                :graph_name,
-                $$ {cypher} $$,
-                :params
-            ) as (result agtype);
-        """)
-
-        params_json = json.dumps(params or {})
-        result = await self.db.execute(
-            query,
-            {"graph_name": self.graph_name, "params": params_json}
-        )
-
-        rows = []
-        for row in result:
-            rows.append(self._parse_agtype(row[0]))
-
-        return rows
-
-    def _parse_agtype(self, agtype_value: Any) -> dict:
-        if isinstance(agtype_value, str):
-            try:
-                return json.loads(agtype_value)
-            except json.JSONDecodeError:
-                return {"value": agtype_value}
-        return agtype_value
 
     async def create_node(
         self,
@@ -76,11 +44,6 @@ class GraphService:
         )
         if existing.scalar_one_or_none():
             raise ValueError(f"Node {node_type.value}:{node_id} already exists")
-
-        props = {**(properties or {}), "id": node_id, "node_type": node_type.value}
-
-        cypher = f"CREATE (n:{node_type.value} $props) RETURN n"
-        await self._execute_cypher(cypher, {"props": props})
 
         node = GraphNode(
             user_id=effective_user_id,
@@ -117,21 +80,6 @@ class GraphService:
             if not node.scalar_one_or_none():
                 raise ValueError(f"Node {ntype.value}:{nid} not found")
 
-        props = properties or {}
-
-        cypher = f"""
-        MATCH (a:{source_type.value} {{id: $source_id}})
-        MATCH (b:{target_type.value} {{id: $target_id}})
-        CREATE (a)-[r:{edge_type.value} $props]->(b)
-        RETURN r
-        """
-        params = {
-            "source_id": source_id,
-            "target_id": target_id,
-            "props": props if props else {}
-        }
-        await self._execute_cypher(cypher, params)
-
         edge = GraphEdge(
             user_id=effective_user_id,
             source_type=source_type.value,
@@ -155,10 +103,9 @@ class GraphService:
         limit: int = 10,
         user_id: Optional[str] = None,
     ) -> list[dict]:
-        """Get neighboring nodes via relational tables (user-isolated)."""
+        """Get neighboring nodes (user-isolated)."""
         effective_user_id = self._effective_user_id(user_id)
 
-        # Use relational tables for user-isolated neighbor queries
         conditions = [GraphEdge.user_id == effective_user_id]
 
         if edge_types:
@@ -214,18 +161,13 @@ class GraphService:
         max_depth: int = 3,
         user_id: Optional[str] = None,
     ) -> list[dict]:
-        """Find shortest path between two nodes using relational tables (user-isolated).
-
-        Uses BFS on the relational edge table filtered by user_id.
-        """
+        """Find shortest path between two nodes using BFS on relational tables."""
         effective_user_id = self._effective_user_id(user_id)
 
         if not isinstance(max_depth, int) or max_depth < 1 or max_depth > 10:
             raise ValueError("max_depth must be an integer between 1 and 10")
 
-        # BFS on relational edges
         visited = set()
-        # Queue items: (current_type, current_id, path_so_far)
         queue = [(source_type.value, source_id, [])]
         visited.add((source_type.value, source_id))
 
@@ -277,25 +219,13 @@ class GraphService:
 
         return []  # No path found
 
-    async def query(
-        self,
-        cypher: str,
-        params: dict[str, Any] = None,
-    ) -> list[dict]:
-        """Execute a custom Cypher query.
-
-        WARNING: Cypher queries bypass user isolation. Use relational
-        methods (get_neighbors, find_path) for user-isolated queries.
-        """
-        return await self._execute_cypher(cypher, params or {})
-
     async def get_node(
         self,
         node_type: NodeType,
         node_id: str,
         user_id: Optional[str] = None,
     ) -> dict | None:
-        """Get a single node by type and ID (user-isolated via relational table)."""
+        """Get a single node by type and ID."""
         effective_user_id = self._effective_user_id(user_id)
 
         result = await self.db.execute(
@@ -338,18 +268,6 @@ class GraphService:
         if not node:
             raise ValueError(f"Node {node_type.value}:{node_id} not found")
 
-        set_clauses = ", ".join([f"n.{key} = $props.{key}" for key in properties.keys()])
-        cypher = f"""
-        MATCH (n:{node_type.value} {{id: $node_id}})
-        SET {set_clauses}
-        RETURN n
-        """
-        params = {
-            "node_id": node_id,
-            "props": properties
-        }
-        await self._execute_cypher(cypher, params)
-
         node.properties = {**(node.properties or {}), **properties}
         await self.db.flush()
 
@@ -375,13 +293,6 @@ class GraphService:
         if not node:
             raise ValueError(f"Node {node_type.value}:{node_id} not found")
 
-        cypher = f"""
-        MATCH (n:{node_type.value} {{id: $node_id}})
-        DETACH DELETE n
-        """
-        params = {"node_id": node_id}
-        await self._execute_cypher(cypher, params)
-
         await self.db.delete(node)
         await self.db.execute(
             delete(GraphEdge).where(
@@ -403,7 +314,7 @@ class GraphService:
         target_id: str,
         user_id: Optional[str] = None,
     ) -> dict | None:
-        """Get a single edge (user-isolated via relational table)."""
+        """Get a single edge."""
         effective_user_id = self._effective_user_id(user_id)
 
         result = await self.db.execute(
@@ -458,19 +369,6 @@ class GraphService:
         if not edge:
             raise ValueError(f"Edge {source_type.value}:{source_id}-[{edge_type.value}]->{target_type.value}:{target_id} not found")
 
-        set_clauses = ", ".join([f"r.{key} = $props.{key}" for key in properties.keys()])
-        cypher = f"""
-        MATCH (a:{source_type.value} {{id: $source_id}})-[r:{edge_type.value}]->(b:{target_type.value} {{id: $target_id}})
-        SET {set_clauses}
-        RETURN r
-        """
-        params = {
-            "source_id": source_id,
-            "target_id": target_id,
-            "props": properties
-        }
-        await self._execute_cypher(cypher, params)
-
         edge.properties = {**(edge.properties or {}), **properties}
         await self.db.flush()
 
@@ -501,16 +399,6 @@ class GraphService:
         edge = edge_result.scalar_one_or_none()
         if not edge:
             raise ValueError(f"Edge {source_type.value}:{source_id}-[{edge_type.value}]->{target_type.value}:{target_id} not found")
-
-        cypher = f"""
-        MATCH (a:{source_type.value} {{id: $source_id}})-[r:{edge_type.value}]->(b:{target_type.value} {{id: $target_id}})
-        DELETE r
-        """
-        params = {
-            "source_id": source_id,
-            "target_id": target_id,
-        }
-        await self._execute_cypher(cypher, params)
 
         await self.db.delete(edge)
         await self.db.flush()

@@ -80,7 +80,7 @@ for r in results:
     print(f"{r['content']} (score: {r['score']:.2f})")
 
 # 获取所有 KV 配置
-items = await nm.kv.list("alice", "preferences")
+items = await nm.kv.list("alice", "config")
 print(items)
 
 # 查看对话历史
@@ -157,7 +157,7 @@ if query:
 
 # KV 配置界面
 if st.button("Show Preferences"):
-    prefs = await nm.kv.list(st.session_state.user_id, "preferences")
+    prefs = await nm.kv.list(st.session_state.user_id, "config")
     st.json(prefs)
 ```
 

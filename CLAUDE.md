@@ -111,8 +111,8 @@ async with NeuroMemory(
     result = await nm.recall(user_id="u1", query="workplace")
 
     # KV 存储
-    await nm.kv.set("u1", "preferences", "language", "zh-CN")
-    lang = await nm.kv.get("u1", "preferences", "language")
+    await nm.kv.set("u1", "config", "language", "zh-CN")
+    lang = await nm.kv.get("u1", "config", "language")
 
     # 定期生成洞察（可选）
     await nm.reflect(user_id="u1")  # 生成行为模式和阶段总结

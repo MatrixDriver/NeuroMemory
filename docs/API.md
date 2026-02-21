@@ -2,7 +2,7 @@
 
 > **版本**: 0.2.0
 > **Python**: 3.12+
-> **最后更新**: 2026-02-14
+> **最后更新**: 2026-02-21
 
 ---
 
@@ -292,7 +292,7 @@ memory_id = await nm.add_memory(
 |------|------|--------|------|
 | `user_id` | `str` | - | 用户 ID |
 | `content` | `str` | - | 记忆内容 |
-| `memory_type` | `str` | `"general"` | 记忆类型：`fact`, `episodic`, `preference`, `insight`, `general` |
+| `memory_type` | `str` | `"general"` | 记忆类型：`fact`, `episodic`, `insight`, `general` |
 | `metadata` | `dict` | `None` | 元数据，支持 `importance`, `emotion`, `tags` 等 |
 
 **示例**：
@@ -332,7 +332,7 @@ await nm.add_memory(
 | **记忆生成** | **自动提取**（默认 `auto_extract=True`） | 直接写入，立即可检索 |
 | **情感标注** | ✅ LLM 自动标注 | ❌ 需手动指定 |
 | **重要性评分** | ✅ LLM 自动评估 | ❌ 需手动指定 |
-| **记忆分类** | ✅ LLM 自动分类（fact/preference/relation） | ❌ 需手动指定 memory_type |
+| **记忆分类** | ✅ LLM 自动分类（fact/episode/relation） | ❌ 需手动指定 memory_type |
 | **图关系** | ✅ 自动提取关系到知识图谱 | ❌ 不涉及图数据库 |
 | **LLM 依赖** | ✅ 需要 LLM（自动提取） | 不需要 LLM |
 | **推荐场景** | 日常对话（推荐） | 手动导入、批量初始化、已知结构化数据 |
@@ -560,7 +560,7 @@ result = await nm.reflect(
 {
     "conversations_processed": 0,     # v0.2.0: 基础提取已由 add_message 完成
     "facts_added": 0,                # v0.2.0: 不再重复提取
-    "preferences_updated": 0,         # v0.2.0: 不再重复提取
+    "preferences_updated": 0,         # v0.2.0: 偏好存入 profile
     "relations_added": 0,             # v0.2.0: 不再重复提取
     "insights_generated": 2,          # 生成洞察数
     "insights": [                     # 洞察内容
@@ -614,7 +614,7 @@ stats = await nm.extract_memories(
 ) -> dict
 ```
 
-**提取内容**：事实 / 偏好 / 情景 / 关系 / 情感标注 / 重要性评分
+**提取内容**：事实 / 情景 / 关系 / 情感标注 / 重要性评分 / 用户画像（含偏好）
 
 **何时直接使用**：
 - 批量处理历史对话（关闭 `auto_extract`，手动批量提取）
@@ -630,7 +630,7 @@ stats = await nm.extract_memories(
 | **处理对象** | 已有记忆 | 对话消息 |
 | **生成洞察** | ✅ 行为模式、阶段总结 | ❌ |
 | **更新画像** | ✅ 情感画像 | ❌ |
-| **提取事实** | ❌ 不再重复提取 | ✅ 提取事实/偏好/关系 |
+| **提取事实** | ❌ 不再重复提取 | ✅ 提取事实/情景/关系 |
 | **LLM 调用** | 1-2 次（洞察生成） | 1 次 |
 | **推荐场景** | 定期调用（每天/周） | 内部自动调用（`add_message`） |
 
@@ -674,19 +674,20 @@ await nm.kv.set(
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `user_id` | `str` | 用户 ID |
-| `namespace` | `str` | 命名空间（如 `"preferences"`, `"config"`） |
+| `namespace` | `str` | 命名空间（如 `"profile"`, `"config"`） |
 | `key` | `str` | 键名 |
 | `value` | `Any` | 值（支持 str, int, float, bool, dict, list, None） |
 
 **示例**：
 
 ```python
-# 存储用户偏好
-await nm.kv.set("alice", "preferences", "language", "zh-CN")
-await nm.kv.set("alice", "preferences", "theme", {"mode": "dark", "color": "blue"})
-
-# 存储配置
+# 存储用户配置
+await nm.kv.set("alice", "config", "language", "zh-CN")
+await nm.kv.set("alice", "config", "theme", {"mode": "dark", "color": "blue"})
 await nm.kv.set("alice", "config", "model", "gpt-4")
+
+# 注：用户偏好由 LLM 自动提取，存入 profile namespace
+# await nm.kv.get("alice", "profile", "preferences")  # → ["喜欢喝咖啡", ...]
 ```
 
 ### nm.kv.get()
@@ -704,10 +705,10 @@ value = await nm.kv.get(
 **示例**：
 
 ```python
-lang = await nm.kv.get("alice", "preferences", "language")
+lang = await nm.kv.get("alice", "config", "language")
 print(lang)  # "zh-CN"
 
-theme = await nm.kv.get("alice", "preferences", "theme")
+theme = await nm.kv.get("alice", "config", "theme")
 print(theme)  # {"mode": "dark", "color": "blue"}
 ```
 
@@ -755,7 +756,7 @@ await nm.kv.batch_set(
 **示例**：
 
 ```python
-await nm.kv.batch_set("alice", "preferences", {
+await nm.kv.batch_set("alice", "config", {
     "language": "zh-CN",
     "timezone": "Asia/Shanghai",
     "theme": {"mode": "dark"},
@@ -1272,8 +1273,8 @@ async def main():
         for mem in result["merged"]:
             print(f"[{mem['source']}] {mem['content']}")
 
-        # 4. 查询偏好
-        lang = await nm.kv.get(user_id, "preferences", "language")
+        # 4. 查询偏好（自动提取后存入 profile）
+        prefs = await nm.kv.get(user_id, "profile", "preferences")
 
         # 5. 定期整理
         await nm.reflect(user_id=user_id)

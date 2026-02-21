@@ -1,4 +1,4 @@
-"""Graph data models for Apache AGE integration."""
+"""Graph data models (relational tables for nodes and edges)."""
 
 import uuid
 from enum import Enum
@@ -44,7 +44,7 @@ class EdgeType(str, Enum):
 
 
 class GraphNode(Base, TimestampMixin):
-    """Graph node tracking table (actual graph data in AGE)."""
+    """Graph node table."""
 
     __tablename__ = "graph_nodes"
 
@@ -64,7 +64,7 @@ class GraphNode(Base, TimestampMixin):
 
 
 class GraphEdge(Base, TimestampMixin):
-    """Graph edge tracking table (actual graph data in AGE)."""
+    """Graph edge table."""
 
     __tablename__ = "graph_edges"
 

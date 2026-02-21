@@ -85,7 +85,7 @@ async def main():
         llm=OpenAILLM(api_key="your-openai-key"),  # 用于自动提取记忆
         auto_extract=True,  # 默认启用，像 mem0 那样实时提取记忆
     ) as nm:
-        # 1. 存储对话消息 → 自动提取记忆（facts/preferences/episodes/relations）
+        # 1. 存储对话消息 → 自动提取记忆（facts/episodes/relations）
         await nm.conversations.add_message(
             user_id="alice", role="user",
             content="I work at ABC Company as a software engineer"
@@ -148,12 +148,12 @@ NeuroMemory 提供 7 种记忆类型，每种有不同的存储和获取方式�
 
 | 记忆类型 | 存储方式 | 底层存储 | 获取方式 | 示例 |
 |---------|---------|---------|---------|------|
-| **偏好** | KV Store | PostgreSQL | `nm.kv.get(user_id, "preferences", key)` | `language=zh-CN` |
 | **事实** | Embedding + Graph | pgvector + Apache AGE | `nm.recall(user_id, query)` | "在 Google 工作" |
 | **情景** | Embedding | pgvector | `nm.recall(user_id, query)` | "昨天面试很紧张" |
 | **关系** | Graph Store | Apache AGE | `nm.graph.get_neighbors(user_id, type, id)` | `(user)-[works_at]->(Google)` |
 | **洞察** | Embedding | pgvector | `nm.search(user_id, query, memory_type="insight")` | "用户倾向于晚上工作" |
 | **情感画像** | Table | PostgreSQL | `reflect()` 自动更新 | "容易焦虑，对技术兴奋" |
+| **偏好** | KV (Profile) | PostgreSQL | `nm.kv.get(user_id, "profile", "preferences")` | `["喜欢喝咖啡", "偏好深色模式"]` |
 | **通用** | Embedding | pgvector | `nm.search(user_id, query)` | 手动 `add_memory()` 的内容 |
 
 ### 三因子混合检索
@@ -201,7 +201,7 @@ importance = metadata.importance / 10                     # LLM 评估的重要�
 
 ### LLM 驱动的记忆提取与反思
 
-- **提取** (`extract_memories`)：从对话中自动识别事实、偏好、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10）
+- **提取** (`extract_memories`)：从对话中自动识别事实、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10），偏好存入用户画像
 - **反思** (`reflect`)：定期从近期记忆提炼高层洞察（行为模式、阶段总结），更新情感画像
 - **访问追踪**：自动记录 access_count 和 last_accessed_at，符合 ACT-R 记忆模型
 
@@ -268,8 +268,8 @@ results = await nm.search(user_id="alice", query="工作")
 
 | API | 用途 | 处理内容 | 何时使用 |
 |-----|------|---------|---------|
-| **reflect()** ⭐ | 一站式记忆处理 | 提取事实/偏好/关系 + 生成洞察 + 更新画像 | **推荐使用**：手动处理记忆时 |
-| **extract_memories()** | 仅提取新记忆 | 从对话中提取事实/偏好/关系（不生成洞察） | 底层方法：由 `ExtractionStrategy` 自动调用 |
+| **reflect()** ⭐ | 一站式记忆处理 | 提取事实/情景/关系 + 生成洞察 + 更新画像 | **推荐使用**：手动处理记忆时 |
+| **extract_memories()** | 仅提取新记忆 | 从对话中提取事实/情景/关系（不生成洞察） | 底层方法：由 `ExtractionStrategy` 自动调用 |
 
 ```python
 # reflect(): 推荐 — 一站式处理（提取 + 洞察 + 画像）
@@ -339,8 +339,9 @@ class MemoryAgent:
         recall_result = await self.nm.recall(user_id=user_id, query=user_input, limit=5)
         memories = recall_result["merged"]
 
-        # 获取用户偏好
-        language = await self.nm.kv.get(user_id, "preferences", "language") or "zh-CN"
+        # 获取用户偏好（从 profile 中）
+        lang_kv = await self.nm.kv.get(user_id, "profile", "language")
+        language = lang_kv.value if lang_kv else "zh-CN"
 
         # 获取近期洞察
         insights = await self.nm.search(user_id, user_input, memory_type="insight", limit=3)
