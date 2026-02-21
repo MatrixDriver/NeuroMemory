@@ -61,18 +61,73 @@
       "improvement_vs_previous": 15.4,
       "file": "2025-02-19_profile_graph.json",
       "notes": "User Profile 提取注入 + Graph 实体匹配 + Recall Limit 20，Judge 0.610 → 0.704 (+15.4%)，累计 +463%"
+    },
+    {
+      "test_id": "2026-02-20_episodic_boost",
+      "date": "2026-02-20",
+      "name": "Episodic Boost + Enriched Recall Context (R10)",
+      "commit": "173cfe2f",
+      "branch": "master",
+      "judge_score": 0.704,
+      "total_questions": 1534,
+      "checkpoint_file": "locomo_query_checkpoint.json.r10",
+      "notes": "Episodic boost + enriched recall context，Judge 无提升（0.704），judge score 从 R11 commit message 反推"
+    },
+    {
+      "test_id": "2026-02-21_temporal_filtering",
+      "date": "2026-02-21",
+      "name": "Temporal Time-Range Filtering (R11)",
+      "commit": "60bf59e9",
+      "branch": "master",
+      "judge_score": 0.714,
+      "improvement_vs_previous": 1.4,
+      "total_questions": 1532,
+      "checkpoint_file": "locomo_query_checkpoint.json.r11",
+      "notes": "时序查询过滤：从 query 提取时间范围，episodic 按时间窗口过滤。Temporal Cat +0.198 (0.454→0.652)，multi-hop +0.049。Judge 0.704 → 0.714"
+    },
+    {
+      "test_id": "2026-02-21_parallel_pipeline",
+      "date": "2026-02-21",
+      "name": "Parallel Evaluation Pipeline + OpenAI Provider (R12)",
+      "commit": "1b9fe75a",
+      "branch": "master",
+      "judge_score": 0.802,
+      "improvement_vs_previous": 12.3,
+      "total_questions": 1518,
+      "notes": "并行化 ingest/query/evaluate 三阶段 + 指数退避重试 + OpenAI embedding proxy 支持。Judge 0.714 → 0.802 (+12.3%)"
+    },
+    {
+      "test_id": "2026-02-21_profile_refactor",
+      "date": "2026-02-21",
+      "name": "Profile Refactor: Merge Preferences (R13)",
+      "commit": "f72f5974",
+      "branch": "master",
+      "judge_score": 0.8017,
+      "f1": 0.2973,
+      "bleu1": 0.2432,
+      "improvement_vs_previous": -0.03,
+      "total_questions": 1518,
+      "results_file": "locomo_results.json",
+      "checkpoint_file": "locomo_query_checkpoint.json",
+      "by_category": {
+        "1": {"count": 279, "judge": 0.871, "f1": 0.238},
+        "2": {"count": 313, "judge": 0.716, "f1": 0.342},
+        "3": {"count": 94,  "judge": 0.819, "f1": 0.144},
+        "4": {"count": 832, "judge": 0.809, "f1": 0.317}
+      },
+      "notes": "Preferences 合并进 profile namespace，重构无功能变化。Judge 0.8017，与 R12 持平"
     }
   ],
 
   "latest": {
-    "test_id": "2025-02-19_profile_graph",
-    "judge_score": 0.704
+    "test_id": "2026-02-21_profile_refactor",
+    "judge_score": 0.8017
   },
 
   "best": {
     "judge_score": {
-      "test_id": "2025-02-19_profile_graph",
-      "score": 0.704
+      "test_id": "2026-02-21_profile_refactor",
+      "score": 0.8017
     },
     "ingest_speed": {
       "test_id": "2025-02-16_perf_opt",
