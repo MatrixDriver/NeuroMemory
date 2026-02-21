@@ -28,6 +28,9 @@ class EvalConfig:
     embedding_model: str = field(
         default_factory=lambda: os.environ.get("EMBEDDING_MODEL", "")
     )
+    embedding_base_url: str = field(
+        default_factory=lambda: os.environ.get("EMBEDDING_BASE_URL", "")
+    )
 
     # LLM for memory extraction + answer generation
     llm_api_key: str = field(
@@ -92,4 +95,15 @@ class EvalConfig:
     )
     answer_llm_base_url: str = field(
         default_factory=lambda: os.environ.get("ANSWER_LLM_BASE_URL", "")
+    )
+
+    # Parallelism settings
+    ingest_concurrency: int = field(
+        default_factory=lambda: int(os.environ.get("INGEST_CONCURRENCY", "2"))
+    )
+    query_concurrency: int = field(
+        default_factory=lambda: int(os.environ.get("QUERY_CONCURRENCY", "5"))
+    )
+    evaluate_concurrency: int = field(
+        default_factory=lambda: int(os.environ.get("EVALUATE_CONCURRENCY", "10"))
     )

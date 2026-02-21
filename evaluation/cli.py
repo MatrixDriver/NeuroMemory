@@ -45,6 +45,22 @@ def main() -> None:
         action="store_true",
         help="Enable verbose logging",
     )
+    # Parallelism overrides (take precedence over env vars)
+    parser.add_argument(
+        "--ingest-concurrency",
+        type=int, default=None,
+        help="Max concurrent conversation ingestions (default: 2)",
+    )
+    parser.add_argument(
+        "--query-concurrency",
+        type=int, default=None,
+        help="Max concurrent query tasks (default: 5)",
+    )
+    parser.add_argument(
+        "--evaluate-concurrency",
+        type=int, default=None,
+        help="Max concurrent judge evaluations (default: 10)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -55,6 +71,14 @@ def main() -> None:
 
     from evaluation.config import EvalConfig
     cfg = EvalConfig()
+
+    # CLI overrides for concurrency
+    if args.ingest_concurrency is not None:
+        cfg.ingest_concurrency = args.ingest_concurrency
+    if args.query_concurrency is not None:
+        cfg.query_concurrency = args.query_concurrency
+    if args.evaluate_concurrency is not None:
+        cfg.evaluate_concurrency = args.evaluate_concurrency
 
     if args.benchmark == "locomo":
         from evaluation.pipelines.locomo import run_locomo

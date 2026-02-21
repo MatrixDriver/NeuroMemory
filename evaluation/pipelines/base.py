@@ -28,6 +28,8 @@ def create_embedding_provider(cfg: EvalConfig) -> EmbeddingProvider:
         kwargs = {"api_key": cfg.embedding_api_key}
         if cfg.embedding_model:
             kwargs["model"] = cfg.embedding_model
+        if cfg.embedding_base_url:
+            kwargs["base_url"] = cfg.embedding_base_url
         return OpenAIEmbedding(**kwargs)
     else:
         from neuromemory import SiliconFlowEmbedding
