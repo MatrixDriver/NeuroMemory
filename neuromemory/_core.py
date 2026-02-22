@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
 
@@ -435,8 +436,8 @@ class NeuroMemory:
         self._extraction_counts: dict[str, int] = {}  # user_id -> count
 
         # Embedding cache for query deduplication (reduces API calls)
-        self._embedding_cache: dict[str, list[float]] = {}
-        self._embedding_cache_max_size = 100  # LRU-style limit
+        self._embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._embedding_cache_max_size = 100  # True LRU
 
         # Set up callbacks if extraction is configured and LLM is available
         _has_extraction = bool(extraction and llm)
@@ -503,20 +504,19 @@ class NeuroMemory:
             Embedding vector (list of floats)
         """
         if text in self._embedding_cache:
+            # Move to end = mark as recently used
+            self._embedding_cache.move_to_end(text)
             logger.debug(f"Embedding cache hit for text length {len(text)}")
             return self._embedding_cache[text]
 
-        # Compute embedding
         embedding = await self._embedding.embed(text)
 
-        # Add to cache with LRU eviction
-        if len(self._embedding_cache) >= self._embedding_cache_max_size:
-            # Simple FIFO eviction (can upgrade to true LRU if needed)
-            first_key = next(iter(self._embedding_cache))
-            del self._embedding_cache[first_key]
-            logger.debug(f"Evicted oldest embedding from cache")
-
+        # True LRU: insert at end, evict from front (least recently used)
         self._embedding_cache[text] = embedding
+        if len(self._embedding_cache) > self._embedding_cache_max_size:
+            self._embedding_cache.popitem(last=False)
+            logger.debug("Evicted LRU embedding from cache")
+
         logger.debug(f"Cached embedding for text length {len(text)}")
         return embedding
 
@@ -704,110 +704,43 @@ class NeuroMemory:
                 "merged": [...],               # deduplicated merge
             }
         """
-        from neuromemory.services.search import SearchService, DEFAULT_DECAY_RATE
+        from neuromemory.services.search import DEFAULT_DECAY_RATE
         from neuromemory.services.temporal import TemporalExtractor
 
-        # 🚀 Compute query embedding once, reuse for all searches
+        # Compute query embedding once, reuse for all parallel searches
         query_embedding = await self._cached_embed(query)
 
-        # Extract time range from query for temporal filtering
         temporal = TemporalExtractor()
         event_after, event_before = temporal.extract_time_range(query)
+        _decay = decay_rate or DEFAULT_DECAY_RATE
 
-        # 1. Search extracted memories
-        vector_results = []
-        async with self._db.session() as session:
-            svc = SearchService(session, self._embedding, self._db.pg_search_available)
-            if event_after or event_before:
-                # Temporal query detected: search episodic with time filter + fact without
-                episodic_results = await svc.scored_search(
-                    user_id, query, limit,
-                    decay_rate=decay_rate or DEFAULT_DECAY_RATE,
-                    query_embedding=query_embedding,
-                    memory_type="episodic",
-                    event_after=event_after,
-                    event_before=event_before,
-                )
-                fact_results = await svc.scored_search(
-                    user_id, query, limit,
-                    decay_rate=decay_rate or DEFAULT_DECAY_RATE,
-                    query_embedding=query_embedding,
-                    exclude_types=["episodic"],
-                )
-                # Merge: episodic first (time-filtered), then facts, dedup by id
-                seen_ids = {r["id"] for r in episodic_results}
-                merged_temporal = list(episodic_results)
-                for r in fact_results:
-                    if r["id"] not in seen_ids:
-                        seen_ids.add(r["id"])
-                        merged_temporal.append(r)
-                vector_results = merged_temporal[:limit]
-            else:
-                vector_results = await svc.scored_search(
-                    user_id, query, limit,
-                    decay_rate=decay_rate or DEFAULT_DECAY_RATE,
-                    query_embedding=query_embedding,
-                )
+        # Parallel fetch: memories + conversations + profile (+ graph if enabled)
+        coros = [
+            self._fetch_vector_memories(
+                user_id, query, limit, query_embedding, event_after, event_before, _decay,
+            ),
+            self._search_conversations(user_id, query, limit, query_embedding=query_embedding),
+            self._fetch_user_profile(user_id),
+        ]
+        if self._graph_enabled:
+            coros.append(self._fetch_graph_memories(user_id, query, limit))
 
-        # 2. Search original conversations (P1: mem0-style)
-        conversation_results = await self._search_conversations(
-            user_id, query, limit,
-            query_embedding=query_embedding,  # 传递预计算的 embedding
-        )
+        results = await asyncio.gather(*coros, return_exceptions=True)
 
-        # 3. Search graph entities via known-entity matching
+        vector_results: list[dict] = results[0] if not isinstance(results[0], Exception) else []
+        conversation_results: list[dict] = results[1] if not isinstance(results[1], Exception) else []
+        user_profile: dict = results[2] if not isinstance(results[2], Exception) else {}
         graph_results: list[dict] = []
         if self._graph_enabled:
-            from sqlalchemy import text as sql_text
-            from neuromemory.services.graph_memory import GraphMemoryService
+            raw = results[3] if len(results) > 3 else []
+            if isinstance(raw, Exception):
+                logger.warning(f"Graph search failed: {raw}")
+            else:
+                graph_results = raw
 
-            # Find known entities that appear in the query (substring match)
-            matched_entities: list[str] = []
-            async with self._db.session() as session:
-                result = await session.execute(
-                    sql_text(
-                        "SELECT DISTINCT node_id FROM graph_nodes "
-                        "WHERE user_id = :uid"
-                    ),
-                    {"uid": user_id},
-                )
-                query_lower = query.lower()
-                for row in result.fetchall():
-                    node_id = row.node_id
-                    # Match if entity name appears in query (skip "user")
-                    if node_id != "user" and len(node_id) > 1 and node_id in query_lower:
-                        matched_entities.append(node_id)
-
-            # Always include user's own facts
-            matched_entities.append(user_id)
-            logger.debug("Graph entity match: query=%s matched=%s", query[:50], matched_entities)
-
-            async with self._db.session() as session:
-                graph_svc = GraphMemoryService(session)
-                seen_triples: set[str] = set()
-                for entity in matched_entities:
-                    facts = await graph_svc.find_entity_facts(
-                        user_id, entity, limit,
-                    )
-                    for f in facts:
-                        key = f"{f.get('subject')}|{f.get('relation')}|{f.get('object')}"
-                        if key not in seen_triples:
-                            seen_triples.add(key)
-                            graph_results.append(f)
-
-        # 4. Read user profile from KV store
-        user_profile: dict[str, str | list[str]] = {}
-        try:
-            from neuromemory.services.kv import KVService
-            async with self._db.session() as session:
-                kv_svc = KVService(session)
-                profile_keys = ["identity", "occupation", "interests", "preferences", "values", "relationships", "personality"]
-                for key in profile_keys:
-                    kv = await kv_svc.get("profile", user_id, key)
-                    if kv and kv.value:
-                        user_profile[key] = kv.value
-        except Exception as e:
-            logger.warning(f"Failed to read user profile: {e}")
+        for i, label in enumerate(["vector", "conversation", "profile"]):
+            if isinstance(results[i], Exception):
+                logger.warning("recall %s fetch failed: %s", label, results[i])
 
         # Deduplicate by content
         seen_contents: set[str] = set()
@@ -844,15 +777,11 @@ class NeuroMemory:
                 seen_contents.add(content)
                 merged.append({**r, "source": "conversation"})
 
-        # Graph results as separate context (not mixed into merged)
-        # Format as triples for LLM context
-        graph_context: list[str] = []
-        for r in graph_results:
-            subj = r.get("subject", "")
-            rel = r.get("relation", "")
-            obj = r.get("object", "")
-            if subj and rel and obj:
-                graph_context.append(f"{subj} → {rel} → {obj}")
+        graph_context: list[str] = [
+            f"{r.get('subject')} → {r.get('relation')} → {r.get('object')}"
+            for r in graph_results
+            if r.get("subject") and r.get("relation") and r.get("object")
+        ]
 
         return {
             "vector_results": vector_results,
@@ -927,6 +856,119 @@ class NeuroMemory:
                 })
 
             return conversations
+
+    # -- Parallel recall helpers --
+
+    async def _fetch_vector_memories(
+        self,
+        user_id: str,
+        query: str,
+        limit: int,
+        query_embedding: list[float],
+        event_after,
+        event_before,
+        decay_rate: float,
+    ) -> list[dict]:
+        """Search extracted memories (vector + BM25 hybrid).
+
+        For temporal queries, runs episodic and fact searches in parallel.
+        """
+        from neuromemory.services.search import SearchService
+
+        if event_after or event_before:
+            # Two sub-searches in parallel using separate sessions
+            async def _episodic():
+                async with self._db.session() as s:
+                    svc = SearchService(s, self._embedding, self._db.pg_search_available)
+                    return await svc.scored_search(
+                        user_id, query, limit,
+                        decay_rate=decay_rate,
+                        query_embedding=query_embedding,
+                        memory_type="episodic",
+                        event_after=event_after,
+                        event_before=event_before,
+                    )
+
+            async def _facts():
+                async with self._db.session() as s:
+                    svc = SearchService(s, self._embedding, self._db.pg_search_available)
+                    return await svc.scored_search(
+                        user_id, query, limit,
+                        decay_rate=decay_rate,
+                        query_embedding=query_embedding,
+                        exclude_types=["episodic"],
+                    )
+
+            episodic_results, fact_results = await asyncio.gather(_episodic(), _facts())
+            seen_ids = {r["id"] for r in episodic_results}
+            merged = list(episodic_results)
+            for r in fact_results:
+                if r["id"] not in seen_ids:
+                    seen_ids.add(r["id"])
+                    merged.append(r)
+            return merged[:limit]
+        else:
+            async with self._db.session() as session:
+                svc = SearchService(session, self._embedding, self._db.pg_search_available)
+                return await svc.scored_search(
+                    user_id, query, limit,
+                    decay_rate=decay_rate,
+                    query_embedding=query_embedding,
+                )
+
+    async def _fetch_user_profile(self, user_id: str) -> dict:
+        """Read user profile from KV store in a single batch query."""
+        try:
+            from neuromemory.services.kv import KVService
+            _profile_keys = {
+                "identity", "occupation", "interests", "preferences",
+                "values", "relationships", "personality",
+            }
+            async with self._db.session() as session:
+                kv_svc = KVService(session)
+                items = await kv_svc.list("profile", user_id)
+                return {
+                    item.key: item.value
+                    for item in items
+                    if item.key in _profile_keys and item.value
+                }
+        except Exception as e:
+            logger.warning(f"Failed to read user profile: {e}")
+            return {}
+
+    async def _fetch_graph_memories(self, user_id: str, query: str, limit: int) -> list[dict]:
+        """Graph entity recall with SQL-pushed substring matching."""
+        from sqlalchemy import text as sql_text
+        from neuromemory.services.graph_memory import GraphMemoryService
+
+        query_lower = query.lower()
+        async with self._db.session() as session:
+            result = await session.execute(
+                sql_text(
+                    "SELECT DISTINCT node_id FROM graph_nodes "
+                    "WHERE user_id = :uid "
+                    "  AND node_id != 'user' "
+                    "  AND length(node_id) > 1 "
+                    "  AND strpos(:ql, node_id) > 0"
+                ),
+                {"uid": user_id, "ql": query_lower},
+            )
+            matched_entities = [row.node_id for row in result.fetchall()]
+
+        matched_entities.append(user_id)
+        logger.debug("Graph entity match: query=%s matched=%s", query[:50], matched_entities)
+
+        async with self._db.session() as session:
+            graph_svc = GraphMemoryService(session)
+            seen_triples: set[str] = set()
+            graph_results: list[dict] = []
+            for entity in matched_entities:
+                for f in await graph_svc.find_entity_facts(user_id, entity, limit):
+                    key = f"{f.get('subject')}|{f.get('relation')}|{f.get('object')}"
+                    if key not in seen_triples:
+                        seen_triples.add(key)
+                        graph_results.append(f)
+        return graph_results
 
     async def reflect(
         self,

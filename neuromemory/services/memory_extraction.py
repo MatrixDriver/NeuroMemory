@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,15 +85,42 @@ class MemoryExtractionService:
             except ValueError:
                 ref_time = None
 
+        # Pre-filter valid items
+        valid_facts = [f for f in classified.get("facts", []) if f.get("content")]
+        valid_episodes = [e for e in classified.get("episodes", []) if e.get("content")]
+
+        # Embed facts and episodes in parallel (2 API calls → 1 round-trip)
+        async def _embed_or_empty(contents: list[str]) -> list:
+            if not contents:
+                return []
+            return await self._embedding.embed_batch(contents)
+
+        fact_vectors: list[Any] = []
+        episode_vectors: list[Any] = []
+        if valid_facts or valid_episodes:
+            _results = await asyncio.gather(
+                _embed_or_empty([f["content"] for f in valid_facts]),
+                _embed_or_empty([e["content"] for e in valid_episodes]),
+                return_exceptions=True,
+            )
+            if isinstance(_results[0], Exception):
+                logger.error(f"❌ facts embedding 失败: {_results[0]}", exc_info=_results[0])
+            else:
+                fact_vectors = _results[0]
+            if isinstance(_results[1], Exception):
+                logger.error(f"❌ episodes embedding 失败: {_results[1]}", exc_info=_results[1])
+            else:
+                episode_vectors = _results[1]
+
         try:
-            facts_count = await self._store_facts(user_id, classified["facts"], ref_time)
+            facts_count = await self._store_facts(user_id, valid_facts, ref_time, pre_vectors=fact_vectors)
             logger.info(f"✅ 存储 facts 成功: {facts_count}")
         except Exception as e:
             logger.error(f"❌ 存储 facts 失败: {e}", exc_info=True)
             facts_count = 0
 
         try:
-            episodes_count = await self._store_episodes(user_id, classified["episodes"], ref_time)
+            episodes_count = await self._store_episodes(user_id, valid_episodes, ref_time, pre_vectors=episode_vectors)
             logger.info(f"✅ 存储 episodes 成功: {episodes_count}")
         except Exception as e:
             logger.error(f"❌ 存储 episodes 失败: {e}", exc_info=True)
@@ -568,18 +596,24 @@ Return format (JSON only, no other content):
         user_id: str,
         facts: list[dict],
         ref_time: datetime | None = None,
+        pre_vectors: list | None = None,
     ) -> int:
-        # Filter valid facts
+        # Filter valid facts (caller may have already filtered, but guard anyway)
         valid_facts = [f for f in facts if f.get("content")]
         if not valid_facts:
             return 0
 
-        # Batch embed all contents in one API call
-        contents = [f["content"] for f in valid_facts]
-        try:
-            vectors = await self._embedding.embed_batch(contents)
-        except Exception as e:
-            logger.error("Failed to batch embed facts: %s", e, exc_info=True)
+        if pre_vectors:
+            vectors = pre_vectors
+        else:
+            # Fallback: compute embeddings if not pre-provided
+            try:
+                vectors = await self._embedding.embed_batch([f["content"] for f in valid_facts])
+            except Exception as e:
+                logger.error("Failed to batch embed facts: %s", e, exc_info=True)
+                return 0
+
+        if not vectors:
             return 0
 
         count = 0
@@ -635,18 +669,24 @@ Return format (JSON only, no other content):
         user_id: str,
         episodes: list[dict],
         ref_time: datetime | None = None,
+        pre_vectors: list | None = None,
     ) -> int:
-        # Filter valid episodes
+        # Filter valid episodes (caller may have already filtered, but guard anyway)
         valid_episodes = [e for e in episodes if e.get("content")]
         if not valid_episodes:
             return 0
 
-        # Batch embed all contents in one API call
-        contents = [e["content"] for e in valid_episodes]
-        try:
-            vectors = await self._embedding.embed_batch(contents)
-        except Exception as e:
-            logger.error("Failed to batch embed episodes: %s", e, exc_info=True)
+        if pre_vectors:
+            vectors = pre_vectors
+        else:
+            # Fallback: compute embeddings if not pre-provided
+            try:
+                vectors = await self._embedding.embed_batch([e["content"] for e in valid_episodes])
+            except Exception as e:
+                logger.error("Failed to batch embed episodes: %s", e, exc_info=True)
+                return 0
+
+        if not vectors:
             return 0
 
         count = 0
@@ -737,34 +777,45 @@ Return format (JSON only, no other content):
         """Store user profile updates to KV store.
 
         - identity, occupation: overwrite (string)
-        - interests, values, relationships, personality: append+dedup (list)
+        - interests, values, relationships, personality, preferences: append+dedup (list)
+
+        Uses 1 batch-read + 1 batch-write instead of N sequential get/set pairs.
         """
         kv_service = KVService(self.db)
 
-        for key, value in profile_updates.items():
-            if key not in self._PROFILE_OVERWRITE_KEYS | self._PROFILE_APPEND_KEYS:
-                continue
+        # Filter to valid keys only
+        valid_keys = self._PROFILE_OVERWRITE_KEYS | self._PROFILE_APPEND_KEYS
+        valid_updates = {k: v for k, v in profile_updates.items() if k in valid_keys and v}
+        if not valid_updates:
+            return
 
+        # Batch-read all existing profile values in one query
+        existing_items = await kv_service.list("profile", user_id)
+        existing_profile: dict = {item.key: item.value for item in existing_items}
+
+        # Compute merged values
+        to_write: dict = {}
+        for key, value in valid_updates.items():
             if key in self._PROFILE_OVERWRITE_KEYS:
-                # Simple overwrite
-                if value:
-                    await kv_service.set("profile", user_id, key, value)
+                to_write[key] = value
             else:
                 # Append + dedup for list fields
                 new_items = value if isinstance(value, list) else [value]
                 new_items = [item for item in new_items if item]
                 if not new_items:
                     continue
-
-                existing = await kv_service.get("profile", user_id, key)
-                if existing and isinstance(existing.value, list):
-                    # Merge: existing + new, dedup by lowercase
-                    seen = {item.lower() for item in existing.value}
-                    merged = list(existing.value)
+                existing = existing_profile.get(key)
+                if existing and isinstance(existing, list):
+                    seen = {item.lower() for item in existing}
+                    merged = list(existing)
                     for item in new_items:
                         if item.lower() not in seen:
                             seen.add(item.lower())
                             merged.append(item)
-                    await kv_service.set("profile", user_id, key, merged)
+                    to_write[key] = merged
                 else:
-                    await kv_service.set("profile", user_id, key, new_items)
+                    to_write[key] = new_items
+
+        # Single batch write
+        if to_write:
+            await kv_service.batch_set("profile", user_id, to_write)

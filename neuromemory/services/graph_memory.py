@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from neuromemory.models.graph import EdgeType, GraphEdge, GraphNode, NodeType
@@ -75,84 +75,131 @@ class GraphMemoryService:
         Returns:
             Number of triples stored (ADD or UPDATE, not NOOP).
         """
-        # 跟踪本批次中已创建的节点，避免重复创建
-        # Key: (user_id, node_type, node_id)
-        self._created_nodes = set()
+        self._created_nodes: set[tuple[str, str, str]] = set()
+
+        # Pre-parse all valid triples and collect needed nodes
+        parsed: list[tuple] = []
+        needed_nodes: set[tuple[NodeType, str, str]] = set()
+
+        for triple in triples:
+            subject = triple.get("subject", "").strip()
+            obj = triple.get("object", "").strip()
+            relation = triple.get("relation", "").strip()
+            if not subject or not obj or not relation:
+                continue
+
+            stype = _resolve_node_type(triple.get("subject_type", "entity"))
+            otype = _resolve_node_type(triple.get("object_type", "entity"))
+            etype = _resolve_edge_type(relation)
+            sid = user_id if stype == NodeType.USER else _normalize_node_id(subject)
+            oid = _normalize_node_id(obj)
+
+            needed_nodes.add((stype, sid, subject))
+            needed_nodes.add((otype, oid, obj))
+            parsed.append((triple, stype, sid, otype, oid, etype, relation))
+
+        if not parsed:
+            self._created_nodes = set()
+            return 0
+
+        # Batch ensure all nodes exist (1 DB query instead of 2N)
+        await self._ensure_nodes_batch(user_id, needed_nodes)
 
         count = 0
-        for triple in triples:
+        for triple, stype, sid, otype, oid, etype, relation in parsed:
             try:
-                stored = await self._store_single_triple(user_id, triple)
+                stored = await self._store_single_triple(
+                    user_id, triple, stype, sid, otype, oid, etype, relation,
+                )
                 if stored:
                     count += 1
             except Exception as e:
                 logger.error("Failed to store triple %s: %s", triple, e, exc_info=True)
-                # 不在这里 rollback，让调用方统一处理事务
-                # 继续处理下一个 triple
 
-        # 清除本批次的节点跟踪
         self._created_nodes = set()
-        # 不在这里 flush，让调用方统一 commit 时一起 flush
         return count
 
-    async def _store_single_triple(self, user_id: str, triple: dict[str, Any]) -> bool:
-        """Store a single triple. Returns True if a new edge was created or updated."""
-        subject = triple.get("subject", "").strip()
-        obj = triple.get("object", "").strip()
-        relation = triple.get("relation", "").strip()
-        if not subject or not obj or not relation:
-            return False
+    async def _ensure_nodes_batch(
+        self,
+        user_id: str,
+        needed_nodes: set[tuple[NodeType, str, str]],
+    ) -> None:
+        """Batch get-or-create nodes (1 DB query instead of 2N individual checks)."""
+        if not needed_nodes:
+            return
 
-        subject_type = _resolve_node_type(triple.get("subject_type", "entity"))
-        object_type = _resolve_node_type(triple.get("object_type", "entity"))
-        edge_type = _resolve_edge_type(relation)
+        # Filter out nodes already created in this batch
+        to_check = [
+            (nt, nid, name) for nt, nid, name in needed_nodes
+            if (user_id, nt.value, nid) not in self._created_nodes
+        ]
+        if not to_check:
+            return
 
-        # Normalize node IDs: USER type uses user_id directly
-        subject_id = user_id if subject_type == NodeType.USER else _normalize_node_id(subject)
-        object_id = _normalize_node_id(obj)
+        # Single query for all needed node IDs
+        node_id_set = {nid for _, nid, _ in to_check}
+        result = await self.db.execute(
+            select(GraphNode.node_type, GraphNode.node_id).where(
+                GraphNode.user_id == user_id,
+                GraphNode.node_id.in_(node_id_set),
+            )
+        )
+        existing = {(row.node_type, row.node_id) for row in result.fetchall()}
 
+        # Insert only missing nodes
+        for node_type, node_id, name in to_check:
+            if (node_type.value, node_id) not in existing:
+                self.db.add(GraphNode(
+                    user_id=user_id,
+                    node_type=node_type.value,
+                    node_id=node_id,
+                    properties={"name": name},
+                ))
+                logger.debug("添加节点到 session: %s:%s", node_type.value, node_id)
+            self._created_nodes.add((user_id, node_type.value, node_id))
+
+    async def _store_single_triple(
+        self,
+        user_id: str,
+        triple: dict[str, Any],
+        stype: NodeType,
+        sid: str,
+        otype: NodeType,
+        oid: str,
+        etype: EdgeType,
+        relation: str,
+    ) -> bool:
+        """Store a single pre-parsed triple. Returns True if edge was created or updated."""
         content = triple.get("content", "")
         confidence = triple.get("confidence", 1.0)
         now = datetime.now(timezone.utc).isoformat()
 
-        # Ensure both nodes exist
-        await self._ensure_node(subject_type, subject_id, user_id, {"name": subject})
-        await self._ensure_node(object_type, object_id, user_id, {"name": obj})
-
-        # Conflict resolution
-        action = await self._resolve_conflict(
-            user_id, subject_type, subject_id, edge_type, object_type, object_id, content,
-        )
+        action = await self._resolve_conflict(user_id, stype, sid, etype, otype, oid, content)
 
         if action == "NOOP":
             return False
 
         if action == "UPDATE":
-            await self._invalidate_existing_edges(
-                user_id, subject_type, subject_id, edge_type, now,
-            )
+            await self._invalidate_existing_edges(user_id, stype, sid, etype, now)
 
-        # Create new edge
-        edge_props = {
+        edge_props: dict[str, Any] = {
             "content": content,
             "confidence": confidence,
             "valid_from": now,
             "valid_until": None,
         }
-        if edge_type == EdgeType.CUSTOM:
+        if etype == EdgeType.CUSTOM:
             edge_props["relation_name"] = relation
 
-        edge = GraphEdge(
+        self.db.add(GraphEdge(
             user_id=user_id,
-            source_type=subject_type.value,
-            source_id=subject_id,
-            edge_type=edge_type.value,
-            target_type=object_type.value,
-            target_id=object_id,
+            source_type=stype.value,
+            source_id=sid,
+            edge_type=etype.value,
+            target_type=otype.value,
+            target_id=oid,
             properties=edge_props,
-        )
-        self.db.add(edge)
-
+        ))
         return True
 
     async def _ensure_node(
@@ -162,14 +209,11 @@ class GraphMemoryService:
         user_id: str,
         properties: dict[str, Any] | None = None,
     ) -> None:
-        """Get-or-create a node."""
-        # 检查本批次是否已创建此节点（避免重复插入）
+        """Get-or-create a single node (kept for backward compatibility)."""
         node_key = (user_id, node_type.value, node_id)
         if hasattr(self, '_created_nodes') and node_key in self._created_nodes:
-            logger.debug(f"节点已在本批次中创建，跳过: {node_type.value}:{node_id}")
             return
 
-        # 修复：查询时必须加上 user_id 过滤，确保用户隔离
         result = await self.db.execute(
             select(GraphNode).where(
                 GraphNode.user_id == user_id,
@@ -180,16 +224,12 @@ class GraphMemoryService:
         if result.scalar_one_or_none():
             return
 
-        node = GraphNode(
+        self.db.add(GraphNode(
             user_id=user_id,
             node_type=node_type.value,
             node_id=node_id,
             properties=properties,
-        )
-        self.db.add(node)
-        logger.debug(f"添加节点到 session: {node_type.value}:{node_id}")
-
-        # 记录本批次已创建的节点
+        ))
         if hasattr(self, '_created_nodes'):
             self._created_nodes.add(node_key)
 
@@ -216,15 +256,10 @@ class GraphMemoryService:
                 GraphEdge.source_type == subject_type.value,
                 GraphEdge.source_id == subject_id,
                 GraphEdge.edge_type == edge_type.value,
+                text("(properties->>'valid_until') IS NULL"),
             )
         )
-        existing_edges = result.scalars().all()
-
-        # Filter to active edges (valid_until is None)
-        active = [
-            e for e in existing_edges
-            if not (e.properties or {}).get("valid_until")
-        ]
+        active = result.scalars().all()
 
         if not active:
             return "ADD"
@@ -252,12 +287,12 @@ class GraphMemoryService:
                 GraphEdge.source_type == source_type.value,
                 GraphEdge.source_id == source_id,
                 GraphEdge.edge_type == edge_type.value,
+                text("(properties->>'valid_until') IS NULL"),
             )
         )
         for edge in result.scalars().all():
             props = edge.properties or {}
-            if not props.get("valid_until"):
-                edge.properties = {**props, "valid_until": now}
+            edge.properties = {**props, "valid_until": now}
 
     async def find_entity_facts(
         self,
@@ -271,19 +306,19 @@ class GraphMemoryService:
         Only returns edges where valid_until is None (active).
         """
         node_id = _normalize_node_id(entity_name)
+
+        # Single query covers both outgoing and incoming edges, active only
+        result = await self.db.execute(
+            select(GraphEdge).where(
+                GraphEdge.user_id == user_id,
+                or_(GraphEdge.source_id == node_id, GraphEdge.target_id == node_id),
+                text("(properties->>'valid_until') IS NULL"),
+            ).limit(limit)
+        )
+
         results: list[dict[str, Any]] = []
-
-        # Search as source
-        out_result = await self.db.execute(
-            select(GraphEdge).where(
-                GraphEdge.user_id == user_id,
-                GraphEdge.source_id == node_id,
-            )
-        )
-        for edge in out_result.scalars().all():
+        for edge in result.scalars().all():
             props = edge.properties or {}
-            if props.get("valid_until"):
-                continue
             results.append({
                 "subject": edge.source_id,
                 "subject_type": edge.source_type,
@@ -295,26 +330,4 @@ class GraphMemoryService:
                 "valid_from": props.get("valid_from"),
             })
 
-        # Search as target
-        in_result = await self.db.execute(
-            select(GraphEdge).where(
-                GraphEdge.user_id == user_id,
-                GraphEdge.target_id == node_id,
-            )
-        )
-        for edge in in_result.scalars().all():
-            props = edge.properties or {}
-            if props.get("valid_until"):
-                continue
-            results.append({
-                "subject": edge.source_id,
-                "subject_type": edge.source_type,
-                "relation": edge.edge_type,
-                "object": edge.target_id,
-                "object_type": edge.target_type,
-                "content": props.get("content", ""),
-                "confidence": props.get("confidence", 1.0),
-                "valid_from": props.get("valid_from"),
-            })
-
-        return results[:limit]
+        return results
