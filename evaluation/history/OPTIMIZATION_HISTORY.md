@@ -16,9 +16,10 @@
 | 10 | 02-20 | （checkpoint保存，judge score从R11反推） | 0.704 | 0% |
 | 11 | 02-21 | 时序查询过滤（query提取时间范围，episodic按时间窗口过滤） | 0.714 | +1.4% |
 | 12 | 02-21 | 并行化评测pipeline（ingest/query/evaluate三阶段）+ OpenAI embedding支持 | 0.802 | +12.3% |
-| **13** | **02-21** | **Profile重构：preferences合并进profile namespace** | **0.8017** | **≈0%** |
+| 13 | 02-21 | Profile重构：preferences合并进profile namespace | 0.8017 | ≈0% |
+| **14** | **02-22** | **自动后台reflect、并行recall优化、Facts/Episodes提取去重修复、中文时序查询修复** | **0.817** | **+1.9%** |
 
-> 累计提升：0.125 → 0.8017（**+541%**）
+> 累计提升：0.125 → 0.817（**+554%**）
 
 ## 分类成绩对比
 
@@ -27,8 +28,9 @@
 | 4 (BM25) | 0.645 | 0.574 | 0.417 | 0.612 | 0.610 |
 | 7 (画像+图谱) | 0.749 | 0.596 | 0.573 | 0.737 | 0.704 |
 | 11 (时序过滤) | ~0.749 | **0.652** | ~0.573 | ~0.786 | 0.714 |
-| 13 (当前最优) | **0.871** | **0.716** | **0.819** | **0.809** | **0.8017** |
-| R7→R13 变化 | +0.122 | +0.120 | +0.246 | +0.072 | +0.098 |
+| 13 | 0.871 | 0.716 | 0.819 | 0.809 | 0.8017 |
+| **14 (当前最优)** | **0.829** | **0.766** | **0.811** | **0.843** | **0.817** |
+| R13→R14 变化 | -0.042 | +0.050 | -0.008 | +0.034 | +0.015 |
 
 > R11 分类数据部分为估算（commit message 仅记录 Temporal +0.198、Multi-Hop +0.049）
 
@@ -38,7 +40,8 @@
 |------|:---:|:---:|:---:|:---:|:---:|:---:|
 | memU | — | — | — | — | 92.1% | ? |
 | Backboard | 89.4% | 75.0% | 91.2% | 91.9% | 90.0% | GPT-4.1 |
-| **NeuroMemory (R13)** | **87.1%** | **80.9%** | **81.9%** | **71.6%** | **80.2%** | **GPT-4o-mini** |
+| **NeuroMemory (R14)** | **82.9%** | **84.3%** | **81.1%** | **76.6%** | **81.7%** | **GPT-4o-mini** |
+| NeuroMemory (R13) | 87.1% | 80.9% | 81.9% | 71.6% | 80.2% | GPT-4o-mini |
 | MemOS | — | — | — | — | 75.8% | ? |
 | Memobase v0.0.37 | 70.9% | 46.9% | 77.2% | 85.1% | 75.8% | ? |
 | Zep | 74.1% | 66.0% | 67.7% | 79.8% | 75.1% | ? |
@@ -125,6 +128,21 @@
 
 效果：0.8017，与 R12（0.802）持平。
 
+### 第14轮：Reflect 集成 + 提取质量提升（02-22）
+
+| 改进 | 说明 |
+|------|------|
+| 自动后台 reflect | `reflection_interval` 参数，每 N 次提取后在后台触发 reflect，insight 记忆立即可用 |
+| 并行 recall | vector / conversation / profile 三路并行（asyncio.gather），episodic+fact 子搜索也并行 |
+| 并行 embedding | facts 和 episodes 的 embed_batch 并行调用，减少一次 API round-trip |
+| Facts/Episodes 去重修复 | 一次性事件只放 Episodes，不再同时生成低质量 Fact 副本；提取 prompt 明确约束 |
+| 中文时序查询修复 | TemporalExtractor 新增中文时间词识别，触发 episodic 优先召回分支 |
+| 评测 pre-init 修复 | 并行 ingest 前先单独 init，避免多 worker 并发 CREATE TABLE 冲突 |
+
+效果：Overall 0.8017→0.817（+1.9%）。Temporal +7%（0.716→0.766），Multi-Hop +4.2%（0.809→0.843）。Single-Hop 略降（0.871→0.829）。
+
+**注意**：本轮 ingest 更完整（0 写入失败 vs R13 存在 BM25 并发损坏），共写入 14107 条记忆（含 693 条 insights），耗时 2h20min（reflect 约占 1h）。
+
 ## 尝试但回退的实验
 
 | 实验 | 测试结果 | 回退原因 |
@@ -134,10 +152,11 @@
 
 ## 待优化方向
 
-当前最弱项：**Temporal（71.6%）**，与 Backboard（91.9%）差距最大。
+当前最弱项：**Temporal（76.6%）**，与 Backboard（91.9%）差距最大；**Single-Hop（82.9%）** R14 较 R13 下降，需关注。
 
-- **Temporal 提升**：时序推理仍不足，考虑更精确的时间范围提取和跨对话时间对齐
-- **逼近 Backboard（90%）**：Single-Hop（87.1%）接近，Multi-Hop（80.9%）和 Open-Domain（81.9%）还有空间
+- **Single-Hop 回升**：R14 下降原因待查（reflect 生成的 insight 是否稀释了 fact 召回？）
+- **Temporal 提升**：TemporalExtractor 对 "When did X happen?" 仍返回 None，无法触发 episodic 优先分支
+- **逼近 Backboard（90%）**：Multi-Hop（84.3%）接近，Temporal 和 Single-Hop 还有空间
 - 写时记忆去重（解决冗余率，每条仅增加 ~10ms）
 - 换用 GPT-4o-mini 作为 Judge 进行公平对比
-- 提升 extraction 质量（更精确的 fact/episode 提取）
+- Ingest 耗时优化：reflect 占约 1h，考虑评测时跳过 reflect 或减少 batch 数

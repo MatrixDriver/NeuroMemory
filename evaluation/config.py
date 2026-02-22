@@ -85,6 +85,10 @@ class EvalConfig:
     decay_rate_days: int = field(
         default_factory=lambda: int(os.environ.get("DECAY_RATE_DAYS", "365"))
     )
+    # Skip reflect phase during ingest (for ablation studies)
+    skip_reflect: bool = field(
+        default_factory=lambda: os.environ.get("SKIP_REFLECT", "0") == "1"
+    )
 
     # Optional separate LLM for answer generation (e.g. deepseek-reasoner)
     answer_llm_model: str = field(

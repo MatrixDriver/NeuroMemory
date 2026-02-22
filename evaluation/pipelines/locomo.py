@@ -81,6 +81,11 @@ async def run_locomo(cfg: EvalConfig, phase: str | None = None, conv_filter: int
 
 async def _ingest(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> None:
     """Ingest conversations in parallel, bounded by ingest_concurrency."""
+    # Pre-init DB schema once to avoid concurrent CREATE TABLE races
+    nm0 = create_nm(cfg)
+    await nm0.init()
+    await nm0.close()
+
     sem = asyncio.Semaphore(cfg.ingest_concurrency)
 
     async def _ingest_one(conv: LoCoMoConversation) -> None:
@@ -140,9 +145,10 @@ async def _ingest_conversation(
         await set_timestamps(nm, user_a, sid_a, ts)
         await set_timestamps(nm, user_b, sid_b, ts)
 
-    # Reflect: extract memories + generate insights
-    for uid in [user_a, user_b]:
-        await _reflect_user(cfg, nm, uid)
+    # Reflect: extract memories + generate insights (skip for ablation)
+    if not cfg.skip_reflect:
+        for uid in [user_a, user_b]:
+            await _reflect_user(cfg, nm, uid)
 
     logger.info("Ingested conv %d", conv.conv_idx)
 
