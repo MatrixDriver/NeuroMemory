@@ -727,20 +727,23 @@ class NeuroMemory:
         query: str,
         limit: int = 20,
         decay_rate: float | None = None,
+        include_conversations: bool = False,
     ) -> dict:
-        """Hybrid recall: memories + conversations + graph, merged and deduplicated.
+        """Hybrid recall: memories + graph, merged and deduplicated.
 
-        **v0.2.0 P1 Update**: Now searches both:
-        1. Extracted memories (three-factor: relevance × recency × importance)
-        2. Original conversation fragments (preserves dates, details)
-        3. Graph entity traversal
-
-        **Performance**: Uses cached embedding to avoid redundant API calls.
+        Args:
+            user_id: The user to recall memories for.
+            query: Natural language query.
+            limit: Max number of merged results to return.
+            decay_rate: Time-decay factor for recency scoring.
+            include_conversations: If True, also search raw conversation
+                fragments and include them in the result (adds latency).
+                Defaults to False — extracted memories are preferred.
 
         Returns:
             {
                 "vector_results": [...],       # extracted memories
-                "conversation_results": [...], # original conversations (P1)
+                "conversation_results": [...], # raw conversations (only if include_conversations=True)
                 "graph_results": [...],        # graph entities
                 "merged": [...],               # deduplicated merge
             }
@@ -755,25 +758,32 @@ class NeuroMemory:
         event_after, event_before = temporal.extract_time_range(query)
         _decay = decay_rate or DEFAULT_DECAY_RATE
 
-        # Parallel fetch: memories + conversations + profile (+ graph if enabled)
+        # Parallel fetch: memories + profile (+ conversations + graph if enabled)
         coros = [
             self._fetch_vector_memories(
                 user_id, query, limit, query_embedding, event_after, event_before, _decay,
             ),
-            self._search_conversations(user_id, query, limit, query_embedding=query_embedding),
             self._fetch_user_profile(user_id),
         ]
+        conv_idx: int | None = None
+        graph_idx: int | None = None
+        if include_conversations:
+            conv_idx = len(coros)
+            coros.append(self._search_conversations(user_id, query, limit, query_embedding=query_embedding))
         if self._graph_enabled:
+            graph_idx = len(coros)
             coros.append(self._fetch_graph_memories(user_id, query, limit))
 
         results = await asyncio.gather(*coros, return_exceptions=True)
 
         vector_results: list[dict] = results[0] if not isinstance(results[0], Exception) else []
-        conversation_results: list[dict] = results[1] if not isinstance(results[1], Exception) else []
-        user_profile: dict = results[2] if not isinstance(results[2], Exception) else {}
+        user_profile: dict = results[1] if not isinstance(results[1], Exception) else {}
+        conversation_results: list[dict] = (
+            results[conv_idx] if conv_idx is not None and not isinstance(results[conv_idx], Exception) else []
+        )
         graph_results: list[dict] = []
-        if self._graph_enabled:
-            raw = results[3] if len(results) > 3 else []
+        if self._graph_enabled and graph_idx is not None:
+            raw = results[graph_idx]
             if isinstance(raw, Exception):
                 logger.warning(f"Graph search failed: {raw}")
             else:
