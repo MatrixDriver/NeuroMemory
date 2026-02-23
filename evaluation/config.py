@@ -89,6 +89,10 @@ class EvalConfig:
     skip_reflect: bool = field(
         default_factory=lambda: os.environ.get("SKIP_REFLECT", "0") == "1"
     )
+    # Background reflect: trigger reflect() every N user messages per user (0 = disabled)
+    reflection_interval: int = field(
+        default_factory=lambda: int(os.environ.get("REFLECTION_INTERVAL", "0"))
+    )
 
     # Optional separate LLM for answer generation (e.g. deepseek-reasoner)
     answer_llm_model: str = field(

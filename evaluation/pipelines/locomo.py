@@ -145,8 +145,10 @@ async def _ingest_conversation(
         await set_timestamps(nm, user_a, sid_a, ts)
         await set_timestamps(nm, user_b, sid_b, ts)
 
-    # Reflect: extract memories + generate insights (skip for ablation)
-    if not cfg.skip_reflect:
+    # Reflect: extract memories + generate insights
+    # If reflection_interval > 0, reflect runs automatically in background via library.
+    # Otherwise fall back to explicit synchronous reflect (unless skip_reflect).
+    if not cfg.skip_reflect and cfg.reflection_interval == 0:
         for uid in [user_a, user_b]:
             await _reflect_user(cfg, nm, uid)
 

@@ -52,6 +52,7 @@ def create_nm(cfg: EvalConfig) -> NeuroMemory:
         embedding=embedding,
         llm=llm,
         graph_enabled=cfg.graph_enabled,
+        reflection_interval=cfg.reflection_interval,
     )
 
 
