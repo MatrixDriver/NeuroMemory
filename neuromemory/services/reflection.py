@@ -94,11 +94,17 @@ class ReflectionService:
             return []
 
         # Store insights with memory_type="insight"
+        # Only store insights with importance >= 7 (low-value ones are discarded)
+        _MIN_INSIGHT_IMPORTANCE = 7
         stored = []
         for insight in insights:
             content = insight.get("content")
             category = insight.get("category", "pattern")
+            importance = int(insight.get("importance", 8))
             if not content or category not in ("pattern", "summary"):
+                continue
+            if importance < _MIN_INSIGHT_IMPORTANCE:
+                logger.debug("Skipping low-importance insight (importance=%d): %s", importance, content[:60])
                 continue
             try:
                 vector = await self._embedding.embed(content)
@@ -110,7 +116,7 @@ class ReflectionService:
                     metadata_={
                         "category": category,
                         "source_ids": insight.get("source_ids", []),
-                        "importance": 8,  # Insights are inherently important
+                        "importance": importance,
                     },
                 )
                 self.db.add(embedding_obj)
@@ -238,35 +244,44 @@ class ReflectionService:
 
         existing_text = ""
         if existing_insights:
-            existing_lines = [f"- {ins.get('content', '')}" for ins in existing_insights]
+            # Only pass the most recent 20 to keep context focused
+            recent = existing_insights[-20:]
+            existing_lines = [f"- {ins.get('content', '')}" for ins in recent]
             existing_text = f"""
-已有的洞察（避免重复）：
+已有洞察（共 {len(existing_insights)} 条，显示最近 {len(recent)} 条）：
 {chr(10).join(existing_lines)}
+
+⚠️ 严格去重规则：
+- 如果新洞察与已有洞察表达相同或相似的含义，直接跳过，不要输出
+- 只输出已有洞察中**未覆盖**的新角度、新发现、或具体细节的补充
+- 如果本批记忆没有带来新的洞察，返回空列表 {{"insights": []}}
 """
 
-        return f"""你是一个记忆分析系统。请根据以下关于用户的记忆条目，生成高层次的行为模式和阶段总结洞察。
+        return f"""你是一个记忆分析系统。根据用户的新记忆，生成**增量**行为模式和阶段总结洞察。
 
-用户最近的记忆：
+用户最新的记忆：
 {memories_text}
 {existing_text}
-请生成 2-4 条洞察，每条洞察应该：
-1. 综合多条记忆得出更深层的理解（而非复述单条记忆）
-2. 分为以下类别之一：
-   - pattern: 用户的行为模式或习惯（如"用户倾向于晚上工作"、"用户喜欢用 Python 而非 Java"）
-   - summary: 对一段时间经历的总结（如"用户近期在准备跳槽"、"本周重点是学习新技术栈"）
+生成规则：
+1. 每条洞察必须综合多条记忆，得出更深层的理解（不是复述单条记忆）
+2. 类别：
+   - pattern: 具体的行为模式或习惯（需有细节，如"用户在压力大时会回避社交，但之后主动寻求朋友帮助"）
+   - summary: 近期经历的阶段性总结（需有时间感，如"用户近两周集中在解决技术债，已完成重构"）
+3. importance（1-10）：对理解用户有多大价值
+   - 9-10：揭示用户核心性格/价值观/重大转变
+   - 7-8：有具体细节的有用模式
+   - 5-6：泛泛的观察
+   - <7：不要输出
+4. 如果没有值得输出的新洞察，返回空列表
 
-要求：
-- 只基于已有记忆推理，不要凭空捏造
-- 避免与已有洞察重复
-- 必须返回有效的 JSON 格式
-
-返回格式（只返回 JSON，不要其他内容）：
+只返回 JSON，不要其他内容：
 ```json
 {{
   "insights": [
     {{
-      "content": "洞察内容",
+      "content": "洞察内容（具体、有细节）",
       "category": "pattern|summary",
+      "importance": 7,
       "source_ids": []
     }}
   ]
