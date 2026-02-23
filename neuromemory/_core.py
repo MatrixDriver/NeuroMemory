@@ -50,7 +50,7 @@ class ExtractionStrategy:
     idle_timeout: float = 600
     on_session_close: bool = True
     on_shutdown: bool = True
-    reflection_interval: int = 0  # Trigger reflection every N extractions (0 = disabled)
+    reflection_interval: int = 20  # Trigger reflection every N extractions (0 = disabled)
 
 
 class KVFacade:
@@ -101,20 +101,20 @@ class ConversationsFacade:
         db: Database,
         _on_message_added=None,
         _on_session_closed=None,
+        _on_extraction_done=None,
         _auto_extract: bool = True,
         _embedding: EmbeddingProvider | None = None,
         _llm: LLMProvider | None = None,
         _graph_enabled: bool = False,
-        _on_extraction_done=None,
     ):
         self._db = db
         self._on_message_added = _on_message_added
         self._on_session_closed = _on_session_closed
+        self._on_extraction_done = _on_extraction_done
         self._auto_extract = _auto_extract
         self._embedding = _embedding
         self._llm = _llm
         self._graph_enabled = _graph_enabled
-        self._on_extraction_done = _on_extraction_done
 
     async def add_message(self, user_id: str, role: str, content: str, session_id: str | None = None, metadata: dict | None = None):
         from neuromemory.services.conversation import ConversationService
@@ -209,6 +209,9 @@ class ConversationsFacade:
 
         logger.debug(f"Auto-extracted memories for {user_id} from single message")
 
+        if self._on_extraction_done:
+            asyncio.create_task(self._on_extraction_done(user_id))
+
     async def _extract_single_message_async(self, user_id: str, session_id: str, messages: list):
         """异步后台提取单条消息的记忆，不阻塞主流程。
 
@@ -250,6 +253,9 @@ class ConversationsFacade:
         )
         if self._on_extraction_done:
             await self._on_extraction_done(user_id)
+
+        if self._on_extraction_done:
+            asyncio.create_task(self._on_extraction_done(user_id))
 
     async def close_session(self, user_id: str, session_id: str) -> None:
         """Close a conversation session, triggering memory extraction if configured."""
@@ -425,8 +431,14 @@ class NeuroMemory:
         graph_enabled: bool = False,
         pool_size: int = 10,
         echo: bool = False,
-        reflection_interval: int = 0,
+        reflection_interval: int = 20,
     ):
+        """
+        Args:
+            reflection_interval: Trigger background reflect() every N user messages per user.
+                Default 20: runs reflect in the background after every 20 user messages.
+                0 = disabled. Never blocks add_message(). Requires llm.
+        """
         # Set embedding dimensions before any model import
         import neuromemory.models as _models
         _models._embedding_dims = embedding.dims
@@ -444,7 +456,8 @@ class NeuroMemory:
         self._msg_counts: dict[tuple[str, str], int] = {}
         self._idle_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self._active_sessions: set[tuple[str, str]] = set()
-        self._extraction_counts: dict[str, int] = {}  # user_id -> count
+        self._extraction_counts: dict[str, int] = {}  # user_id -> count (ExtractionStrategy mode)
+        self._reflect_counts: dict[str, int] = {}      # user_id -> count (reflection_interval mode)
 
         # Embedding cache for query deduplication (reduces API calls)
         self._embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
@@ -454,11 +467,9 @@ class NeuroMemory:
         _has_extraction = bool(extraction and llm)
         on_msg = self._on_message_added if _has_extraction else None
         on_close = self._on_session_closed if _has_extraction else None
-
-        # Background reflect callback for auto_extract mode
-        _auto_reflect = (
-            self._on_auto_extraction_done
-            if auto_extract and llm and reflection_interval > 0
+        on_extraction_done = (
+            self._maybe_trigger_reflect
+            if reflection_interval > 0 and llm
             else None
         )
 
@@ -468,11 +479,11 @@ class NeuroMemory:
             self._db,
             _on_message_added=on_msg,
             _on_session_closed=on_close,
+            _on_extraction_done=on_extraction_done,
             _auto_extract=auto_extract,
             _embedding=embedding,
             _llm=llm,
             _graph_enabled=graph_enabled,
-            _on_extraction_done=_auto_reflect,
         )
         self.graph = GraphFacade(self._db)
 
@@ -592,16 +603,15 @@ class NeuroMemory:
         except asyncio.CancelledError:
             pass
 
-    async def _on_auto_extraction_done(self, user_id: str) -> None:
-        """Callback invoked after auto-extract completes a single message.
-
-        Tracks per-user extraction count and triggers background reflect
-        every ``reflection_interval`` extractions.
-        """
-        self._extraction_counts[user_id] = self._extraction_counts.get(user_id, 0) + 1
-        if self._extraction_counts[user_id] >= self._reflection_interval:
-            self._extraction_counts[user_id] = 0
-            logger.info("Auto-reflect triggered for user=%s (interval=%d)", user_id, self._reflection_interval)
+    async def _maybe_trigger_reflect(self, user_id: str) -> None:
+        """Called after each user message extraction; triggers background reflect every N messages."""
+        self._reflect_counts[user_id] = self._reflect_counts.get(user_id, 0) + 1
+        if self._reflect_counts[user_id] >= self._reflection_interval:
+            self._reflect_counts[user_id] = 0
+            logger.info(
+                "Auto-reflect triggered for user=%s (interval=%d)",
+                user_id, self._reflection_interval,
+            )
             await self.reflect(user_id, background=True)
 
     async def _do_extraction(self, user_id: str, session_id: str) -> None:
@@ -802,11 +812,9 @@ class NeuroMemory:
                     entry["content"] = f"[{' | '.join(prefix_parts)}] {content}"
                 merged.append(entry)
 
-        for r in conversation_results:
-            content = r.get("content", "")
-            if content not in seen_contents:
-                seen_contents.add(content)
-                merged.append({**r, "source": "conversation"})
+        # conversation_results intentionally excluded from merged:
+        # raw conversation fragments dilute extracted memory quality.
+        # Still returned in "conversation_results" key for inspection.
 
         graph_context: list[str] = [
             f"{r.get('subject')} → {r.get('relation')} → {r.get('object')}"

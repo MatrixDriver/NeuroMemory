@@ -315,15 +315,42 @@ class GraphMemoryService:
                 text("(properties->>'valid_until') IS NULL"),
             ).limit(limit)
         )
+        edges = result.scalars().all()
+
+        if not edges:
+            return []
+
+        # Batch-fetch node display names to replace raw IDs (e.g. UUIDs for user nodes)
+        all_node_ids = {e.source_id for e in edges} | {e.target_id for e in edges}
+        node_result = await self.db.execute(
+            select(GraphNode.node_id, GraphNode.properties).where(
+                GraphNode.user_id == user_id,
+                GraphNode.node_id.in_(all_node_ids),
+            )
+        )
+        node_name_map: dict[str, str] = {}
+        for row in node_result.fetchall():
+            props = row.properties or {}
+            name = props.get("name")
+            if name:
+                node_name_map[row.node_id] = name
 
         results: list[dict[str, Any]] = []
-        for edge in result.scalars().all():
+        for edge in edges:
             props = edge.properties or {}
+            # Use readable name if available, fall back to raw ID
+            subject = node_name_map.get(edge.source_id, edge.source_id)
+            obj = node_name_map.get(edge.target_id, edge.target_id)
+            # Use original relation string for CUSTOM edges
+            if edge.edge_type == EdgeType.CUSTOM.value:
+                relation = props.get("relation_name") or edge.edge_type
+            else:
+                relation = edge.edge_type
             results.append({
-                "subject": edge.source_id,
+                "subject": subject,
                 "subject_type": edge.source_type,
-                "relation": edge.edge_type,
-                "object": edge.target_id,
+                "relation": relation,
+                "object": obj,
                 "object_type": edge.target_type,
                 "content": props.get("content", ""),
                 "confidence": props.get("confidence", 1.0),

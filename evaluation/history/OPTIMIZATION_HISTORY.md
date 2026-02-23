@@ -16,9 +16,13 @@
 | 10 | 02-20 | （checkpoint保存，judge score从R11反推） | 0.704 | 0% |
 | 11 | 02-21 | 时序查询过滤（query提取时间范围，episodic按时间窗口过滤） | 0.714 | +1.4% |
 | 12 | 02-21 | 并行化评测pipeline（ingest/query/evaluate三阶段）+ OpenAI embedding支持 | 0.802 | +12.3% |
-| **13** | **02-21** | **Profile重构：preferences合并进profile namespace** | **0.8017** | **≈0%** |
+| 13 | 02-21 | Profile重构：preferences合并进profile namespace | 0.8017 | ≈0% |
+| **14** | **02-22** | **自动后台reflect、并行recall优化、Facts/Episodes提取去重修复、中文时序查询修复** | **0.817** | **+1.9%** |
+| 15 | 02-23 | R13基线+去重修复(8f51f1b1)+中文时序修复(a231fc1e)+并行recall/SQL优化(558af7fa,无索引) | 0.792 | -3.1% |
+| 16 | 02-23 | 后台异步reflect（reflection_interval=20，每20条消息触发）、去掉召回原始对话消息 | 0.804 | +1.5% |
+| 17 | 02-23 | GRAPH_ENABLED=1（图谱三元组提取+结构化关系召回）、图谱显示优化（UUID→可读名称，CUSTOM→原始关系词） | 0.790 | -3.3% |
 
-> 累计提升：0.125 → 0.8017（**+541%**）
+> 累计提升：0.125 → 0.817（**+554%**）
 
 ## 分类成绩对比
 
@@ -27,8 +31,15 @@
 | 4 (BM25) | 0.645 | 0.574 | 0.417 | 0.612 | 0.610 |
 | 7 (画像+图谱) | 0.749 | 0.596 | 0.573 | 0.737 | 0.704 |
 | 11 (时序过滤) | ~0.749 | **0.652** | ~0.573 | ~0.786 | 0.714 |
-| 13 (当前最优) | **0.871** | **0.716** | **0.819** | **0.809** | **0.8017** |
-| R7→R13 变化 | +0.122 | +0.120 | +0.246 | +0.072 | +0.098 |
+| 13 | 0.871 | 0.716 | 0.819 | 0.809 | 0.8017 |
+| **14 (当前最优)** | **0.829** | **0.766** | **0.811** | **0.843** | **0.817** |
+| R13→R14 变化 | -0.042 | +0.050 | -0.008 | +0.034 | +0.015 |
+| 15 (R13基线+优化组合) | 0.805 | 0.715 | 0.833 | 0.825 | 0.792 |
+| R14→R15 变化 | -0.024 | -0.051 | +0.022 | -0.018 | -0.025 |
+| 16 (后台reflect+无原始对话) | 0.812 | 0.766 | 0.832 | 0.815 | 0.804 |
+| R14→R16 变化 | -0.017 | 0.000 | +0.021 | -0.028 | -0.013 |
+| 17 (GRAPH_ENABLED=1) | 0.787 | 0.755 | 0.833 | 0.822 | 0.790 |
+| R14→R17 变化 | -0.042 | -0.011 | +0.022 | -0.021 | -0.027 |
 
 > R11 分类数据部分为估算（commit message 仅记录 Temporal +0.198、Multi-Hop +0.049）
 
@@ -38,7 +49,8 @@
 |------|:---:|:---:|:---:|:---:|:---:|:---:|
 | memU | — | — | — | — | 92.1% | ? |
 | Backboard | 89.4% | 75.0% | 91.2% | 91.9% | 90.0% | GPT-4.1 |
-| **NeuroMemory (R13)** | **87.1%** | **80.9%** | **81.9%** | **71.6%** | **80.2%** | **GPT-4o-mini** |
+| **NeuroMemory (R14)** | **82.9%** | **84.3%** | **81.1%** | **76.6%** | **81.7%** | **GPT-4o-mini** |
+| NeuroMemory (R13) | 87.1% | 80.9% | 81.9% | 71.6% | 80.2% | GPT-4o-mini |
 | MemOS | — | — | — | — | 75.8% | ? |
 | Memobase v0.0.37 | 70.9% | 46.9% | 77.2% | 85.1% | 75.8% | ? |
 | Zep | 74.1% | 66.0% | 67.7% | 79.8% | 75.1% | ? |
@@ -125,19 +137,41 @@
 
 效果：0.8017，与 R12（0.802）持平。
 
+### 第14轮：Reflect 集成 + 提取质量提升（02-22）
+
+| 改进 | 说明 |
+|------|------|
+| 自动后台 reflect | `reflection_interval` 参数，每 N 次提取后在后台触发 reflect，insight 记忆立即可用 |
+| 并行 recall | vector / conversation / profile 三路并行（asyncio.gather），episodic+fact 子搜索也并行 |
+| 并行 embedding | facts 和 episodes 的 embed_batch 并行调用，减少一次 API round-trip |
+| Facts/Episodes 去重修复 | 一次性事件只放 Episodes，不再同时生成低质量 Fact 副本；提取 prompt 明确约束 |
+| 中文时序查询修复 | TemporalExtractor 新增中文时间词识别，触发 episodic 优先召回分支 |
+| 评测 pre-init 修复 | 并行 ingest 前先单独 init，避免多 worker 并发 CREATE TABLE 冲突 |
+
+效果：Overall 0.8017→0.817（+1.9%）。Temporal +7%（0.716→0.766），Multi-Hop +4.2%（0.809→0.843）。Single-Hop 略降（0.871→0.829）。
+
+**注意**：本轮 ingest 更完整（0 写入失败 vs R13 存在 BM25 并发损坏），共写入 14107 条记忆（含 693 条 insights），耗时 2h20min（reflect 约占 1h）。
+
 ## 尝试但回退的实验
 
 | 实验 | 测试结果 | 回退原因 |
 |------|---------|---------|
 | 规则化 Query 分类 | Judge -0.013 | Open-domain BM25 权重 0.3 过激 |
 | 读时记忆去重 (cosine>0.92) | Judge -0.033 | 丢失重复 fact 的"投票"信号，single-hop 下降 |
+| R13基线+去重/中文时序/并行recall组合（R15） | Judge -0.025 vs R14 | fact 去重修复减少记忆数（9510 vs 14107），single-hop/temporal 均下降；并行recall未带来分数提升 |
+| 后台异步reflect + 去掉召回原始对话（R16） | Judge -0.013 vs R14 | ingest 快 55%（63min vs 140min），Temporal 持平，但 Multi-Hop/Single-Hop 略降；部分 insight 在 query 时还未写入 |
+| R16数据+去掉insight参与召回（消融） | Judge -0.023 vs R16 | insight 贡献显著：Multi-Hop -3.1%、Single-Hop -2.3%、Temporal -2.1%；insight 应保留 |
+| GRAPH_ENABLED=1（R17） | Judge -0.027 vs R14 | 图谱三元组提取影响LLM抽取质量，Open-Domain +2.2% 但其余类别均下降；图谱不建议默认开启 |
 
 ## 待优化方向
 
-当前最弱项：**Temporal（71.6%）**，与 Backboard（91.9%）差距最大。
+当前最优：**R14（0.817）**。当前最弱项：**Temporal（76.6%）**，与 Backboard（91.9%）差距最大。
 
-- **Temporal 提升**：时序推理仍不足，考虑更精确的时间范围提取和跨对话时间对齐
-- **逼近 Backboard（90%）**：Single-Hop（87.1%）接近，Multi-Hop（80.9%）和 Open-Domain（81.9%）还有空间
+- **Temporal 提升**：TemporalExtractor 对 "When did X happen?" 仍返回 None，无法触发 episodic 优先分支
+- **Single-Hop**：R15/R16 实验表明 fact 去重（8f51f1b1）会减少记忆量，对 single-hop 有负面影响；慎重合入
+- **逼近 Backboard（90%）**：Multi-Hop（84.3%）接近，Temporal 和 Single-Hop 还有空间
+- **后台 reflect 时序问题**：R16 query 时部分 insight 尚未写入，可在 ingest 结束后加一次等待或补跑 reflect
+- **insight 有效**：消融实验证明 insight 贡献 +2.3% Overall，Multi-Hop 贡献最大（+3.1%），应保留
+- **图谱（GRAPH_ENABLED）**：R17 证明默认开启有害，暂不启用；若要改善 Open-Domain 可单独研究图谱召回策略
 - 写时记忆去重（解决冗余率，每条仅增加 ~10ms）
-- 换用 GPT-4o-mini 作为 Judge 进行公平对比
-- 提升 extraction 质量（更精确的 fact/episode 提取）
+- 原始对话消息召回：R16 去掉后分数未明显变化，暂不恢复

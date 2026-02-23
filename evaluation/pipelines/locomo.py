@@ -81,6 +81,11 @@ async def run_locomo(cfg: EvalConfig, phase: str | None = None, conv_filter: int
 
 async def _ingest(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> None:
     """Ingest conversations in parallel, bounded by ingest_concurrency."""
+    # Pre-init DB schema once to avoid concurrent CREATE TABLE races
+    nm0 = create_nm(cfg)
+    await nm0.init()
+    await nm0.close()
+
     sem = asyncio.Semaphore(cfg.ingest_concurrency)
 
     async def _ingest_one(conv: LoCoMoConversation) -> None:
@@ -141,8 +146,11 @@ async def _ingest_conversation(
         await set_timestamps(nm, user_b, sid_b, ts)
 
     # Reflect: extract memories + generate insights
-    for uid in [user_a, user_b]:
-        await _reflect_user(cfg, nm, uid)
+    # If reflection_interval > 0, reflect runs automatically in background via library.
+    # Otherwise fall back to explicit synchronous reflect (unless skip_reflect).
+    if not cfg.skip_reflect and cfg.reflection_interval == 0:
+        for uid in [user_a, user_b]:
+            await _reflect_user(cfg, nm, uid)
 
     logger.info("Ingested conv %d", conv.conv_idx)
 
@@ -224,6 +232,12 @@ async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> No
 
             memories_a = recall_a.get("merged", [])
             memories_b = recall_b.get("merged", [])
+
+            # Ablation: optionally exclude insight memories
+            if cfg.exclude_insight:
+                memories_a = [m for m in memories_a if m.get("memory_type") != "insight"]
+                memories_b = [m for m in memories_b if m.get("memory_type") != "insight"]
+
             mem_text_a = "\n".join(
                 f"- {m.get('display_content') or m.get('content', '')}" for m in memories_a
             ) or "No memories found."
@@ -240,9 +254,9 @@ async def _query(cfg: EvalConfig, conversations: list[LoCoMoConversation]) -> No
                 graph_lines = "\n".join(f"- {t}" for t in all_graph[:20])
                 graph_section = f"\n\nKnown relationships:\n{graph_lines}"
 
-            # Collect user profiles
-            profile_a = recall_a.get("user_profile", {})
-            profile_b = recall_b.get("user_profile", {})
+            # Collect user profiles (ablation: optionally exclude)
+            profile_a = {} if cfg.exclude_profile else recall_a.get("user_profile", {})
+            profile_b = {} if cfg.exclude_profile else recall_b.get("user_profile", {})
             profile_section = _format_profiles(
                 user_a, profile_a, user_b, profile_b,
             )

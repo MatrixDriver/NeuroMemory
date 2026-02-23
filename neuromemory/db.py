@@ -84,6 +84,7 @@ class Database:
             except Exception as e:
                 logger.warning("Failed to create BM25 index: %s", e)
 
+
     async def close(self) -> None:
         """Dispose engine and release all connections."""
         await self.engine.dispose()
