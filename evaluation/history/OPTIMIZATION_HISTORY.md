@@ -157,6 +157,7 @@
 | 读时记忆去重 (cosine>0.92) | Judge -0.033 | 丢失重复 fact 的"投票"信号，single-hop 下降 |
 | R13基线+去重/中文时序/并行recall组合（R15） | Judge -0.025 vs R14 | fact 去重修复减少记忆数（9510 vs 14107），single-hop/temporal 均下降；并行recall未带来分数提升 |
 | 后台异步reflect + 去掉召回原始对话（R16） | Judge -0.013 vs R14 | ingest 快 55%（63min vs 140min），Temporal 持平，但 Multi-Hop/Single-Hop 略降；部分 insight 在 query 时还未写入 |
+| R16数据+去掉insight参与召回（消融） | Judge -0.023 vs R16 | insight 贡献显著：Multi-Hop -3.1%、Single-Hop -2.3%、Temporal -2.1%；insight 应保留 |
 
 ## 待优化方向
 
@@ -166,5 +167,6 @@
 - **Single-Hop**：R15/R16 实验表明 fact 去重（8f51f1b1）会减少记忆量，对 single-hop 有负面影响；慎重合入
 - **逼近 Backboard（90%）**：Multi-Hop（84.3%）接近，Temporal 和 Single-Hop 还有空间
 - **后台 reflect 时序问题**：R16 query 时部分 insight 尚未写入，可在 ingest 结束后加一次等待或补跑 reflect
+- **insight 有效**：消融实验证明 insight 贡献 +2.3% Overall，Multi-Hop 贡献最大（+3.1%），应保留
 - 写时记忆去重（解决冗余率，每条仅增加 ~10ms）
-- 原始对话消息召回：R16 去掉后分数未明显提升，后续可考虑恢复
+- 原始对话消息召回：R16 去掉后分数未明显变化，暂不恢复
