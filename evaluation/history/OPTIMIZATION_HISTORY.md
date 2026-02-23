@@ -21,6 +21,7 @@
 | 15 | 02-23 | R13基线+去重修复(8f51f1b1)+中文时序修复(a231fc1e)+并行recall/SQL优化(558af7fa,无索引) | 0.792 | -3.1% |
 | 16 | 02-23 | 后台异步reflect（reflection_interval=20，每20条消息触发）、去掉召回原始对话消息 | 0.804 | +1.5% |
 | 17 | 02-23 | GRAPH_ENABLED=1（图谱三元组提取+结构化关系召回）、图谱显示优化（UUID→可读名称，CUSTOM→原始关系词） | 0.790 | -3.3% |
+| 18 | 02-24 | 时间语义分拆（facts/timeline分栏）、Level4时间戳fallback、fact双语格式、去重增量reflect、concept节点过滤 | 0.792 | -3.1% |
 
 > 累计提升：0.125 → 0.817（**+554%**）
 
@@ -40,6 +41,8 @@
 | R14→R16 变化 | -0.017 | 0.000 | +0.021 | -0.028 | -0.013 |
 | 17 (GRAPH_ENABLED=1) | 0.787 | 0.755 | 0.833 | 0.822 | 0.790 |
 | R14→R17 变化 | -0.042 | -0.011 | +0.022 | -0.021 | -0.027 |
+| 18 (时间语义分拆+fact格式+reflect去重) | 0.773 | 0.757 | 0.807 | 0.842 | 0.792 |
+| R14→R18 变化 | -0.056 | -0.009 | -0.004 | +0.031 | -0.025 |
 
 > R11 分类数据部分为估算（commit message 仅记录 Temporal +0.198、Multi-Hop +0.049）
 
@@ -162,16 +165,16 @@
 | 后台异步reflect + 去掉召回原始对话（R16） | Judge -0.013 vs R14 | ingest 快 55%（63min vs 140min），Temporal 持平，但 Multi-Hop/Single-Hop 略降；部分 insight 在 query 时还未写入 |
 | R16数据+去掉insight参与召回（消融） | Judge -0.023 vs R16 | insight 贡献显著：Multi-Hop -3.1%、Single-Hop -2.3%、Temporal -2.1%；insight 应保留 |
 | GRAPH_ENABLED=1（R17） | Judge -0.027 vs R14 | 图谱三元组提取影响LLM抽取质量，Open-Domain +2.2% 但其余类别均下降；图谱不建议默认开启 |
+| 时间语义分拆+fact格式+reflect去重（R18） | Judge -0.025 vs R14 | Multi-Hop +0.031 有提升，但 Temporal/Single-Hop 略降；新 fact 格式对 Temporal 无帮助，Level4 timestamp fallback 效果不明显 |
 
 ## 待优化方向
 
 当前最优：**R14（0.817）**。当前最弱项：**Temporal（76.6%）**，与 Backboard（91.9%）差距最大。
 
-- **Temporal 提升**：TemporalExtractor 对 "When did X happen?" 仍返回 None，无法触发 episodic 优先分支
-- **Single-Hop**：R15/R16 实验表明 fact 去重（8f51f1b1）会减少记忆量，对 single-hop 有负面影响；慎重合入
-- **逼近 Backboard（90%）**：Multi-Hop（84.3%）接近，Temporal 和 Single-Hop 还有空间
-- **后台 reflect 时序问题**：R16 query 时部分 insight 尚未写入，可在 ingest 结束后加一次等待或补跑 reflect
+- **Temporal 提升**：分拆 facts/timeline 格式对 Temporal 无效（R18 验证）；根本问题可能是 episodic 提取时时间戳精度不足，或 query 时间窗口过滤未正确命中
+- **Single-Hop 下滑**：R18 的 Single-Hop 0.773（vs R14 0.829），新 fact 格式可能让 LLM 难以直接提取简单事实
+- **Multi-Hop 有效**：R18 Multi-Hop 0.842（+0.031 vs R14），facts/timeline 分栏对需要多步推理的题目有帮助，保留
+- **逼近 Backboard（90%）**：Multi-Hop 已接近，Temporal 和 Single-Hop 仍是主要差距
 - **insight 有效**：消融实验证明 insight 贡献 +2.3% Overall，Multi-Hop 贡献最大（+3.1%），应保留
-- **图谱（GRAPH_ENABLED）**：R17 证明默认开启有害，暂不启用；若要改善 Open-Domain 可单独研究图谱召回策略
-- 写时记忆去重（解决冗余率，每条仅增加 ~10ms）
-- 原始对话消息召回：R16 去掉后分数未明显变化，暂不恢复
+- **图谱（GRAPH_ENABLED）**：R17 证明默认开启有害，暂不启用
+- **原始对话消息召回**：R16 去掉后分数未明显变化，暂不恢复；`include_conversations` 开关已实现供需要时使用
