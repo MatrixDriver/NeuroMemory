@@ -20,6 +20,7 @@
 | **14** | **02-22** | **自动后台reflect、并行recall优化、Facts/Episodes提取去重修复、中文时序查询修复** | **0.817** | **+1.9%** |
 | 15 | 02-23 | R13基线+去重修复(8f51f1b1)+中文时序修复(a231fc1e)+并行recall/SQL优化(558af7fa,无索引) | 0.792 | -3.1% |
 | 16 | 02-23 | 后台异步reflect（reflection_interval=20，每20条消息触发）、去掉召回原始对话消息 | 0.804 | +1.5% |
+| 17 | 02-23 | GRAPH_ENABLED=1（图谱三元组提取+结构化关系召回）、图谱显示优化（UUID→可读名称，CUSTOM→原始关系词） | 0.790 | -3.3% |
 
 > 累计提升：0.125 → 0.817（**+554%**）
 
@@ -37,6 +38,8 @@
 | R14→R15 变化 | -0.024 | -0.051 | +0.022 | -0.018 | -0.025 |
 | 16 (后台reflect+无原始对话) | 0.812 | 0.766 | 0.832 | 0.815 | 0.804 |
 | R14→R16 变化 | -0.017 | 0.000 | +0.021 | -0.028 | -0.013 |
+| 17 (GRAPH_ENABLED=1) | 0.787 | 0.755 | 0.833 | 0.822 | 0.790 |
+| R14→R17 变化 | -0.042 | -0.011 | +0.022 | -0.021 | -0.027 |
 
 > R11 分类数据部分为估算（commit message 仅记录 Temporal +0.198、Multi-Hop +0.049）
 
@@ -158,6 +161,7 @@
 | R13基线+去重/中文时序/并行recall组合（R15） | Judge -0.025 vs R14 | fact 去重修复减少记忆数（9510 vs 14107），single-hop/temporal 均下降；并行recall未带来分数提升 |
 | 后台异步reflect + 去掉召回原始对话（R16） | Judge -0.013 vs R14 | ingest 快 55%（63min vs 140min），Temporal 持平，但 Multi-Hop/Single-Hop 略降；部分 insight 在 query 时还未写入 |
 | R16数据+去掉insight参与召回（消融） | Judge -0.023 vs R16 | insight 贡献显著：Multi-Hop -3.1%、Single-Hop -2.3%、Temporal -2.1%；insight 应保留 |
+| GRAPH_ENABLED=1（R17） | Judge -0.027 vs R14 | 图谱三元组提取影响LLM抽取质量，Open-Domain +2.2% 但其余类别均下降；图谱不建议默认开启 |
 
 ## 待优化方向
 
@@ -168,5 +172,6 @@
 - **逼近 Backboard（90%）**：Multi-Hop（84.3%）接近，Temporal 和 Single-Hop 还有空间
 - **后台 reflect 时序问题**：R16 query 时部分 insight 尚未写入，可在 ingest 结束后加一次等待或补跑 reflect
 - **insight 有效**：消融实验证明 insight 贡献 +2.3% Overall，Multi-Hop 贡献最大（+3.1%），应保留
+- **图谱（GRAPH_ENABLED）**：R17 证明默认开启有害，暂不启用；若要改善 Open-Domain 可单独研究图谱召回策略
 - 写时记忆去重（解决冗余率，每条仅增加 ~10ms）
 - 原始对话消息召回：R16 去掉后分数未明显变化，暂不恢复
