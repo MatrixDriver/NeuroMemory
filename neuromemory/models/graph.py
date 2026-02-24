@@ -46,6 +46,7 @@ class EdgeType(str, Enum):
     LOCATED_IN = "LOCATED_IN"  # organization/entity located in a place
     BORN_IN = "BORN_IN"      # person born in a location
     SPEAKS = "SPEAKS"        # speaks a language
+    COLLEAGUE = "COLLEAGUE"  # colleague relationship
     CUSTOM = "CUSTOM"
 
 

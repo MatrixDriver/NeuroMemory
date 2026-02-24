@@ -98,19 +98,19 @@ class TestRecallRecency:
     """Test exponential time decay factor."""
 
     @pytest.mark.asyncio
-    async def test_fresh_memory_recency_near_one(self, db_session, mock_embedding):
-        """A just-created memory should have recency ≈ 1.0."""
+    async def test_fresh_memory_recency_near_max(self, db_session, mock_embedding):
+        """A just-created memory should have recency bonus ≈ 0.15."""
         svc = SearchService(db_session, mock_embedding)
         await svc.add_memory(user_id="recency_u1", content="fresh memory")
         await db_session.commit()
 
         results = await svc.scored_search(user_id="recency_u1", query="fresh memory")
         assert len(results) == 1
-        assert results[0]["recency"] > 0.99
+        assert results[0]["recency"] > 0.148  # 0.15 × ~1.0
 
     @pytest.mark.asyncio
     async def test_old_memory_decays(self, db_session, mock_embedding):
-        """A 30-day-old memory with 30-day decay rate should have recency ≈ e^-1 ≈ 0.368."""
+        """A 30-day-old memory with 30-day decay rate should have recency ≈ 0.15 × e^-1 ≈ 0.055."""
         svc = SearchService(db_session, mock_embedding)
         await _add_memory(svc, db_session, "recency_u2", "old memory", age_days=30)
         await db_session.commit()
@@ -120,8 +120,8 @@ class TestRecallRecency:
             decay_rate=86400 * 30,
         )
         assert len(results) == 1
-        # e^(-1) ≈ 0.3679
-        assert 0.30 < results[0]["recency"] < 0.42
+        # 0.15 × e^(-1) ≈ 0.055
+        assert 0.045 < results[0]["recency"] < 0.065
 
     @pytest.mark.asyncio
     async def test_very_old_memory_near_zero(self, db_session, mock_embedding):
@@ -198,7 +198,7 @@ class TestRecallImportance:
 
     @pytest.mark.asyncio
     async def test_importance_scaling(self, db_session, mock_embedding):
-        """Importance 1/5/10 should map to 0.1/0.5/1.0."""
+        """Importance 1/5/10 should map to 0.015/0.075/0.15 (0.15 × imp/10)."""
         svc = SearchService(db_session, mock_embedding)
         for imp in [1, 5, 10]:
             await svc.add_memory(
@@ -209,19 +209,19 @@ class TestRecallImportance:
 
         results = await svc.scored_search(user_id="imp_u1", query="importance", limit=10)
         imp_values = sorted([r["importance"] for r in results])
-        assert abs(imp_values[0] - 0.1) < 0.01
-        assert abs(imp_values[1] - 0.5) < 0.01
-        assert abs(imp_values[2] - 1.0) < 0.01
+        assert abs(imp_values[0] - 0.015) < 0.002
+        assert abs(imp_values[1] - 0.075) < 0.002
+        assert abs(imp_values[2] - 0.15) < 0.002
 
     @pytest.mark.asyncio
     async def test_default_importance_is_half(self, db_session, mock_embedding):
-        """Memory without importance metadata should default to 0.5."""
+        """Memory without importance metadata should default to 0.075 (0.15 × 0.5)."""
         svc = SearchService(db_session, mock_embedding)
         await svc.add_memory(user_id="imp_u2", content="no importance set")
         await db_session.commit()
 
         results = await svc.scored_search(user_id="imp_u2", query="no importance set")
-        assert results[0]["importance"] == 0.5
+        assert results[0]["importance"] == 0.075
 
     @pytest.mark.asyncio
     async def test_high_importance_beats_low(self, db_session, mock_embedding):
@@ -272,11 +272,11 @@ class TestRecallArousal:
         excited_r = next(r for r in results if r["id"] == str(excited.id))
         calm_r = next(r for r in results if r["id"] == str(calm.id))
 
-        # arousal=1.0: effective_decay = 30 * 1.5 = 45 days → e^(-30/45) ≈ 0.513
-        # arousal=0.0: effective_decay = 30 * 1.0 = 30 days → e^(-30/30) ≈ 0.368
+        # arousal=1.0: 0.15 × e^(-30/45) ≈ 0.15 × 0.513 ≈ 0.077
+        # arousal=0.0: 0.15 × e^(-30/30) ≈ 0.15 × 0.368 ≈ 0.055
         assert excited_r["recency"] > calm_r["recency"]
-        assert abs(excited_r["recency"] - 0.513) < 0.05
-        assert abs(calm_r["recency"] - 0.368) < 0.05
+        assert abs(excited_r["recency"] - 0.077) < 0.01
+        assert abs(calm_r["recency"] - 0.055) < 0.01
 
     @pytest.mark.asyncio
     async def test_no_emotion_defaults_zero_arousal(self, db_session, mock_embedding):
@@ -310,8 +310,8 @@ class TestRecallCombinedScoring:
     """Test the multiplication of three factors."""
 
     @pytest.mark.asyncio
-    async def test_score_equals_product(self, db_session, mock_embedding):
-        """score should equal rrf_score × recency × importance."""
+    async def test_score_equals_cosine_formula(self, db_session, mock_embedding):
+        """score should equal base_relevance × (1 + recency_bonus + importance_bonus)."""
         svc = SearchService(db_session, mock_embedding)
         await svc.add_memory(
             user_id="combo_u1", content="product test",
@@ -321,7 +321,8 @@ class TestRecallCombinedScoring:
 
         results = await svc.scored_search(user_id="combo_u1", query="product test")
         r = results[0]
-        expected = round(r["rrf_score"] * r["recency"] * r["importance"], 4)
+        base_relevance = min(r["relevance"] + (0.05 if r["bm25_score"] > 0 else 0), 1.0)
+        expected = round(base_relevance * (1.0 + r["recency"] + r["importance"]), 4)
         assert r["score"] == expected
 
     @pytest.mark.asyncio
@@ -522,8 +523,9 @@ class TestRecallScenarios:
             assert "importance" in r
             assert "score" in r
             assert "rrf_score" in r
-            # score = rrf_score * recency * importance
-            expected = round(r["rrf_score"] * r["recency"] * r["importance"], 4)
+            # score = base_relevance × (1 + recency_bonus + importance_bonus)
+            base_relevance = min(r["relevance"] + (0.05 if r["bm25_score"] > 0 else 0), 1.0)
+            expected = round(base_relevance * (1.0 + r["recency"] + r["importance"]), 4)
             assert r["score"] == expected
 
 
@@ -600,13 +602,13 @@ class TestRecallFacade:
             metadata={"importance": 5},
         )
 
-        # Very large decay rate → recency stays close to 1.0
+        # Very large decay rate → recency bonus stays close to 0.15
         result = await nm.recall(
             user_id="facade_u5", query="decay rate test",
             decay_rate=86400 * 365,  # 1-year decay
         )
         assert len(result["merged"]) > 0
-        assert result["vector_results"][0]["recency"] > 0.99
+        assert result["vector_results"][0]["recency"] > 0.148  # ≈ 0.15
 
     @pytest.mark.asyncio
     async def test_recall_default_decay_rate(self, nm):
@@ -617,8 +619,8 @@ class TestRecallFacade:
         )
 
         result = await nm.recall(user_id="facade_u6", query="default decay")
-        # Fresh memory → recency near 1.0 regardless of decay_rate
-        assert result["vector_results"][0]["recency"] > 0.99
+        # Fresh memory → recency bonus near 0.15 regardless of decay_rate
+        assert result["vector_results"][0]["recency"] > 0.148
 
 
 # ===========================================================================
@@ -798,8 +800,8 @@ class TestRecallFullPipeline:
         recall_result = await nm_with_llm.recall(user_id=user_id, query="Google")
         for r in recall_result["vector_results"]:
             if "Google" in r["content"]:
-                # importance=8 from mock LLM → scaled to 0.8
-                assert r["importance"] >= 0.5
+                # importance=8 from mock LLM → 0.15 × 0.8 = 0.12
+                assert r["importance"] >= 0.075
 
     @pytest.mark.asyncio
     async def test_reflect_extracts_and_marks_messages(self, nm_with_llm):

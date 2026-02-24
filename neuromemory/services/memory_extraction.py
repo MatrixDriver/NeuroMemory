@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from neuromemory.models.conversation import Conversation
@@ -85,8 +86,9 @@ class MemoryExtractionService:
             except ValueError:
                 ref_time = None
 
-        # Pre-filter valid items
-        valid_facts = [f for f in classified.get("facts", []) if f.get("content")]
+        # Pre-filter valid items (skip vague/placeholder content)
+        valid_facts = [f for f in classified.get("facts", [])
+                       if f.get("content") and not self._is_vague(f["content"])]
         valid_episodes = [e for e in classified.get("episodes", []) if e.get("content")]
 
         # Embed facts and episodes in parallel (2 API calls → 1 round-trip)
@@ -309,7 +311,7 @@ class MemoryExtractionService:
    - subject_type/object_type 可选: user, person, organization, location, skill, entity（**禁止使用 concept**）
    - **object 必须是可命名的真实实体**：具体的人、地点、组织、工具、技能、语言、具体活动（如"徒步"、"国际象棋"）
    - **禁止**将抽象概念、描述性短语、情绪作为 object（如"贝多芬的音乐"、"压力"、"美好生活"）
-   - Facts 关系（优先使用）: works_at, lives_in, has_skill, studied_at, uses, knows, hobby, owns, speaks, born_in
+   - Facts 关系（优先使用）: works_at, lives_in, has_skill, studied_at, uses, knows, colleague（同事）, hobby, owns, speaks, born_in
    - Episodes 关系: met (见面), attended (参加活动), visited (访问地点), occurred_at (发生地点)
    - 用户自身 subject 填 "user"，subject_type 填 "user"
    - confidence < 0.6 的 triple 不要输出
@@ -359,12 +361,16 @@ class MemoryExtractionService:
    - 一次性事件（"昨天去了X"、"上周做了Y"）应放入 Episodes，**不要**同时作为 Fact 重复。若该事件揭示了持久特征，提取推断出的属性（如"用户喜欢古典音乐"），而非复述事件本身
    - 错误示范: "用户去悉尼歌剧院听贝多芬交响乐"（一次性事件，应放 Episodes）
    - 正确示范: "用户喜欢古典音乐" 或 "用户对贝多芬感兴趣"（从事件推断的持久偏好）
-   - **保留具体细节**：提取兴趣/爱好/偏好时，必须保留用户提到的**具体内容**，不要泛化成宽泛类别
+   - **保留具体细节，禁止模糊泛化**：提取兴趣/爱好/偏好时，必须保留用户提到的**具体内容**，不要泛化成宽泛类别
      - 错误: "用户喜欢户外活动"（太笼统，丢失所有细节）
      - 正确: "用户喜欢恐龙和大自然"（保留具体话题）
      - 错误: "用户喜欢绘画"（丢失了画什么）
      - 正确: "用户喜欢画日落风景"（保留具体内容）
      - 规则：如果用户提到了具体的事物（动物、地点、话题等），必须在 fact 中明确写出
+   - **禁止产出含模糊/占位词的 fact**：如果无法确定具体内容，直接跳过该 fact，不要用模糊词代替
+     - 含以下词汇的 fact 一律不要输出：某种、某个、某些、一些、各种、某事物、某活动、特定的、一种、相关
+     - 错误: "用户喜欢某种事物"、"用户对某个领域感兴趣"、"用户有一些爱好"
+     - 如果对话中只说了"我有很多爱好"但没说具体是什么，则**不提取**任何 fact（因为没有具体信息）
    - 每个 fact 必须是原子的：一条 fact 只包含一个独立信息
    - 每个 fact 必须有明确的主语（禁止使用代词如"他/她/它"）
    - 必须将代词还原为实际名称："她在那里工作" → "Caroline 在心理咨询中心工作"
@@ -428,7 +434,7 @@ class MemoryExtractionService:
    - subject_type/object_type options: user, person, organization, location, skill, entity (**never use "concept"**)
    - **object MUST be a concrete, nameable real-world entity**: a specific person, place, organization, tool, skill, language, or concrete activity (e.g. "hiking", "chess")
    - **Do NOT** use abstract concepts, descriptive phrases, or emotions as object (e.g. "Beethoven's music", "stress", "a good life")
-   - Facts relations (prefer these): works_at, lives_in, has_skill, studied_at, uses, knows, hobby, owns, speaks, born_in
+   - Facts relations (prefer these): works_at, lives_in, has_skill, studied_at, uses, knows, colleague, hobby, owns, speaks, born_in
    - Episodes relations: met (met someone), attended (attended event), visited (visited place), occurred_at (location)
    - For user's own: subject="user", subject_type="user"
    - Skip triples with confidence < 0.6
@@ -479,12 +485,16 @@ Extract the following memories:
    - One-time events ("went to X yesterday", "did Y last week") belong in Episodes — do NOT duplicate them as Facts. If an event reveals a lasting trait, extract the inferred attribute (e.g. "The user enjoys classical music"), not a restatement of the event itself.
    - BAD: "The user went to Sydney Opera House to listen to Beethoven" (one-time event → put in Episodes)
    - GOOD: "The user enjoys classical music" or "The user is a fan of Beethoven" (persistent preference inferred from the event)
-   - **PRESERVE SPECIFICS**: When extracting interests/hobbies/preferences, keep the SPECIFIC details. Do NOT abstract into generic categories.
+   - **PRESERVE SPECIFICS, never generalize**: When extracting interests/hobbies/preferences, keep the SPECIFIC details. Do NOT abstract into generic categories.
      - BAD: "The user enjoys outdoor activities" — too vague, loses all detail
      - GOOD: "The user likes dinosaurs and nature" — specific topics preserved
      - BAD: "The user likes painting" — loses what they paint
      - GOOD: "The user likes painting sunsets" — specific subject preserved
      - Rule: if the user mentioned specific things (animals, places, topics, etc.), include them explicitly
+   - **NEVER output facts with vague/placeholder words**: If you cannot determine the specific content, SKIP the fact entirely instead of using vague fillers
+     - Words that indicate a fact is too vague: "something", "some kind of", "certain", "various", "a type of", "some things", "particular", "related"
+     - BAD: "The user likes some kind of activity", "The user is interested in a certain field", "The user has some hobbies"
+     - If the conversation only says "I have many hobbies" without specifics, do NOT extract any fact (no concrete information)
    - Each fact MUST be atomic: one single piece of information per fact
    - Each fact MUST be self-contained with explicit subject (never use pronouns like "she/he/they")
    - Always resolve pronouns to actual names: "She works there" → "Caroline works at the counseling center"
@@ -624,6 +634,26 @@ Return format (JSON only, no other content):
         # Level 4: Fall back to session reference time so every memory has a timestamp
         return ref_time
 
+    # Vague/placeholder patterns that indicate a fact lacks concrete information
+    _VAGUE_PATTERNS_ZH = ["某种", "某个", "某些", "某事物", "某活动", "某项", "某位"]
+    _VAGUE_PATTERNS_EN = [
+        "some kind of", "a certain", "some things", "a type of",
+        "certain things", "various things",
+    ]
+
+    def _is_vague(self, content: str) -> bool:
+        """Check if a fact content is too vague to be useful."""
+        lower = content.lower()
+        for p in self._VAGUE_PATTERNS_ZH:
+            if p in content:
+                logger.debug("Filtered vague fact (zh): %s", content[:80])
+                return True
+        for p in self._VAGUE_PATTERNS_EN:
+            if p in lower:
+                logger.debug("Filtered vague fact (en): %s", content[:80])
+                return True
+        return False
+
     async def _store_facts(
         self,
         user_id: str,
@@ -653,6 +683,23 @@ Return format (JSON only, no other content):
         for fact, embedding_vector in zip(valid_facts, vectors):
             try:
                 content = fact["content"]
+
+                # Dedup: skip if a near-identical active fact already exists (cosine > 0.95)
+                vector_str = f"[{','.join(str(float(v)) for v in embedding_vector)}]"
+                dup = await self.db.execute(
+                    sql_text(f"""
+                        SELECT 1 FROM embeddings
+                        WHERE user_id = :uid AND memory_type = 'fact'
+                          AND valid_until IS NULL
+                          AND 1 - (embedding <=> '{vector_str}'::vector) > 0.95
+                        LIMIT 1
+                    """),
+                    {"uid": user_id},
+                )
+                if dup.fetchone():
+                    logger.debug("Skipping duplicate fact: %s", content[:80])
+                    continue
+
                 category = fact.get("category", "general")
                 confidence = fact.get("confidence", 1.0)
                 importance = fact.get("importance")
@@ -727,6 +774,23 @@ Return format (JSON only, no other content):
         for episode, embedding_vector in zip(valid_episodes, vectors):
             try:
                 content = episode["content"]
+
+                # Dedup: skip if a near-identical active episode already exists (cosine > 0.95)
+                vector_str = f"[{','.join(str(float(v)) for v in embedding_vector)}]"
+                dup = await self.db.execute(
+                    sql_text(f"""
+                        SELECT 1 FROM embeddings
+                        WHERE user_id = :uid AND memory_type = 'episodic'
+                          AND valid_until IS NULL
+                          AND 1 - (embedding <=> '{vector_str}'::vector) > 0.95
+                        LIMIT 1
+                    """),
+                    {"uid": user_id},
+                )
+                if dup.fetchone():
+                    logger.debug("Skipping duplicate episode: %s", content[:80])
+                    continue
+
                 timestamp = episode.get("timestamp")
                 timestamp_original = episode.get("timestamp_original")
                 people = episode.get("people")

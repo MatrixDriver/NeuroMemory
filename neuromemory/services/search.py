@@ -226,12 +226,12 @@ class SearchService:
         created_after: datetime | None = None,
         created_before: datetime | None = None,
     ) -> list[dict]:
-        """Three-factor scored search with BM25 hybrid: relevance x recency x importance.
+        """Cosine-based scored search with BM25 hybrid and recency/importance bonuses.
 
-        Score = rrf_relevance * recency * importance
-        - rrf_relevance: RRF fusion of vector similarity and BM25 keyword match
-        - recency: exponential decay e^(-t/decay_rate), emotional arousal slows decay
-        - importance: from metadata (1-10 scaled to 0.1-1.0), default 0.5
+        Score = base_relevance × (1 + recency_bonus + importance_bonus)
+        - base_relevance: min(cosine_similarity + bm25_hit*0.05, 1.0)
+        - recency_bonus: 0~0.15, exponential decay with emotional arousal slowdown
+        - importance_bonus: 0~0.15, from metadata importance (1-10), default 0.5
 
         Args:
             query_embedding: Optional pre-computed embedding to avoid recomputation
@@ -347,17 +347,22 @@ class SearchService:
                    vector_score AS relevance,
                    bm25_score,
                    rrf_score,
-                   EXP(
+                   -- recency_bonus: 0~0.15
+                   0.15 * EXP(
                        -EXTRACT(EPOCH FROM (NOW() - created_at))
                        / (:decay_rate * (1 + COALESCE((metadata->'emotion'->>'arousal')::float, 0) * 0.5))
                    ) AS recency,
-                   COALESCE((metadata->>'importance')::float / 10.0, 0.5) AS importance,
-                   rrf_score
-                   * EXP(
-                       -EXTRACT(EPOCH FROM (NOW() - created_at))
-                       / (:decay_rate * (1 + COALESCE((metadata->'emotion'->>'arousal')::float, 0) * 0.5))
-                   )
-                   * COALESCE((metadata->>'importance')::float / 10.0, 0.5) AS score
+                   -- importance_bonus: 0~0.15
+                   0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5) AS importance,
+                   -- final score: base_relevance × (1 + recency_bonus + importance_bonus)
+                   LEAST(vector_score + CASE WHEN bm25_score > 0 THEN 0.05 ELSE 0 END, 1.0)
+                   * (1.0
+                      + 0.15 * EXP(
+                          -EXTRACT(EPOCH FROM (NOW() - created_at))
+                          / (:decay_rate * (1 + COALESCE((metadata->'emotion'->>'arousal')::float, 0) * 0.5))
+                      )
+                      + 0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5)
+                   ) AS score
             FROM hybrid
             ORDER BY score DESC
             LIMIT :limit

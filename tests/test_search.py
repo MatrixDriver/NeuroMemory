@@ -135,7 +135,7 @@ async def test_scored_search_default_importance(db_session, mock_embedding):
 
     results = await svc.scored_search(user_id="default_user", query="importance", limit=5)
     assert len(results) > 0
-    assert results[0]["importance"] == 0.5
+    assert results[0]["importance"] == 0.075  # 0.15 × 0.5 default
 
 
 @pytest.mark.asyncio

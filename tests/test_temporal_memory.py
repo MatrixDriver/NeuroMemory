@@ -226,15 +226,16 @@ async def test_long_term_memory_recall_without_excessive_decay(mock_embedding):
         decay_rate=86400 * 365,  # 365 days
     )
 
-    # With default decay, 6-month-old memory should have very low recency
+    # With default decay, 6-month-old memory should have very low recency bonus
     default_scores = {r["id"]: r for r in result_default["vector_results"]}
     if old_memory_id in default_scores:
-        assert default_scores[old_memory_id]["recency"] < 0.1  # Nearly decayed
+        assert default_scores[old_memory_id]["recency"] < 0.01  # Nearly decayed
 
-    # With 1-year decay, 6-month-old memory should still be viable
+    # With 1-year decay, 6-month-old memory should still have meaningful recency bonus
     long_scores = {r["id"]: r for r in result_long["vector_results"]}
     assert old_memory_id in long_scores
-    assert long_scores[old_memory_id]["recency"] > 0.3  # Still significant
+    # 0.15 × e^(-180/365) ≈ 0.15 × 0.61 ≈ 0.092
+    assert long_scores[old_memory_id]["recency"] > 0.05
 
     await nm.close()
 

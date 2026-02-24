@@ -52,6 +52,12 @@ _EDGE_TYPE_MAP: dict[str, EdgeType] = {
     "located_in": EdgeType.LOCATED_IN,
     "born_in": EdgeType.BORN_IN,
     "speaks": EdgeType.SPEAKS,
+    # Colleague / classmate relations
+    "colleague": EdgeType.COLLEAGUE,
+    "colleague_of": EdgeType.COLLEAGUE,
+    "同事": EdgeType.COLLEAGUE,
+    "classmate": EdgeType.KNOWS,
+    "同学": EdgeType.KNOWS,
 }
 
 

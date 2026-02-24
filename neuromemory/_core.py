@@ -849,20 +849,20 @@ class NeuroMemory:
                     if sentiment_str:
                         entry["content"] = f"{content}. {sentiment_str}"
 
-                # Graph triple coverage boost
+                # Graph triple coverage boost (additive)
                 if graph_triples:
-                    boost = 1.0
+                    boost = 0.0
                     content_lower = content.lower()
                     for subj, _rel, obj in graph_triples:
                         subj_in = subj in content_lower
                         obj_in = obj in content_lower
                         if subj_in and obj_in:
-                            boost += 0.5
+                            boost += 0.10
                         elif subj_in or obj_in:
-                            boost += 0.2
-                    boost = min(boost, 2.0)
+                            boost += 0.04
+                    boost = min(boost, 0.20)
                     if r.get("score") is not None:
-                        entry["score"] = round(r["score"] * boost, 4)
+                        entry["score"] = round(r["score"] + boost, 4)
                     entry["graph_boost"] = round(boost, 2)
 
                 merged.append(entry)
@@ -873,9 +873,13 @@ class NeuroMemory:
                 content = r.get("content", "")
                 if content and content not in seen_contents:
                     seen_contents.add(content)
-                    merged.append({**r, "source": "conversation"})
+                    entry = {**r, "source": "conversation"}
+                    if "score" not in entry and "similarity" in r:
+                        entry["score"] = r["similarity"]
+                    merged.append(entry)
 
         # Graph triples participate in unified ranking
+        # Use confidence directly as score (same 0~1 scale as cosine similarity)
         for triple in graph_results:
             subj = triple.get("subject", "")
             rel = triple.get("relation", "")

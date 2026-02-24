@@ -69,7 +69,7 @@ class TestGraphBoost:
         # Find the boosted memory
         boosted = [m for m in result["merged"] if "Google" in m["content"] and m["source"] == "vector"]
         assert len(boosted) > 0
-        assert boosted[0].get("graph_boost", 1.0) > 1.0
+        assert boosted[0].get("graph_boost", 0.0) > 0.0
 
     @pytest.mark.asyncio
     async def test_graph_boost_single_hit(self, nm_graph):
@@ -86,10 +86,10 @@ class TestGraphBoost:
 
         boosted = [m for m in result["merged"] if "Google" in m["content"] and m["source"] == "vector"]
         assert len(boosted) > 0
-        boost_val = boosted[0].get("graph_boost", 1.0)
-        # Single hit: boost should be > 1.0 but less than dual hit (1.5)
-        assert boost_val > 1.0
-        assert boost_val < 1.5
+        boost_val = boosted[0].get("graph_boost", 0.0)
+        # Single hit: boost should be > 0 but less than dual hit (0.10)
+        assert boost_val > 0.0
+        assert boost_val <= 0.04
 
     @pytest.mark.asyncio
     async def test_graph_boost_no_graph(self, nm):
@@ -101,7 +101,7 @@ class TestGraphBoost:
         assert len(result["merged"]) > 0
         for item in result["merged"]:
             # No graph_boost when graph is disabled (graph_results is empty)
-            assert "graph_boost" not in item or item["graph_boost"] == 1.0
+            assert "graph_boost" not in item or item["graph_boost"] == 0.0
 
     @pytest.mark.asyncio
     async def test_graph_results_in_merged(self, nm_graph):
@@ -154,4 +154,4 @@ class TestGraphBoost:
 
         boosted = [m for m in result["merged"] if m["source"] == "vector" and "graph_boost" in m]
         for item in boosted:
-            assert item["graph_boost"] <= 2.0, f"boost should be capped at 2.0, got {item['graph_boost']}"
+            assert item["graph_boost"] <= 0.20, f"boost should be capped at 0.20, got {item['graph_boost']}"
