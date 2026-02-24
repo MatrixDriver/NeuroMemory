@@ -145,7 +145,7 @@ NeuroMemory 的核心使用围绕三个操作：
   2. **更新画像**：整合情感数据，更新用户情感画像
 - 让记忆从"事实"升华为"洞察"
 
-> **关键变化**（v0.3.0）：`add_message()` 现在默认自动提取记忆（`auto_extract=True`），无需手动调用 `extract_memories()` 或 `reflect()`。`reflect()` 专注于生成洞察和情感画像，不再提取基础记忆。
+> `add_message()` 默认 `auto_extract=True`，每次调用自动提取记忆。`reflect()` 专注于生成 Insight 和更新情感画像，不处理基础记忆提取。
 
 **逻辑关系**：
 ```
@@ -160,7 +160,6 @@ agent 需要上下文 → 召回记忆 (recall)
 - **自动模式**（默认，推荐）：`auto_extract=True`，每次 `add_message` 都提取记忆
 - **自动模式 + 后台 reflect**：`auto_extract=True, reflection_interval=20`，每 20 次提取后自动后台 reflect，无阻塞
 - **手动模式**：`auto_extract=False`，手动调用 `extract_memories()`
-- **策略模式**：`auto_extract=False` + `ExtractionStrategy(message_interval=10)`，每 10 条消息触发
 
 ---
 
@@ -256,17 +255,16 @@ NeuroMemory 有三组容易混淆的 API，以下是快速对比：
 
 | API | 用途 | 写入目标 | 何时使用 |
 |-----|------|---------|---------|
-| **add_message()** ⭐ | 存储对话消息 | 对话历史 → 后续通过 `reflect()` 提取记忆 | **日常使用（推荐）** |
+| **add_message()** ⭐ | 存储对话消息，自动提取记忆 | 对话历史 + 记忆表（自动提取） | **日常使用（推荐）** |
 | **add_memory()** | 直接写入记忆 | 记忆表（embedding），立即可检索 | 手动导入、批量初始化、已知结构化信息 |
 
 ```python
-# add_message(): 对话驱动（推荐）— 先存对话，再用 reflect() 提取记忆
+# add_message(): 对话驱动（推荐）— 存储同时自动提取记忆
 await nm.conversations.add_message(user_id="alice", role="user",
     content="我在 Google 工作，做后端开发")
-await nm.reflect(user_id="alice")
-# → 自动提取: fact: "在 Google 工作" + 情感标注 + 重要性评分 + 洞察
+# → 自动提取: fact: "在 Google 工作" + 情感标注 + 重要性评分
 
-# add_memory(): 直接写入（手动指定一切）
+# add_memory(): 直接写入（手动指定一切，不需要 LLM）
 await nm.add_memory(user_id="alice", content="在 Google 工作",
     memory_type="fact", metadata={"importance": 8})
 ```
@@ -292,19 +290,18 @@ results = await nm.search(user_id="alice", query="工作")
 
 | API | 用途 | 处理内容 | 何时使用 |
 |-----|------|---------|---------|
-| **reflect()** ⭐ | 一站式记忆处理 | 提取事实/情景/关系 + 生成洞察 + 更新画像 | **推荐使用**：手动处理记忆时 |
-| **extract_memories()** | 仅提取新记忆 | 从对话中提取事实/情景/关系（不生成洞察） | 底层方法：由 `ExtractionStrategy` 自动调用 |
+| **reflect()** ⭐ | 洞察 + 画像更新 | 从已有记忆生成 Insight（行为模式、阶段总结）+ 更新情感画像 | 定期调用（默认每 20 条消息后台自动触发） |
+| **extract_memories()** | 仅提取新记忆 | 从对话中提取事实/情景/关系（不生成洞察） | 底层方法，通常不需直接调用（add_message 自动触发） |
 
 ```python
-# reflect(): 推荐 — 一站式处理（提取 + 洞察 + 画像）
-await nm.conversations.add_message(user_id="alice", role="user", content="我在 Google 工作")
+# reflect(): 生成洞察 + 更新情感画像（记忆提取已由 add_message 完成）
 result = await nm.reflect(user_id="alice")
-# → 提取: fact: "在 Google 工作", relation: (alice)-[works_at]->(Google)
 # → 洞察: "用户近期求职，面试了 Google 和微软"
-# → 画像: 更新情感状态
+# → 画像: 更新情感状态（latest_state, dominant_emotions）
+# 默认 reflection_interval=20，每 20 条消息后台自动触发，无需手动调用
 
 # extract_memories(): 底层方法（通常不需要直接调用）
-# 由 ExtractionStrategy 自动调用，用于高频轻量的增量提取
+# add_message(auto_extract=True) 会自动触发
 ```
 
 ### 后台 reflect 自动配置（推荐）
@@ -323,31 +320,6 @@ nm = NeuroMemory(
 - `reflection_interval=20`：用户每说 20 句话，后台自动运行一次 reflect，生成洞察（默认值）
 - reflect 使用 `asyncio.create_task()`，**完全不阻塞** `add_message()` 的响应
 - reflect 生成的 `insight` 自动进入 recall() 的向量检索，下次对话立即可用
-
-### 策略配置（ExtractionStrategy，高级用法）
-
-需要按会话/闲置时间触发时使用：
-
-```python
-from neuromemory import ExtractionStrategy
-
-nm = NeuroMemory(
-    ...,
-    auto_extract=False,
-    extraction=ExtractionStrategy(
-        message_interval=10,      # 每 10 条消息自动提取记忆（0 = 禁用）
-        idle_timeout=600,         # 闲置 10 分钟后自动提取（0 = 禁用）
-        reflection_interval=50,   # 每 50 次提取后触发 reflect() 整理（0 = 禁用）
-        on_session_close=True,    # 会话关闭时提取
-        on_shutdown=True,         # 程序关闭时提取
-    )
-)
-```
-
-**推荐配置**：
-- **实时对话**（推荐）：`auto_extract=True, reflection_interval=20`，最简单
-- **精细控制**：`ExtractionStrategy(message_interval=10, reflection_interval=50)`
-- **批处理**（每日总结）：`auto_extract=False, on_session_close=True`，手动调用 `reflect()`
 
 ---
 
@@ -373,8 +345,8 @@ result["graph_results"]        # 图谱原始三元组
 
 **merged 中每条记忆的关键字段**：
 ```python
-# 事实记忆（fact）：时间戳 = 用户提及该信息的时间（非事情开始的时间）
-{"content": "于2025-03-01提到：在 Google 工作",                     "memory_type": "fact",     "score": 0.82}
+# 事实记忆（fact）：持久属性，无日期前缀
+{"content": "在 Google 工作",                                       "memory_type": "fact",     "score": 0.82}
 # 情节记忆（episodic）：时间戳 = 事件发生的时间
 {"content": "2025-03-01: 压力很大，担心项目延期. sentiment: anxious", "memory_type": "episodic", "score": 0.75}
 # 洞察记忆（insight）：reflect() 自动生成，无时间前缀
@@ -456,67 +428,6 @@ def build_system_prompt(recall_result: dict, user_input: str) -> str:
 ---
 请根据以上记忆自然地回应用户，不要逐条引用记忆，而是像一个真正了解他的朋友那样对话。
 如果记忆与当前问题不相关，忽略它们即可。"""
-```
-
-### 完整 Agent 实现
-
-```python
-import asyncio
-from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
-from openai import AsyncOpenAI
-
-class MemoryAgent:
-    def __init__(self, nm: NeuroMemory, openai_client: AsyncOpenAI):
-        self.nm = nm
-        self.llm = openai_client
-
-    async def chat(self, user_id: str, user_input: str) -> str:
-        # 1. 存储用户消息（后台自动提取记忆，不阻塞）
-        await self.nm.conversations.add_message(
-            user_id=user_id, role="user", content=user_input
-        )
-
-        # 2. 召回相关记忆（一次 recall 获取所有上下文）
-        recall_result = await self.nm.recall(user_id=user_id, query=user_input, limit=10)
-
-        # 3. 组装 system prompt
-        system_prompt = build_system_prompt(recall_result, user_input)
-
-        # 4. 调用 LLM
-        response = await self.llm.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_input},
-            ]
-        )
-        reply = response.choices[0].message.content
-
-        # 5. 存储 assistant 回复
-        await self.nm.conversations.add_message(
-            user_id=user_id, role="assistant", content=reply
-        )
-        return reply
-
-
-async def main():
-    async with NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
-        embedding=SiliconFlowEmbedding(api_key="..."),
-        llm=OpenAILLM(api_key="..."),
-        auto_extract=True,        # 每条消息自动提取记忆
-        reflection_interval=20,   # 每 20 次提取后后台自动 reflect，生成洞察（默认值）
-    ) as nm:
-        agent = MemoryAgent(nm, AsyncOpenAI(api_key="..."))
-
-        reply = await agent.chat("alice", "我在 Google 工作，做后端开发，最近压力很大")
-        print(f"Agent: {reply}")
-        # → 自动提取：fact "在 Google 工作"，episodic "最近压力很大"
-        # → 图谱关系：(alice)-[WORKS_AT]->(google)
-
-        reply = await agent.chat("alice", "有什么减压的建议吗？")
-        print(f"Agent: {reply}")
-        # → recall 返回"最近压力很大"的情景记忆和画像，agent 给出个性化建议
 ```
 
 ### 组装 Prompt 的核心原则
