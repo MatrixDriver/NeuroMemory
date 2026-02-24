@@ -1367,6 +1367,223 @@ nm = NeuroMemory(
 
 ---
 
+## 数据生命周期 API
+
+### delete_user_data() - 删除用户数据
+
+**单事务原子删除**用户的所有数据（embeddings, conversations, graph, KV, emotion profiles, documents）。
+
+```python
+result = await nm.delete_user_data(user_id: str) -> dict
+```
+
+**返回格式**：
+
+```python
+{
+    "deleted": {
+        "embeddings": 15,
+        "graph_edges": 3,
+        "graph_nodes": 5,
+        "conversations": 42,
+        "conversation_sessions": 2,
+        "key_values": 8,
+        "emotion_profiles": 1,
+        "documents": 0,
+    }
+}
+```
+
+**示例**：
+
+```python
+# 删除用户所有数据（GDPR 合规）
+result = await nm.delete_user_data(user_id="alice")
+print(f"删除了 {result['deleted']['embeddings']} 条记忆")
+
+# 删除不存在的用户不会报错
+result = await nm.delete_user_data(user_id="nonexistent")
+# → {"deleted": {"embeddings": 0, ...}}
+```
+
+---
+
+### export_user_data() - 导出用户数据
+
+导出用户的**全部数据**为结构化字典。
+
+```python
+result = await nm.export_user_data(user_id: str) -> dict
+```
+
+**返回格式**：
+
+```python
+{
+    "memories": [
+        {"id": "uuid", "content": "...", "memory_type": "fact", "metadata": {...}, ...},
+    ],
+    "conversations": [
+        {"id": "uuid", "role": "user", "content": "...", "session_id": "...", ...},
+    ],
+    "graph": {
+        "nodes": [{"node_type": "Person", "node_id": "alice", "properties": {...}}],
+        "edges": [{"source_id": "alice", "edge_type": "WORKS_AT", "target_id": "google", ...}],
+    },
+    "kv": [
+        {"namespace": "profile", "key": "lang", "value": "en", ...},
+    ],
+    "profile": {...} or None,
+    "documents": [...],
+}
+```
+
+**示例**：
+
+```python
+# 导出用户数据（数据可移植性）
+data = await nm.export_user_data(user_id="alice")
+print(f"共 {len(data['memories'])} 条记忆, {len(data['conversations'])} 条对话")
+```
+
+---
+
+## 记忆分析 API
+
+### stats() - 记忆统计
+
+获取用户的记忆统计信息。
+
+```python
+result = await nm.stats(user_id: str) -> dict
+```
+
+**返回格式**：
+
+```python
+{
+    "total": 42,
+    "by_type": {"fact": 20, "episodic": 15, "insight": 7},
+    "by_week": [{"week": "2025-W01", "count": 5}, ...],
+    "active_entities": 12,
+    "profile_summary": {
+        "dominant_emotions": [...],
+        "latest_state": "...",
+        "last_reflected_at": "2025-03-01T10:00:00",
+    } or None,
+}
+```
+
+**示例**：
+
+```python
+stats = await nm.stats(user_id="alice")
+print(f"总记忆: {stats['total']}, 实体: {stats['active_entities']}")
+for mtype, count in stats["by_type"].items():
+    print(f"  {mtype}: {count}")
+```
+
+---
+
+### cold_memories() - 冷记忆查询
+
+查找长期未被访问的记忆，用于记忆归档或清理。
+
+```python
+result = await nm.cold_memories(
+    user_id: str,
+    threshold_days: int = 90,
+    limit: int = 50,
+) -> list[dict]
+```
+
+**参数**：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `user_id` | `str` | - | 用户 ID |
+| `threshold_days` | `int` | `90` | 超过此天数未访问视为冷记忆 |
+| `limit` | `int` | `50` | 最大返回数量 |
+
+**返回格式**：
+
+```python
+[
+    {
+        "id": "uuid",
+        "content": "很久以前的记忆",
+        "memory_type": "fact",
+        "access_count": 0,
+        "last_accessed_at": None,
+        "created_at": "2024-01-01T00:00:00",
+    },
+    ...
+]
+```
+
+**示例**：
+
+```python
+# 查找 90 天未访问的记忆
+cold = await nm.cold_memories(user_id="alice", threshold_days=90)
+print(f"发现 {len(cold)} 条冷记忆")
+for mem in cold:
+    print(f"  [{mem['memory_type']}] {mem['content'][:50]}...")
+```
+
+---
+
+### entity_profile() - 实体全景
+
+跨类型查询某个实体的全部信息：记忆提及、图谱关系、对话记录、时间线。
+
+```python
+result = await nm.entity_profile(
+    user_id: str,
+    entity: str,
+) -> dict
+```
+
+**参数**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `user_id` | `str` | 用户 ID |
+| `entity` | `str` | 实体名称（如 "Google", "Alice"） |
+
+**返回格式**：
+
+```python
+{
+    "entity": "Google",
+    "facts": [
+        {"id": "uuid", "content": "Alice works at Google", "memory_type": "fact", ...},
+    ],
+    "graph_relations": [
+        {"subject": "alice", "relation": "WORKS_AT", "object": "google", ...},
+    ],
+    "conversations": [
+        {"id": "uuid", "role": "user", "content": "I work at Google", ...},
+    ],
+    "timeline": [
+        {"type": "memory", "content": "...", "time": "2025-01-01T00:00:00"},
+        {"type": "conversation", "content": "...", "time": "2025-03-01T10:00:00"},
+    ],
+}
+```
+
+**示例**：
+
+```python
+# 查看关于 Google 的所有信息
+profile = await nm.entity_profile(user_id="alice", entity="Google")
+print(f"事实: {len(profile['facts'])}, 关系: {len(profile['graph_relations'])}")
+for rel in profile["graph_relations"]:
+    print(f"  {rel['subject']} → {rel['relation']} → {rel['object']}")
+```
+
+---
+
 ## 学术基础
 
 - **Generative Agents** (Stanford, 2023)：三因子检索、反思机制

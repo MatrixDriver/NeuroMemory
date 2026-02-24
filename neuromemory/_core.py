@@ -1258,3 +1258,389 @@ class NeuroMemory:
             "insights": all_insights,
             "emotion_profile": emotion_profile,
         }
+
+    # -- Data lifecycle APIs --
+
+    async def delete_user_data(self, user_id: str) -> dict:
+        """Delete ALL data for a user in a single transaction.
+
+        Removes data from all tables (embeddings, conversations, graph, KV,
+        emotion profiles, documents) atomically.
+
+        Returns:
+            {"deleted": {"embeddings": N, "conversations": N, ...}}
+        """
+        from sqlalchemy import text as sql_text
+
+        tables = [
+            ("embeddings", "user_id"),
+            ("graph_edges", "user_id"),
+            ("graph_nodes", "user_id"),
+            ("conversations", "user_id"),
+            ("conversation_sessions", "user_id"),
+            ("key_values", "scope_id"),
+            ("emotion_profiles", "user_id"),
+            ("documents", "user_id"),
+        ]
+
+        deleted: dict[str, int] = {}
+        async with self._db.session() as session:
+            for table, id_col in tables:
+                result = await session.execute(
+                    sql_text(f"DELETE FROM {table} WHERE {id_col} = :uid"),
+                    {"uid": user_id},
+                )
+                deleted[table] = result.rowcount
+            await session.commit()
+
+        logger.info("delete_user_data[%s]: %s", user_id, deleted)
+        return {"deleted": deleted}
+
+    async def export_user_data(self, user_id: str) -> dict:
+        """Export ALL data for a user as a structured dict.
+
+        Returns:
+            {
+                "memories": [...],
+                "conversations": [...],
+                "graph": {"nodes": [...], "edges": [...]},
+                "kv": [...],
+                "profile": {...} or None,
+                "documents": [...],
+            }
+        """
+        from sqlalchemy import text as sql_text
+
+        result: dict = {}
+        async with self._db.session() as session:
+            # Memories
+            rows = (await session.execute(
+                sql_text(
+                    "SELECT id, content, memory_type, metadata, created_at, "
+                    "access_count, last_accessed_at, extracted_timestamp "
+                    "FROM embeddings WHERE user_id = :uid ORDER BY created_at"
+                ),
+                {"uid": user_id},
+            )).fetchall()
+            result["memories"] = [
+                {
+                    "id": str(r.id), "content": r.content,
+                    "memory_type": r.memory_type, "metadata": r.metadata,
+                    "created_at": str(r.created_at) if r.created_at else None,
+                    "access_count": r.access_count,
+                    "last_accessed_at": str(r.last_accessed_at) if r.last_accessed_at else None,
+                    "extracted_timestamp": str(r.extracted_timestamp) if r.extracted_timestamp else None,
+                }
+                for r in rows
+            ]
+
+            # Conversations
+            rows = (await session.execute(
+                sql_text(
+                    "SELECT id, role, content, session_id, created_at "
+                    "FROM conversations WHERE user_id = :uid ORDER BY created_at"
+                ),
+                {"uid": user_id},
+            )).fetchall()
+            result["conversations"] = [
+                {
+                    "id": str(r.id), "role": r.role, "content": r.content,
+                    "session_id": r.session_id,
+                    "created_at": str(r.created_at) if r.created_at else None,
+                }
+                for r in rows
+            ]
+
+            # Graph nodes
+            rows = (await session.execute(
+                sql_text(
+                    "SELECT node_type, node_id, properties "
+                    "FROM graph_nodes WHERE user_id = :uid"
+                ),
+                {"uid": user_id},
+            )).fetchall()
+            graph_nodes = [
+                {"node_type": r.node_type, "node_id": r.node_id, "properties": r.properties}
+                for r in rows
+            ]
+
+            # Graph edges
+            rows = (await session.execute(
+                sql_text(
+                    "SELECT source_type, source_id, edge_type, target_type, target_id, properties "
+                    "FROM graph_edges WHERE user_id = :uid"
+                ),
+                {"uid": user_id},
+            )).fetchall()
+            graph_edges = [
+                {
+                    "source_type": r.source_type, "source_id": r.source_id,
+                    "edge_type": r.edge_type,
+                    "target_type": r.target_type, "target_id": r.target_id,
+                    "properties": r.properties,
+                }
+                for r in rows
+            ]
+            result["graph"] = {"nodes": graph_nodes, "edges": graph_edges}
+
+            # KV
+            rows = (await session.execute(
+                sql_text(
+                    "SELECT namespace, key, value, created_at, updated_at "
+                    "FROM key_values WHERE scope_id = :uid"
+                ),
+                {"uid": user_id},
+            )).fetchall()
+            result["kv"] = [
+                {
+                    "namespace": r.namespace, "key": r.key, "value": r.value,
+                    "created_at": str(r.created_at) if r.created_at else None,
+                    "updated_at": str(r.updated_at) if r.updated_at else None,
+                }
+                for r in rows
+            ]
+
+            # Emotion profile
+            row = (await session.execute(
+                sql_text(
+                    "SELECT * FROM emotion_profiles WHERE user_id = :uid"
+                ),
+                {"uid": user_id},
+            )).first()
+            if row:
+                profile_dict = dict(row._mapping)
+                # Convert non-serializable fields
+                for k, v in profile_dict.items():
+                    if hasattr(v, "isoformat"):
+                        profile_dict[k] = v.isoformat()
+                    elif hasattr(v, "hex"):
+                        profile_dict[k] = str(v)
+                result["profile"] = profile_dict
+            else:
+                result["profile"] = None
+
+            # Documents
+            rows = (await session.execute(
+                sql_text(
+                    "SELECT id, filename, file_type, category, object_key, created_at "
+                    "FROM documents WHERE user_id = :uid ORDER BY created_at"
+                ),
+                {"uid": user_id},
+            )).fetchall()
+            result["documents"] = [
+                {
+                    "id": str(r.id), "filename": r.filename,
+                    "file_type": r.file_type, "category": r.category,
+                    "object_key": r.object_key,
+                    "created_at": str(r.created_at) if r.created_at else None,
+                }
+                for r in rows
+            ]
+
+        return result
+
+    # -- Analytics APIs --
+
+    async def stats(self, user_id: str) -> dict:
+        """Memory statistics for a user.
+
+        Returns:
+            {
+                "total": N,
+                "by_type": {"fact": N, "episodic": N, ...},
+                "by_week": [{"week": "2025-W01", "count": N}, ...],
+                "active_entities": N,
+                "profile_summary": {...} or None,
+            }
+        """
+        from sqlalchemy import text as sql_text
+
+        async with self._db.session() as session:
+            # Total memories
+            total = (await session.execute(
+                sql_text("SELECT COUNT(*) FROM embeddings WHERE user_id = :uid"),
+                {"uid": user_id},
+            )).scalar() or 0
+
+            # By type
+            rows = (await session.execute(
+                sql_text(
+                    "SELECT memory_type, COUNT(*) as cnt "
+                    "FROM embeddings WHERE user_id = :uid "
+                    "GROUP BY memory_type ORDER BY cnt DESC"
+                ),
+                {"uid": user_id},
+            )).fetchall()
+            by_type = {r.memory_type: r.cnt for r in rows}
+
+            # By week (last 12 weeks)
+            rows = (await session.execute(
+                sql_text(
+                    "SELECT to_char(created_at, 'IYYY-\"W\"IW') as week, COUNT(*) as cnt "
+                    "FROM embeddings WHERE user_id = :uid "
+                    "AND created_at > NOW() - INTERVAL '12 weeks' "
+                    "GROUP BY week ORDER BY week"
+                ),
+                {"uid": user_id},
+            )).fetchall()
+            by_week = [{"week": r.week, "count": r.cnt} for r in rows]
+
+            # Active entities (graph nodes)
+            active_entities = (await session.execute(
+                sql_text("SELECT COUNT(*) FROM graph_nodes WHERE user_id = :uid"),
+                {"uid": user_id},
+            )).scalar() or 0
+
+            # Profile summary
+            row = (await session.execute(
+                sql_text(
+                    "SELECT dominant_emotions, latest_state, last_reflected_at "
+                    "FROM emotion_profiles WHERE user_id = :uid"
+                ),
+                {"uid": user_id},
+            )).first()
+            profile_summary = None
+            if row:
+                profile_summary = {
+                    "dominant_emotions": row.dominant_emotions,
+                    "latest_state": row.latest_state,
+                    "last_reflected_at": str(row.last_reflected_at) if row.last_reflected_at else None,
+                }
+
+        return {
+            "total": total,
+            "by_type": by_type,
+            "by_week": by_week,
+            "active_entities": active_entities,
+            "profile_summary": profile_summary,
+        }
+
+    async def cold_memories(
+        self, user_id: str, threshold_days: int = 90, limit: int = 50,
+    ) -> list[dict]:
+        """Find memories that haven't been accessed in threshold_days.
+
+        Args:
+            user_id: User ID.
+            threshold_days: Days since last access (or creation) to consider "cold".
+            limit: Max results.
+
+        Returns:
+            List of memory dicts sorted by last_accessed_at ASC (coldest first).
+        """
+        from sqlalchemy import text as sql_text
+
+        async with self._db.session() as session:
+            rows = (await session.execute(
+                sql_text("""
+                    SELECT id, content, memory_type, metadata, created_at,
+                           access_count, last_accessed_at
+                    FROM embeddings
+                    WHERE user_id = :uid
+                      AND (
+                        (last_accessed_at IS NOT NULL AND last_accessed_at < NOW() - INTERVAL '1 day' * :days)
+                        OR (last_accessed_at IS NULL AND created_at < NOW() - INTERVAL '1 day' * :days)
+                      )
+                    ORDER BY COALESCE(last_accessed_at, created_at) ASC
+                    LIMIT :lim
+                """),
+                {"uid": user_id, "days": threshold_days, "lim": limit},
+            )).fetchall()
+
+        return [
+            {
+                "id": str(r.id), "content": r.content,
+                "memory_type": r.memory_type, "metadata": r.metadata,
+                "created_at": str(r.created_at) if r.created_at else None,
+                "access_count": r.access_count,
+                "last_accessed_at": str(r.last_accessed_at) if r.last_accessed_at else None,
+            }
+            for r in rows
+        ]
+
+    async def entity_profile(self, user_id: str, entity: str) -> dict:
+        """Get all information about an entity across all memory types.
+
+        Searches embeddings (content mentions), graph edges, and conversations
+        to build a comprehensive entity profile.
+
+        Args:
+            user_id: User ID.
+            entity: Entity name to search for.
+
+        Returns:
+            {
+                "entity": str,
+                "facts": [...],
+                "graph_relations": [...],
+                "conversations": [...],
+                "timeline": [...],
+            }
+        """
+        from sqlalchemy import text as sql_text
+
+        entity_lower = entity.lower()
+
+        async with self._db.session() as session:
+            # Facts: memories mentioning this entity
+            rows = (await session.execute(
+                sql_text("""
+                    SELECT id, content, memory_type, metadata, created_at
+                    FROM embeddings
+                    WHERE user_id = :uid AND LOWER(content) LIKE :pattern
+                    ORDER BY created_at DESC LIMIT 20
+                """),
+                {"uid": user_id, "pattern": f"%{entity_lower}%"},
+            )).fetchall()
+            facts = [
+                {
+                    "id": str(r.id), "content": r.content,
+                    "memory_type": r.memory_type,
+                    "created_at": str(r.created_at) if r.created_at else None,
+                }
+                for r in rows
+            ]
+
+            # Graph relations
+            from neuromemory.services.graph_memory import GraphMemoryService
+            graph_svc = GraphMemoryService(session)
+            graph_relations = await graph_svc.find_entity_facts(user_id, entity, limit=20)
+
+            # Conversations mentioning this entity
+            rows = (await session.execute(
+                sql_text("""
+                    SELECT id, role, content, session_id, created_at
+                    FROM conversations
+                    WHERE user_id = :uid AND LOWER(content) LIKE :pattern
+                    ORDER BY created_at DESC LIMIT 20
+                """),
+                {"uid": user_id, "pattern": f"%{entity_lower}%"},
+            )).fetchall()
+            conversations = [
+                {
+                    "id": str(r.id), "role": r.role, "content": r.content,
+                    "session_id": r.session_id,
+                    "created_at": str(r.created_at) if r.created_at else None,
+                }
+                for r in rows
+            ]
+
+            # Timeline: merge facts + conversations by time
+            timeline = sorted(
+                [
+                    {"type": "memory", "content": f["content"], "time": f["created_at"]}
+                    for f in facts if f["created_at"]
+                ] + [
+                    {"type": "conversation", "content": c["content"], "time": c["created_at"]}
+                    for c in conversations if c["created_at"]
+                ],
+                key=lambda x: x["time"],
+            )
+
+        return {
+            "entity": entity,
+            "facts": facts,
+            "graph_relations": graph_relations,
+            "conversations": conversations,
+            "timeline": timeline,
+        }

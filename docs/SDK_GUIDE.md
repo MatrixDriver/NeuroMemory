@@ -584,4 +584,57 @@ nm = NeuroMemory(database_url="...", embedding=..., storage=MyStorage())
 
 ---
 
+## 12. 数据生命周期与分析
+
+### 12.1 删除用户数据
+
+单事务原子删除用户的全部数据，适用于 GDPR 合规或账号注销：
+
+```python
+result = await nm.delete_user_data(user_id="alice")
+# → {"deleted": {"embeddings": 15, "conversations": 42, ...}}
+```
+
+### 12.2 导出用户数据
+
+导出用户的完整数据（记忆、对话、图谱、KV、画像、文档）：
+
+```python
+data = await nm.export_user_data(user_id="alice")
+# data["memories"], data["conversations"], data["graph"], data["kv"], ...
+```
+
+### 12.3 记忆统计
+
+```python
+stats = await nm.stats(user_id="alice")
+print(f"总记忆: {stats['total']}")
+print(f"按类型: {stats['by_type']}")  # {"fact": 20, "episodic": 15, ...}
+print(f"活跃实体: {stats['active_entities']}")
+```
+
+### 12.4 冷记忆查询
+
+查找长期未访问的记忆，用于归档或清理：
+
+```python
+cold = await nm.cold_memories(user_id="alice", threshold_days=90, limit=50)
+for mem in cold:
+    print(f"[{mem['memory_type']}] {mem['content'][:50]}...")
+```
+
+### 12.5 实体全景
+
+跨类型查询某个实体的全部信息（记忆 + 图谱 + 对话 + 时间线）：
+
+```python
+profile = await nm.entity_profile(user_id="alice", entity="Google")
+# profile["facts"] — 提及该实体的记忆
+# profile["graph_relations"] — 图谱中的关系
+# profile["conversations"] — 提及该实体的对话
+# profile["timeline"] — 按时间排序的事件线
+```
+
+---
+
 **文档维护**: 本文档随代码同步更新。如有问题，请提交 Issue。
