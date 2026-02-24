@@ -4,9 +4,9 @@
 
 基于 PostgreSQL 构建的 Python 记忆库，为 AI agent 提供开箱即用的多层记忆。利用 PostgreSQL 生态 pgvector 向量检索、pg_search 全文检索、图检索、KV 检索等能力实现混合记忆检索。
 
-- `add_message()` 自动并行提取四种记忆：**Fact**（持久事实）、**Episode**（带时间戳的情景记忆）、**Graph**（实体关系图谱）、**UserProfile**（用户画像）
-- `reflect()` 周期性自动异步提取 **Insight**（行为模式洞察）
-- `recall()` 将四层记忆融合排序后直接返回，可零额外代码组装进 prompt
+- `add_message()` 自动提取四种记忆：**Fact**（持久事实）、**Episode**（带时间戳的情景记忆）、**Graph**（实体关系图谱）、**UserProfile**（用户画像）
+- `reflect()` 自动周期性反思，从多轮对话中自动提取 **Insight**（用户洞察，如行为模式、情感画像）
+- `recall()` 将多层记忆融合排序后返回，零额外代码组装进 prompt
 
 ---
 
