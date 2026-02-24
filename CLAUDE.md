@@ -180,10 +180,15 @@ add_message(role="user")
   └─ 每 reflection_interval 条消息 → 后台 reflect()
 
 recall(query)
-  ├─ 向量检索 (pgvector cosine + BM25 RRF)
-  ├─ 图谱召回 (GraphMemoryService)
-  ├─ 时序过滤 (TemporalService)
-  └─ 合并去重 → 返回结构化结果
+  ├─ 并行获取 (asyncio.gather):
+  │    ├─ 向量检索 (pgvector cosine + BM25 RRF)
+  │    ├─ 图谱召回 (GraphMemoryService)
+  │    └─ 时序过滤 (TemporalService)
+  ├─ 合并阶段:
+  │    ├─ 图三元组覆盖度 boost (双端+0.5, 单端+0.2, 上限2.0)
+  │    ├─ 图三元组 → merged (source="graph")
+  │    └─ merged 按 score 降序排序
+  └─ 返回结构化结果
 
 reflect()
   ├─ 分析水位线之后新增的 memories

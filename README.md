@@ -199,7 +199,7 @@ importance = metadata.importance / 10                     # LLM 评估的重要�
 | "我在 Google 工作" | 1 年前 | 0.95 | 0.008 | ❌ 已过时 |
 | "上周从 Google 离职了" | 7 天前 | 0.85 | 0.67 | ✅ 最新且重要 |
 
-**图实体检索**：从知识图谱中查找结构化关系（`(alice)-[works_at]->(Google)`），与向量结果去重合并。`recall()` 返回 `vector_results`、`graph_results` 和合并后的 `merged` 列表。
+**图融合排序**：图三元组不仅提供结构化关系，还参与统一排序。向量结果会根据图三元组覆盖度获得 boost（双端命中 +0.5，单端命中 +0.2，上限 2.0×），图三元组本身以 `source="graph"` 进入 `merged` 列表。`recall()` 返回 `vector_results`、`graph_results` 和融合排序后的 `merged` 列表。
 
 ### 三层情感架构
 
@@ -330,7 +330,7 @@ nm = NeuroMemory(
 result = await nm.recall(user_id="alice", query=user_input, limit=10)
 
 # result 包含以下字段：
-result["merged"]               # ⭐ 主要使用：vector + conversation 去重合并，已按评分排序
+result["merged"]               # ⭐ 主要使用：vector + graph + conversation 去重合并，已按评分排序
 result["user_profile"]         # ⭐ 用户画像：occupation, interests, identity 等
 result["graph_context"]        # ⭐ 图谱三元组文本：["alice → WORKS_AT → google", ...]
 result["vector_results"]       # 提取的记忆（fact/episodic/insight），含评分
@@ -350,9 +350,10 @@ result["graph_results"]        # 图谱原始三元组
 # 完整字段
 {
     "content": "...",                              # 格式化后的内容（含时间前缀）
-    "source": "vector",                            # "vector" 或 "conversation"
-    "memory_type": "fact",                         # fact / episodic / insight
-    "score": 0.646,                                # 综合评分（相关性 × 时效 × 重要性）
+    "source": "vector",                            # "vector" / "graph" / "conversation"
+    "memory_type": "fact",                         # fact / episodic / insight / graph_fact
+    "score": 0.646,                                # 综合评分（相关性 × 时效 × 重要性 × 图boost）
+    "graph_boost": 1.5,                            # 图三元组覆盖度 boost（仅 source="vector" 时存在）
     "extracted_timestamp": "2025-03-01T00:00:00+00:00",  # 可用于时间排序
     "metadata": {
         "importance": 8,                           # 重要性 (1-10)

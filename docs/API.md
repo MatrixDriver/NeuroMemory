@@ -354,7 +354,7 @@ await nm.add_memory(
 
 ### recall() - 混合检索
 
-**RRF 混合检索（向量 + BM25）+ 图实体检索**，综合召回相关记忆（推荐使用）。评分公式为 `rrf_score × recency × importance`，其中 rrf_score 通过 Reciprocal Rank Fusion 融合向量相似度和 BM25 关键词匹配。
+**RRF 混合检索（向量 + BM25）+ 图融合排序**，综合召回相关记忆（推荐使用）。评分公式为 `rrf_score × recency × importance × graph_boost`，其中 rrf_score 通过 Reciprocal Rank Fusion 融合向量相似度和 BM25 关键词匹配，graph_boost 通过图三元组覆盖度提升命中记忆的排名。图三元组本身也参与 `merged` 统一排序。
 
 ```python
 result = await nm.recall(
@@ -432,9 +432,10 @@ result = await nm.recall(
         "interests": ["Python", "分布式系统"],
         "identity": "Alice, 28岁",
     },
-    # vector_results + conversation_results 去重合并，推荐用于 prompt 组装
+    # vector_results + graph_results + conversation_results 去重合并，按 score 降序排列
     "merged": [
-        {"content": "...", "source": "vector", "score": 0.646, ...},
+        {"content": "...", "source": "vector", "score": 0.646, "graph_boost": 1.5, ...},
+        {"content": "张三 → WORKS_AT → google", "source": "graph", "score": 0.98, "memory_type": "graph_fact"},
         {"content": "...", "source": "conversation", "similarity": 0.91, ...},
     ]
 }
@@ -443,7 +444,7 @@ result = await nm.recall(
 **评分公式**：
 
 ```python
-score = rrf_score × recency × importance
+score = rrf_score × recency × importance × graph_boost
 
 # RRF 评分 (0-1)：融合向量相似度和 BM25 关键词匹配
 # rrf_score = 1/(k+rank_vector) + 1/(k+rank_bm25)，k=60
@@ -454,6 +455,12 @@ recency = e^(-t / (decay_rate × (1 + arousal × 0.5)))
 
 # 重要性 (0.1-1.0)：metadata.importance / 10，默认 0.5
 importance = metadata.get("importance", 5) / 10
+
+# 图 Boost (1.0-2.0)：基于图三元组覆盖度
+# 双端命中（subject+object 都在记忆中）: +0.5
+# 单端命中（subject 或 object 在记忆中）: +0.2
+# 上限 2.0，无图匹配时为 1.0（不影响原始分数）
+graph_boost = min(1.0 + coverage_boost, 2.0)
 ```
 
 **示例**：
@@ -543,8 +550,8 @@ insights = await nm.search(
 | 特性 | recall() | search() |
 |------|----------|----------|
 | **检索方式** | RRF 混合检索 + 图检索 | RRF 混合检索（向量 + BM25） |
-| **评分因素** | rrf_score × 时效性 × 重要性 | 仅 rrf_score |
-| **结果来源** | vector_results + graph_results + merged | 单一列表 |
+| **评分因素** | rrf_score × 时效性 × 重要性 × 图boost | 仅 rrf_score |
+| **结果来源** | vector_results + graph_results + merged（统一排序） | 单一列表 |
 | **时间衰减** | ✅ 支持（近期记忆优先） | ❌ 不考虑时间 |
 | **重要性** | ✅ 支持（重要记忆优先） | ❌ 不考虑重要性 |
 | **图实体** | ✅ 包含知识图谱关系 | ❌ 无图检索 |

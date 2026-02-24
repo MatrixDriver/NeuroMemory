@@ -1,6 +1,6 @@
 # NeuroMemory 架构文档
 
-> **最后更新**: 2026-02-11
+> **最后更新**: 2026-02-24
 
 ---
 
@@ -372,13 +372,40 @@ nm = NeuroMemory(database_url="...", embedding=MyEmbedding())
 
 | 服务 | 依赖 | 功能 |
 |------|------|------|
-| `SearchService` | session, embedding | 向量检索、记忆添加 |
+| `SearchService` | session, embedding | 向量检索、记忆添加、RRF 混合排序 |
 | `KVService` | session | 键值 CRUD、batch 操作 |
 | `ConversationService` | session | 会话消息管理 |
 | `MemoryService` | session | 时间范围/时间线查询 |
 | `FileService` | session, embedding, storage | 文件上传、文本提取 |
-| `GraphService` | session | 图节点/边 CRUD、Cypher 查询 |
+| `GraphService` | session | 图节点/边 CRUD |
+| `GraphMemoryService` | session | 图三元组存储/冲突检测/实体查询 |
 | `MemoryExtractionService` | session, embedding, llm | LLM 记忆分类提取 |
+| `ReflectionService` | session, embedding, llm | 洞察生成 + 情感画像更新 |
+| `TemporalService` | session | 时序记忆与时间范围过滤 |
+
+### 6.1 recall() 融合排序流程
+
+`recall()` 是核心检索方法，通过并行获取 + 合并阶段实现多源融合：
+
+```
+recall(query)
+  ├─ asyncio.gather 并行执行:
+  │   ├─ _fetch_vector_memories()    → SearchService.scored_search()
+  │   │     └─ SQL 内融合: RRF(vector, BM25) × recency × importance
+  │   ├─ _fetch_user_profile()       → KV profile 读取
+  │   ├─ _search_conversations()     → 对话向量检索 (可选)
+  │   └─ _fetch_graph_memories()     → GraphMemoryService.find_entity_facts()
+  │
+  ├─ 合并阶段 (Python):
+  │   ├─ 构建图三元组集合
+  │   ├─ 向量结果 + 图 boost (三元组覆盖度)
+  │   │     └─ 双端命中 +0.5, 单端命中 +0.2, 上限 2.0
+  │   ├─ 图三元组 → merged (source="graph")
+  │   ├─ 对话结果 → merged (source="conversation")
+  │   └─ merged 按 score 降序排序
+  │
+  └─ 返回: vector_results, graph_results, graph_context, user_profile, merged
+```
 
 ---
 
@@ -391,7 +418,7 @@ docker compose -f docker-compose.yml up -d
 ```
 
 提供：
-- PostgreSQL（含 pgvector + AGE）: `localhost:5432`
+- PostgreSQL（含 pgvector + pg_search）: `localhost:5432`
 - MinIO（可选）: `localhost:9000`（Console: `localhost:9001`）
 
 ### 7.2 生产环境
@@ -406,7 +433,7 @@ docker compose -f docker-compose.yml up -d
                │
     ┌──────────▼───────────┐
     │  PostgreSQL (RDS)    │
-    │  + pgvector + AGE    │
+    │  + pgvector + pg_search    │
     └──────────────────────┘
                │
     ┌──────────▼───────────┐
