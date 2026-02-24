@@ -13,6 +13,7 @@
 5. [Provider 系统](#5-provider-系统)
 6. [服务层](#6-服务层)
 7. [部署架构](#7-部署架构)
+8. [架构差异化：单一 PostgreSQL vs 多库拼装](#8-架构差异化单一-postgresql-vs-多库拼装)
 
 ---
 
@@ -72,7 +73,7 @@ NeuroMemory 是一个 **Python 框架**（非 Client-Server），AI agent 开发
 │  │  数据层                                               │  │
 │  │  Database (neuromemory/db.py)                          │  │
 │  │  ├── PostgreSQL + pgvector (向量 + 结构化)            │  │
-│  │  ├── Apache AGE (图数据库)                             │  │
+│  │  ├── 关系表图谱 (GraphNode/GraphEdge)                  │  │
 │  │  └── SQLAlchemy 2.0 async (asyncpg)                   │  │
 │  └──────────────────────────────────────────────────────┘  │
 │                                                             │
@@ -92,7 +93,7 @@ NeuroMemory 是一个 **Python 框架**（非 Client-Server），AI agent 开发
 | **语言** | Python | 3.10+ | async/await 全链路 |
 | **数据库** | PostgreSQL | 16+ | 统一存储后端 |
 | **向量扩展** | pgvector | 0.7+ | 向量相似度检索 |
-| **图扩展** | Apache AGE | 1.6+ | Cypher 查询语言 |
+| **图存储** | PostgreSQL 关系表 | - | GraphNode/GraphEdge（无 Cypher 依赖） |
 | **ORM** | SQLAlchemy | 2.0+ | asyncpg 异步驱动 |
 | **Embedding** | SiliconFlow / OpenAI | - | 可插拔 Provider |
 | **LLM** | OpenAI / DeepSeek | - | 记忆分类提取 |
@@ -294,7 +295,7 @@ CREATE TABLE graph_edges (
 );
 ```
 
-图数据同时存储在 PostgreSQL 表（用于 CRUD）和 Apache AGE（用于 Cypher 查询）。
+图数据存储在 PostgreSQL 关系表中，通过 SQL 查询实现图遍历，无需 Apache AGE 或 Cypher。
 
 ---
 
@@ -445,6 +446,51 @@ NeuroMemory 作为库嵌入你的应用，不需要独立部署。只需确保�
 1. PostgreSQL 可访问
 2. Embedding API 可用
 3. S3 存储可访问（如果使用文件功能）
+
+---
+
+## 8. 架构差异化：单一 PostgreSQL vs 多库拼装
+
+### 8.1 竞品架构对比
+
+| 框架 | 向量存储 | 图存储 | KV/缓存 | 结构化数据 | 部署组件数 |
+|------|---------|--------|---------|-----------|-----------|
+| **NeuroMemory** | pgvector | 关系表 | PostgreSQL | PostgreSQL | **1** |
+| Mem0 | Qdrant | Neo4j | — | PostgreSQL | 3 |
+| MemOS | Qdrant | Neo4j | Redis | PostgreSQL | 4 |
+| graphiti | 向量数据库 | Neo4j | — | PostgreSQL | 3+ |
+
+### 8.2 单一 PostgreSQL 架构的技术优势
+
+**事务一致性**：所有数据操作（向量、图谱、对话、KV）在同一个数据库事务内完成。`delete_user_data()` 跨 8 张表原子删除，`export_user_data()` 在一个快照内导出——多库架构中需要分布式事务或 saga 模式才能实现类似保证。
+
+**跨类型查询**：`entity_profile()` 通过 SQL JOIN 跨 embeddings、graph_nodes/edges、conversations 三种数据源构建实体画像。`stats()` 聚合所有记忆类型的分布统计。这些操作在单库中是简单的 SQL 查询，在多库架构中需要应用层数据聚合。
+
+**联合排序**：`recall()` 的图 boost 融合排序依赖于图三元组和向量结果在同一进程内交叉匹配。图和向量分属不同数据库时，跨库 JOIN 的延迟和复杂度使类似的实时融合排序变得不切实际。
+
+**运维简化**：
+- 备份：`pg_dump` 一次导出全部数据（向量 + 图谱 + 对话 + KV + 画像）
+- 监控：一个 PostgreSQL 实例的指标即为全部
+- 扩展：垂直扩展 PostgreSQL 即可提升所有子系统性能
+- 迁移：一个 `create_all()` 完成所有表创建，无需协调多个数据库的 schema
+
+### 8.3 部署架构
+
+```
+开发环境:
+  docker compose up -d db  →  PostgreSQL (pgvector + pg_search) ready
+
+生产环境:
+  托管 PostgreSQL (AWS RDS / Supabase / 阿里云 RDS)
+  + pip install neuromemory
+  → 完整记忆系统就绪
+```
+
+对比竞品的生产部署：
+```
+Mem0:    PostgreSQL + Qdrant Cloud + Neo4j Aura    → 3 个服务的连接串、认证、监控
+MemOS:   PostgreSQL + Redis Cloud + Qdrant + Neo4j → 4 个服务的运维负担
+```
 
 ---
 
