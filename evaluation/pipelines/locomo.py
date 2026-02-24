@@ -39,13 +39,14 @@ async def _retry_on_rate_limit(coro_fn, *args, **kwargs):
             return await coro_fn(*args, **kwargs)
         except Exception as e:
             err_str = str(e).lower()
-            is_rate_limit = any(kw in err_str for kw in (
+            is_retryable = any(kw in err_str for kw in (
                 "429", "rate", "too many", "502", "503", "overloaded",
+                "timeout", "timed out", "readtimeout",
             ))
-            if is_rate_limit and attempt < _MAX_RETRIES - 1:
+            if is_retryable and attempt < _MAX_RETRIES - 1:
                 delay = _BASE_DELAY * (2 ** attempt)
                 logger.warning(
-                    "Rate limited (attempt %d/%d), retrying in %.0fs: %s",
+                    "Retryable error (attempt %d/%d), retrying in %.0fs: %s",
                     attempt + 1, _MAX_RETRIES, delay, str(e)[:80],
                 )
                 await asyncio.sleep(delay)
