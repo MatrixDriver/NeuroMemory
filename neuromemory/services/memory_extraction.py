@@ -179,7 +179,11 @@ class MemoryExtractionService:
         session_timestamp = self._get_session_timestamp(messages)
 
         # Determine extraction language (KV preference > auto-detect > default)
-        language = await self._get_extraction_language(user_id, conversation_text)
+        # Use raw message content for detection (exclude timestamps/role prefixes)
+        raw_content = " ".join(
+            m.get("content", "") for m in messages if m.get("role") == "user"
+        )
+        language = await self._get_extraction_language(user_id, raw_content)
 
         prompt = self._build_classification_prompt(conversation_text, language, session_timestamp)
 
@@ -252,13 +256,18 @@ class MemoryExtractionService:
         return detected
 
     def _detect_language(self, text: str) -> str:
-        """Simple language detection based on Chinese character ratio."""
+        """Simple language detection based on Chinese character ratio.
+
+        Uses a low threshold (0.1) because even a small number of CJK
+        characters strongly indicates Chinese — mixed content like
+        "我喜欢 Python 和 AI" is still Chinese.
+        """
         if not text:
             return "en"
 
         chinese_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
         ratio = chinese_chars / len(text)
-        return "zh" if ratio > 0.3 else "en"
+        return "zh" if ratio > 0.1 else "en"
 
     def _detect_language_confidence(self, text: str) -> float:
         """
@@ -329,6 +338,7 @@ class MemoryExtractionService:
    - personality: 用户的性格特征（字符串数组，如["外向", "乐观"]）"""
 
         return f"""分析以下对话，提取用户的记忆信息。请严格按照 JSON 格式返回结果。
+**语言规则**：所有提取的 content 字段必须使用中文。禁止输出英文翻译，禁止为同一信息生成中英双语版本。
 
 对话内容：
 ```
@@ -448,6 +458,7 @@ class MemoryExtractionService:
    - personality: User's personality traits (string array, e.g. ["extroverted", "optimistic"])"""
 
         return f"""Extract structured memory information from the following conversation. Return results strictly in JSON format.
+**Language rule**: ALL extracted content fields MUST be in English. Do NOT produce translations or bilingual duplicates.
 
 Conversation:
 ```
