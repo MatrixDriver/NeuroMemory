@@ -42,11 +42,6 @@ pip install neuromemory
 
 # 或安装所有可选依赖（推荐）
 pip install neuromemory[all]
-
-# 按需安装
-pip install neuromemory[s3]    # S3/MinIO 文件存储
-pip install neuromemory[pdf]   # PDF 文件处理
-pip install neuromemory[docx]  # Word 文档处理
 ```
 
 **依赖自动安装**: SQLAlchemy、asyncpg、pgvector、httpx 等核心依赖会自动安装。
