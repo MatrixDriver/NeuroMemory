@@ -27,6 +27,7 @@ async def test_recall_no_emotion_profile_in_merged(mock_embedding):
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=MockLLMProvider(),
         auto_extract=False,
     )
     await nm.init()
@@ -34,7 +35,7 @@ async def test_recall_no_emotion_profile_in_merged(mock_embedding):
     try:
         user = "recall_emotion_1"
 
-        await nm.add_memory(user, "I work at Google", memory_type="fact")
+        await nm._add_memory(user, "I work at Google", memory_type="fact")
 
         # Insert emotion profile directly
         async with nm._db.session() as session:
@@ -71,13 +72,14 @@ async def test_recall_surfaces_emotion_label(mock_embedding):
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=MockLLMProvider(),
         auto_extract=False,
     )
     await nm.init()
 
     try:
         user = "recall_emotion_3"
-        await nm.add_memory(
+        await nm._add_memory(
             user, "Got promoted at work today",
             memory_type="episodic",
             metadata={"emotion": {"label": "excited", "valence": 0.8, "arousal": 0.9}},
@@ -100,13 +102,14 @@ async def test_recall_valence_fallback(mock_embedding):
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=MockLLMProvider(),
         auto_extract=False,
     )
     await nm.init()
 
     try:
         user = "recall_emotion_4"
-        await nm.add_memory(
+        await nm._add_memory(
             user, "Had a terrible meeting",
             memory_type="episodic",
             metadata={"emotion": {"valence": -0.8, "arousal": 0.5}},
@@ -128,13 +131,14 @@ async def test_recall_neutral_valence(mock_embedding):
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=MockLLMProvider(),
         auto_extract=False,
     )
     await nm.init()
 
     try:
         user = "recall_emotion_5"
-        await nm.add_memory(
+        await nm._add_memory(
             user, "Attended a routine standup",
             memory_type="episodic",
             metadata={"emotion": {"valence": 0.1, "arousal": 0.2}},
@@ -156,13 +160,14 @@ async def test_recall_no_emotion_metadata(mock_embedding):
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=MockLLMProvider(),
         auto_extract=False,
     )
     await nm.init()
 
     try:
         user = "recall_emotion_6"
-        await nm.add_memory(user, "Lives in Beijing", memory_type="fact")
+        await nm._add_memory(user, "Lives in Beijing", memory_type="fact")
 
         result = await nm.recall(user, "location", limit=10)
         merged = result["merged"]
@@ -185,13 +190,14 @@ async def test_recall_surfaces_extracted_timestamp(mock_embedding):
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=MockLLMProvider(),
         auto_extract=False,
     )
     await nm.init()
 
     try:
         user = "recall_emotion_7"
-        record = await nm.add_memory(user, "Birthday party on the rooftop", memory_type="episodic")
+        record = await nm._add_memory(user, "Birthday party on the rooftop", memory_type="episodic")
 
         # Manually set extracted_timestamp (use timezone-aware timestamp)
         async with nm._db.session() as session:

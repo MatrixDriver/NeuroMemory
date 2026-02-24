@@ -52,9 +52,9 @@ async def test_reflect_watermark_initial(mock_embedding, mock_llm):
     try:
         user = "watermark_test_1"
         # Add memories
-        await nm.add_memory(user, "Fact one", memory_type="fact")
-        await nm.add_memory(user, "Fact two", memory_type="fact")
-        await nm.add_memory(user, "Episode one", memory_type="episodic")
+        await nm._add_memory(user, "Fact one", memory_type="fact")
+        await nm._add_memory(user, "Fact two", memory_type="fact")
+        await nm._add_memory(user, "Episode one", memory_type="episodic")
 
         result = await nm.reflect(user, batch_size=50)
 
@@ -87,12 +87,12 @@ async def test_reflect_watermark_incremental(mock_embedding, mock_llm):
     try:
         user = "watermark_test_2"
         # Add initial memories and reflect
-        await nm.add_memory(user, "Old fact", memory_type="fact")
+        await nm._add_memory(user, "Old fact", memory_type="fact")
         result1 = await nm.reflect(user, batch_size=50)
         assert result1["memories_analyzed"] == 1
 
         # Add new memories
-        await nm.add_memory(user, "New fact", memory_type="fact")
+        await nm._add_memory(user, "New fact", memory_type="fact")
 
         # Reset mock counter
         mock_llm.call_count = 0
@@ -117,7 +117,7 @@ async def test_reflect_watermark_no_new_memories(mock_embedding, mock_llm):
 
     try:
         user = "watermark_test_3"
-        await nm.add_memory(user, "Some fact", memory_type="fact")
+        await nm._add_memory(user, "Some fact", memory_type="fact")
         await nm.reflect(user, batch_size=50)
 
         # Reset counter
@@ -147,7 +147,7 @@ async def test_reflect_batch_pagination(mock_embedding, mock_llm):
         user = "watermark_test_4"
         # Add 5 memories, batch_size=2 → 3 batches
         for i in range(5):
-            await nm.add_memory(user, f"Memory number {i}", memory_type="fact")
+            await nm._add_memory(user, f"Memory number {i}", memory_type="fact")
 
         result = await nm.reflect(user, batch_size=2)
         assert result["memories_analyzed"] == 5
@@ -170,7 +170,7 @@ async def test_reflect_background(mock_embedding, mock_llm):
 
     try:
         user = "watermark_test_5"
-        await nm.add_memory(user, "Some fact", memory_type="fact")
+        await nm._add_memory(user, "Some fact", memory_type="fact")
 
         result = await nm.reflect(user, batch_size=50, background=True)
         assert result is None

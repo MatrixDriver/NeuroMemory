@@ -18,11 +18,12 @@ TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432
 
 
 @pytest_asyncio.fixture
-async def nm_graph(mock_embedding):
+async def nm_graph(mock_embedding, mock_llm):
     """NeuroMemory instance with graph enabled."""
     instance = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=mock_llm,
         graph_enabled=True,
     )
     await instance.init()
@@ -40,7 +41,7 @@ class TestMemoryVersioning:
         user_id = f"tt_conflict_{suffix}"
 
         # Add initial fact
-        old = await nm.add_memory(
+        old = await nm._add_memory(
             user_id=user_id,
             content="张三在 Google 工作",
             memory_type="fact",
@@ -48,7 +49,7 @@ class TestMemoryVersioning:
 
         # Add contradicting fact (mock embedding similarity depends on hash,
         # so we use a very similar string to increase chance of conflict)
-        new = await nm.add_memory(
+        new = await nm._add_memory(
             user_id=user_id,
             content="张三在 Meta 工作",
             memory_type="fact",
@@ -72,12 +73,12 @@ class TestMemoryVersioning:
         suffix = uuid.uuid4().hex[:8]
         user_id = f"tt_episodic_{suffix}"
 
-        await nm.add_memory(
+        await nm._add_memory(
             user_id=user_id,
             content="今天去了公园",
             memory_type="episodic",
         )
-        await nm.add_memory(
+        await nm._add_memory(
             user_id=user_id,
             content="今天去了公园",
             memory_type="episodic",
@@ -101,7 +102,7 @@ class TestMemoryVersioning:
         user_id = f"tt_vf_{suffix}"
 
         before = datetime.now(timezone.utc)
-        await nm.add_memory(user_id=user_id, content="test memory")
+        await nm._add_memory(user_id=user_id, content="test memory")
         after = datetime.now(timezone.utc)
 
         async with nm._db.session() as session:
@@ -126,7 +127,7 @@ class TestRecallAsOf:
         user_id = f"tt_asof_{suffix}"
 
         # Add memory, then backdate its valid_from
-        await nm.add_memory(user_id=user_id, content="old fact", memory_type="fact")
+        await nm._add_memory(user_id=user_id, content="old fact", memory_type="fact")
         t1 = datetime.now(timezone.utc)
 
         # Backdate to 10 days ago
@@ -143,7 +144,7 @@ class TestRecallAsOf:
         await asyncio.sleep(0.1)
 
         # Add newer memory and mark old one as superseded
-        new_mem = await nm.add_memory(
+        new_mem = await nm._add_memory(
             user_id=user_id, content="new fact", memory_type="fact",
         )
 
@@ -172,10 +173,10 @@ class TestRecallAsOf:
         suffix = uuid.uuid4().hex[:8]
         user_id = f"tt_default_{suffix}"
 
-        await nm.add_memory(user_id=user_id, content="active memory", memory_type="fact")
+        await nm._add_memory(user_id=user_id, content="active memory", memory_type="fact")
 
         # Add and immediately supersede another memory
-        old = await nm.add_memory(
+        old = await nm._add_memory(
             user_id=user_id, content="superseded memory", memory_type="fact",
         )
         async with nm._db.session() as session:
@@ -199,7 +200,7 @@ class TestRecallAsOf:
         suffix = uuid.uuid4().hex[:8]
         user_id = f"tt_compat_{suffix}"
 
-        await nm.add_memory(user_id=user_id, content="legacy memory")
+        await nm._add_memory(user_id=user_id, content="legacy memory")
 
         # Set valid_from to NULL (simulating legacy data)
         async with nm._db.session() as session:
@@ -234,7 +235,7 @@ class TestRollback:
         user_id = f"tt_rollback_{suffix}"
 
         # Add early memory
-        await nm.add_memory(user_id=user_id, content="early memory")
+        await nm._add_memory(user_id=user_id, content="early memory")
 
         # Backdate it
         async with nm._db.session() as session:
@@ -250,7 +251,7 @@ class TestRollback:
         rollback_point = datetime.now(timezone.utc) - timedelta(minutes=30)
 
         # Add later memory
-        await nm.add_memory(user_id=user_id, content="later memory")
+        await nm._add_memory(user_id=user_id, content="later memory")
 
         # Rollback
         result = await nm.rollback_memories(user_id, rollback_point)
@@ -269,7 +270,7 @@ class TestRollback:
         user_id = f"tt_reactivate_{suffix}"
 
         # Add and backdate old memory
-        old = await nm.add_memory(
+        old = await nm._add_memory(
             user_id=user_id, content="在 Google 工作", memory_type="fact",
         )
         async with nm._db.session() as session:
@@ -285,7 +286,7 @@ class TestRollback:
         rollback_point = datetime.now(timezone.utc) - timedelta(hours=1)
 
         # Supersede: add new memory pointing to old
-        new = await nm.add_memory(
+        new = await nm._add_memory(
             user_id=user_id, content="在 Meta 工作", memory_type="fact",
         )
         async with nm._db.session() as session:

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from neuromemory import NeuroMemory
 from neuromemory.models.base import Base
 from neuromemory.providers.embedding import EmbeddingProvider
+from neuromemory.providers.llm import LLMProvider
 
 # Default test database URL
 TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory"
@@ -33,6 +34,13 @@ class MockEmbeddingProvider(EmbeddingProvider):
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         return [await self.embed(t) for t in texts]
+
+
+class MockLLMProvider(LLMProvider):
+    """Mock LLM provider for testing (no external API calls)."""
+
+    async def chat(self, messages: list[dict], temperature: float = 0.1, max_tokens: int = 2048) -> str:
+        return '{"facts": [], "episodes": [], "relations": []}'
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -75,12 +83,19 @@ def mock_embedding() -> MockEmbeddingProvider:
     return MockEmbeddingProvider(dims=1024)
 
 
+@pytest.fixture
+def mock_llm() -> MockLLMProvider:
+    """Create a mock LLM provider."""
+    return MockLLMProvider()
+
+
 @pytest_asyncio.fixture
-async def nm(mock_embedding) -> AsyncGenerator[NeuroMemory]:
+async def nm(mock_embedding, mock_llm) -> AsyncGenerator[NeuroMemory]:
     """Create a NeuroMemory instance for testing."""
     instance = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=mock_llm,
     )
     await instance.init()
     yield instance

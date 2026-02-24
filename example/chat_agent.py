@@ -351,14 +351,11 @@ async def main():
                 user_id=USER_ID, role="assistant", content=reply, session_id=SESSION_ID,
             )
 
-            # 4. 将用户消息存为记忆（便于后续语义搜索）
-            await nm.add_memory(user_id=USER_ID, content=user_input)
-
-            # 5. 更新本地历史
+            # 4. 更新本地历史
             history.append({"role": "user", "content": user_input})
             history.append({"role": "assistant", "content": reply})
 
-            # 6. 打印回复
+            # 5. 打印回复
             if memories:
                 print(f"  (召回 {len(memories)} 条相关记忆)")
             print(f"\n助手: {reply}")

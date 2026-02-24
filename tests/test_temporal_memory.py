@@ -89,7 +89,7 @@ async def test_episode_timestamp_preservation(mock_embedding):
 
     # Extract memories manually
     messages = await nm.conversations.get_unextracted_messages(user_id)
-    await nm.extract_memories(user_id, messages)
+    await nm._extract_memories(user_id, messages)
 
     # Verify episodes were extracted with timestamps
     from sqlalchemy import text
@@ -139,7 +139,7 @@ async def test_episode_people_and_location_extraction(mock_embedding):
     )
 
     messages = await nm.conversations.get_unextracted_messages(user_id)
-    await nm.extract_memories(user_id, messages)
+    await nm._extract_memories(user_id, messages)
 
     # Verify people and location
     from sqlalchemy import text
@@ -175,13 +175,14 @@ async def test_long_term_memory_recall_without_excessive_decay(mock_embedding):
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=mock_embedding,
+        llm=MockTemporalLLM(),
     )
     await nm.init()
 
     user_id = "temporal_user_3"
 
     # Add old memory (6 months ago)
-    old_memory = await nm.add_memory(
+    old_memory = await nm._add_memory(
         user_id=user_id,
         content="6 个月前我在微软工作",
         memory_type="episodic",
@@ -190,7 +191,7 @@ async def test_long_term_memory_recall_without_excessive_decay(mock_embedding):
     old_memory_id = str(old_memory.id)  # Convert to string
 
     # Add recent memory (1 day ago)
-    recent_memory = await nm.add_memory(
+    recent_memory = await nm._add_memory(
         user_id=user_id,
         content="昨天我面试了 Google",
         memory_type="episodic",
@@ -259,7 +260,7 @@ async def test_relative_time_expressions_in_episodes(mock_embedding):
     )
 
     messages = await nm.conversations.get_unextracted_messages(user_id)
-    await nm.extract_memories(user_id, messages)
+    await nm._extract_memories(user_id, messages)
 
     # Verify relative time is preserved (not converted yet)
     from sqlalchemy import text
@@ -288,25 +289,26 @@ async def test_temporal_context_in_recall(mock_embedding):
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=mock_embedding,
+        llm=MockTemporalLLM(),
     )
     await nm.init()
 
     user_id = "temporal_user_5"
 
     # Add memories with temporal sequence
-    await nm.add_memory(
+    await nm._add_memory(
         user_id=user_id,
         content="2020 年在微软实习",
         memory_type="episodic",
         metadata={"importance": 7},
     )
-    await nm.add_memory(
+    await nm._add_memory(
         user_id=user_id,
         content="2022 年入职 Google",
         memory_type="episodic",
         metadata={"importance": 8},
     )
-    await nm.add_memory(
+    await nm._add_memory(
         user_id=user_id,
         content="2024 年晋升为 Senior Engineer",
         memory_type="episodic",
@@ -337,6 +339,7 @@ async def test_multi_month_conversation_recall(mock_embedding):
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=mock_embedding,
+        llm=MockTemporalLLM(),
     )
     await nm.init()
 
@@ -355,7 +358,7 @@ async def test_multi_month_conversation_recall(mock_embedding):
 
     memory_ids = []
     for content, days_ago in memories:
-        mem = await nm.add_memory(
+        mem = await nm._add_memory(
             user_id=user_id,
             content=content,
             memory_type="episodic",

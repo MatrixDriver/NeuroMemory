@@ -13,11 +13,12 @@ TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432
 
 
 @pytest_asyncio.fixture
-async def nm_graph(mock_embedding):
+async def nm_graph(mock_embedding, mock_llm):
     """NeuroMemory instance with graph enabled."""
     instance = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=mock_llm,
         graph_enabled=True,
     )
     await instance.init()
@@ -32,8 +33,8 @@ class TestStats:
     async def test_stats_returns_structure(self, nm):
         """stats() should return expected keys."""
         user_id = "stats_u1"
-        await nm.add_memory(user_id=user_id, content="test fact", memory_type="fact")
-        await nm.add_memory(user_id=user_id, content="test episode", memory_type="episodic")
+        await nm._add_memory(user_id=user_id, content="test fact", memory_type="fact")
+        await nm._add_memory(user_id=user_id, content="test episode", memory_type="episodic")
 
         result = await nm.stats(user_id)
 
@@ -79,7 +80,7 @@ class TestColdMemories:
     async def test_cold_memories_finds_old(self, nm):
         """cold_memories() should find memories older than threshold."""
         user_id = "cold_u1"
-        await nm.add_memory(user_id=user_id, content="old memory")
+        await nm._add_memory(user_id=user_id, content="old memory")
 
         # Backdate the memory
         async with nm._db.session() as session:
@@ -101,7 +102,7 @@ class TestColdMemories:
     async def test_cold_memories_excludes_recent(self, nm):
         """cold_memories() should not return recently accessed memories."""
         user_id = "cold_recent_u1"
-        await nm.add_memory(user_id=user_id, content="fresh memory")
+        await nm._add_memory(user_id=user_id, content="fresh memory")
 
         result = await nm.cold_memories(user_id, threshold_days=90)
         assert len(result) == 0
@@ -120,8 +121,8 @@ class TestEntityProfile:
     async def test_entity_profile_finds_facts(self, nm):
         """entity_profile() should find memories mentioning the entity."""
         user_id = "entity_u1"
-        await nm.add_memory(user_id=user_id, content="Alice works at Google", memory_type="fact")
-        await nm.add_memory(user_id=user_id, content="Bob likes pizza", memory_type="fact")
+        await nm._add_memory(user_id=user_id, content="Alice works at Google", memory_type="fact")
+        await nm._add_memory(user_id=user_id, content="Bob likes pizza", memory_type="fact")
 
         result = await nm.entity_profile(user_id, "Alice")
 
@@ -135,7 +136,7 @@ class TestEntityProfile:
     async def test_entity_profile_includes_graph(self, nm_graph):
         """entity_profile() should include graph relations."""
         user_id = "entity_graph_u1"
-        await nm_graph.add_memory(user_id=user_id, content="Alice works at Google")
+        await nm_graph._add_memory(user_id=user_id, content="Alice works at Google")
 
         async with nm_graph._db.session() as session:
             svc = GraphMemoryService(session)
@@ -169,7 +170,7 @@ class TestEntityProfile:
     async def test_entity_profile_timeline(self, nm):
         """entity_profile() should build a chronological timeline."""
         user_id = "entity_timeline_u1"
-        await nm.add_memory(user_id=user_id, content="Alice joined in 2020")
+        await nm._add_memory(user_id=user_id, content="Alice joined in 2020")
         await nm.conversations.add_message(
             user_id=user_id, role="user", content="Alice got promoted",
         )

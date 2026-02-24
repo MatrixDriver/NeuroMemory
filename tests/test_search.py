@@ -59,19 +59,19 @@ async def test_search_user_isolation(db_session, mock_embedding):
 @pytest.mark.asyncio
 async def test_add_memory_via_facade(nm):
     """Test adding memory through the NeuroMemory facade."""
-    record = await nm.add_memory(user_id="u1", content="I work at Google")
+    record = await nm._add_memory(user_id="u1", content="I work at Google")
     assert record.content == "I work at Google"
     assert record.id is not None
 
 
 @pytest.mark.asyncio
 async def test_search_via_facade(nm):
-    """Test search through the NeuroMemory facade."""
-    await nm.add_memory(user_id="facade_user", content="I love cats")
-    await nm.add_memory(user_id="facade_user", content="Python is great")
+    """Test search through the NeuroMemory recall() facade."""
+    await nm._add_memory(user_id="facade_user", content="I love cats")
+    await nm._add_memory(user_id="facade_user", content="Python is great")
 
-    results = await nm.search(user_id="facade_user", query="animals")
-    assert len(results) > 0
+    result = await nm.recall(user_id="facade_user", query="animals")
+    assert len(result["merged"]) > 0
 
 
 @pytest.mark.asyncio

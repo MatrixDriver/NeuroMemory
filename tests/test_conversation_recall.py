@@ -14,11 +14,12 @@ from neuromemory import NeuroMemory
 
 
 @pytest.mark.asyncio
-async def test_conversation_embedding_generated_on_add_message(mock_embedding):
+async def test_conversation_embedding_generated_on_add_message(mock_embedding, mock_llm):
     """Test that conversation embeddings are generated when adding messages."""
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=mock_embedding,
+        llm=mock_llm,
         auto_extract=False,  # Disable auto-extract to test embedding only
     )
     await nm.init()
@@ -54,11 +55,12 @@ async def test_conversation_embedding_generated_on_add_message(mock_embedding):
 
 
 @pytest.mark.asyncio
-async def test_recall_includes_conversation_results(mock_embedding):
+async def test_recall_includes_conversation_results(mock_embedding, mock_llm):
     """Test that recall returns conversation_results alongside memory results."""
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=mock_embedding,
+        llm=mock_llm,
         auto_extract=False,
     )
     await nm.init()
@@ -157,11 +159,12 @@ async def test_conversation_preserves_temporal_details(mock_embedding):
 
 
 @pytest.mark.asyncio
-async def test_merged_results_deduplicate_conversations_and_memories(mock_embedding):
+async def test_merged_results_deduplicate_conversations_and_memories(mock_embedding, mock_llm):
     """Test that merged results deduplicate between conversations and memories."""
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=mock_embedding,
+        llm=mock_llm,
         auto_extract=False,
     )
     await nm.init()
@@ -176,7 +179,7 @@ async def test_merged_results_deduplicate_conversations_and_memories(mock_embedd
     )
 
     # Add same content as memory
-    await nm.add_memory(
+    await nm._add_memory(
         user_id=user_id,
         content="我在 Google 工作",
         memory_type="fact",
@@ -203,11 +206,12 @@ async def test_merged_results_deduplicate_conversations_and_memories(mock_embedd
 
 
 @pytest.mark.asyncio
-async def test_conversation_recall_with_role_and_session(mock_embedding):
+async def test_conversation_recall_with_role_and_session(mock_embedding, mock_llm):
     """Test that conversation results include role and session_id."""
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=mock_embedding,
+        llm=mock_llm,
         auto_extract=False,
     )
     await nm.init()
@@ -250,11 +254,12 @@ async def test_conversation_recall_with_role_and_session(mock_embedding):
 
 
 @pytest.mark.asyncio
-async def test_conversation_recall_empty_when_no_embeddings(mock_embedding):
+async def test_conversation_recall_empty_when_no_embeddings(mock_embedding, mock_llm):
     """Test that conversations without embeddings are not returned."""
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=mock_embedding,
+        llm=mock_llm,
         auto_extract=False,
     )
     await nm.init()

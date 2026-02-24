@@ -382,7 +382,7 @@ class NeuroMemory:
     Args:
         database_url: PostgreSQL connection string
         embedding: Embedding provider (SiliconFlow/OpenAI/SentenceTransformer)
-        llm: Optional LLM provider (for memory extraction)
+        llm: LLM provider (required, for memory extraction and reflection)
         storage: Optional object storage (for files)
         extraction: Optional extraction strategy (for interval-based extraction)
         auto_extract: If True, automatically extract memories on add_message (default: True, like mem0)
@@ -405,12 +405,6 @@ class NeuroMemory:
             await nm.conversations.add_message(user_id="alice", role="user", content="I work at Google")
             # → facts/preferences/episodes automatically extracted and stored
 
-        # Manual extraction mode
-        async with NeuroMemory(..., auto_extract=False) as nm:
-            await nm.conversations.add_message(...)
-            # No extraction yet
-            await nm.extract_memories(user_id="alice")  # Manual trigger
-
         # Strategy-based extraction (interval-based)
         async with NeuroMemory(
             ...,
@@ -425,7 +419,7 @@ class NeuroMemory:
         self,
         database_url: str,
         embedding: EmbeddingProvider,
-        llm: Optional[LLMProvider] = None,
+        llm: LLMProvider,
         storage: Optional[ObjectStorage] = None,
         extraction: Optional[ExtractionStrategy] = None,
         auto_extract: bool = True,
@@ -631,7 +625,7 @@ class NeuroMemory:
             )
             if not messages:
                 return
-            stats = await self.extract_memories(user_id, messages)
+            stats = await self._extract_memories(user_id, messages)
             logger.info(
                 "Auto-extracted memories: user=%s session=%s "
                 "facts=%d episodes=%d msgs=%d",
@@ -661,7 +655,7 @@ class NeuroMemory:
 
     # -- Top-level convenience methods --
 
-    async def add_memory(
+    async def _add_memory(
         self,
         user_id: str,
         content: str,
@@ -669,7 +663,7 @@ class NeuroMemory:
         metadata: dict | None = None,
         check_conflict: bool = True,
     ):
-        """Add a memory with auto-generated embedding.
+        """Add a memory with auto-generated embedding (internal).
 
         Args:
             check_conflict: For fact-type memories, detect contradicting
@@ -689,31 +683,6 @@ class NeuroMemory:
 
             return record
 
-    async def search(
-        self,
-        user_id: str,
-        query: str,
-        limit: int = 5,
-        memory_type: str | None = None,
-        created_after=None,
-        created_before=None,
-    ) -> list[dict]:
-        """Semantic search for memories.
-
-        **Performance**: Uses cached embedding to avoid redundant API calls.
-        """
-        from neuromemory.services.search import SearchService
-
-        # 🚀 Use cached embedding
-        query_embedding = await self._cached_embed(query)
-
-        async with self._db.session() as session:
-            svc = SearchService(session, self._embedding, self._db.pg_search_available)
-            return await svc.search(
-                user_id, query, limit, memory_type, created_after, created_before,
-                query_embedding=query_embedding
-            )
-
     async def get_memories_by_time_range(self, user_id: str, start_time, end_time=None, memory_type=None, limit=100, offset=0):
         from neuromemory.services.memory import MemoryService
         async with self._db.session() as session:
@@ -726,10 +695,8 @@ class NeuroMemory:
             svc = MemoryService(session)
             return await svc.get_recent_memories(user_id, days, memory_types, limit)
 
-    async def extract_memories(self, user_id: str, messages):
-        """Extract memories from conversation messages using LLM."""
-        if not self._llm:
-            raise RuntimeError("LLM provider required for memory extraction")
+    async def _extract_memories(self, user_id: str, messages):
+        """Extract memories from conversation messages using LLM (internal)."""
         from neuromemory.services.conversation import ConversationService
         from neuromemory.services.memory_extraction import MemoryExtractionService
         async with self._db.session() as session:
@@ -751,6 +718,11 @@ class NeuroMemory:
         query: str,
         limit: int = 20,
         decay_rate: float | None = None,
+        memory_type: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        event_after: datetime | None = None,
+        event_before: datetime | None = None,
         include_conversations: bool = False,
         as_of: datetime | None = None,
     ) -> dict:
@@ -761,6 +733,13 @@ class NeuroMemory:
             query: Natural language query.
             limit: Max number of merged results to return.
             decay_rate: Time-decay factor for recency scoring.
+            memory_type: Filter by memory type (e.g. "fact", "episodic").
+            created_after: Filter by created_at >= this datetime.
+            created_before: Filter by created_at <= this datetime.
+            event_after: Filter by extracted_timestamp >= this datetime.
+                Overrides auto-extracted time range from query.
+            event_before: Filter by extracted_timestamp <= this datetime.
+                Overrides auto-extracted time range from query.
             include_conversations: If True, also search raw conversation
                 fragments and include them in the result (adds latency).
                 Defaults to False — extracted memories are preferred.
@@ -782,15 +761,21 @@ class NeuroMemory:
         # Compute query embedding once, reuse for all parallel searches
         query_embedding = await self._cached_embed(query)
 
+        # Auto-extract time range from query, then let explicit args override
         temporal = TemporalExtractor()
-        event_after, event_before = temporal.extract_time_range(query)
+        auto_after, auto_before = temporal.extract_time_range(query)
+        _event_after = event_after if event_after is not None else auto_after
+        _event_before = event_before if event_before is not None else auto_before
         _decay = decay_rate or DEFAULT_DECAY_RATE
 
         # Parallel fetch: memories + profile (+ conversations + graph if enabled)
         coros = [
             self._fetch_vector_memories(
-                user_id, query, limit, query_embedding, event_after, event_before, _decay,
+                user_id, query, limit, query_embedding, _event_after, _event_before, _decay,
                 as_of=as_of,
+                memory_type=memory_type,
+                created_after=created_after,
+                created_before=created_before,
             ),
             self._fetch_user_profile(user_id),
         ]
@@ -1001,12 +986,37 @@ class NeuroMemory:
         event_before,
         decay_rate: float,
         as_of: datetime | None = None,
+        memory_type: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
     ) -> list[dict]:
         """Search extracted memories (vector + BM25 hybrid).
 
-        For temporal queries, runs episodic and fact searches in parallel.
+        When memory_type is specified, skips the episodic/fact split and
+        searches with that type directly. Otherwise, for temporal queries,
+        runs episodic and fact searches in parallel.
         """
         from neuromemory.services.search import SearchService
+
+        common_kwargs = dict(
+            decay_rate=decay_rate,
+            query_embedding=query_embedding,
+            as_of=as_of,
+            created_after=created_after,
+            created_before=created_before,
+        )
+
+        # User explicitly specified memory_type → single search
+        if memory_type:
+            async with self._db.session() as session:
+                svc = SearchService(session, self._embedding, self._db.pg_search_available)
+                return await svc.scored_search(
+                    user_id, query, limit,
+                    memory_type=memory_type,
+                    event_after=event_after,
+                    event_before=event_before,
+                    **common_kwargs,
+                )
 
         if event_after or event_before:
             # Two sub-searches in parallel using separate sessions
@@ -1015,12 +1025,10 @@ class NeuroMemory:
                     svc = SearchService(s, self._embedding, self._db.pg_search_available)
                     return await svc.scored_search(
                         user_id, query, limit,
-                        decay_rate=decay_rate,
-                        query_embedding=query_embedding,
                         memory_type="episodic",
                         event_after=event_after,
                         event_before=event_before,
-                        as_of=as_of,
+                        **common_kwargs,
                     )
 
             async def _facts():
@@ -1028,10 +1036,8 @@ class NeuroMemory:
                     svc = SearchService(s, self._embedding, self._db.pg_search_available)
                     return await svc.scored_search(
                         user_id, query, limit,
-                        decay_rate=decay_rate,
-                        query_embedding=query_embedding,
                         exclude_types=["episodic"],
-                        as_of=as_of,
+                        **common_kwargs,
                     )
 
             episodic_results, fact_results = await asyncio.gather(_episodic(), _facts())
@@ -1047,9 +1053,7 @@ class NeuroMemory:
                 svc = SearchService(session, self._embedding, self._db.pg_search_available)
                 return await svc.scored_search(
                     user_id, query, limit,
-                    decay_rate=decay_rate,
-                    query_embedding=query_embedding,
-                    as_of=as_of,
+                    **common_kwargs,
                 )
 
     async def _fetch_user_profile(self, user_id: str) -> dict:
@@ -1208,9 +1212,6 @@ class NeuroMemory:
         batch_size: int = 50,
     ) -> dict:
         """Internal implementation of reflect()."""
-        if not self._llm:
-            raise RuntimeError("LLM provider required for reflection")
-
         from neuromemory.services.reflection import ReflectionService
         from sqlalchemy import text as sql_text
 

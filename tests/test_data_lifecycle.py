@@ -12,11 +12,12 @@ TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432
 
 
 @pytest_asyncio.fixture
-async def nm_graph(mock_embedding):
+async def nm_graph(mock_embedding, mock_llm):
     """NeuroMemory instance with graph enabled."""
     instance = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=mock_llm,
         graph_enabled=True,
     )
     await instance.init()
@@ -33,7 +34,7 @@ class TestDeleteUserData:
         user_id = "delete_all_u1"
 
         # Add various data types
-        await nm_graph.add_memory(user_id=user_id, content="test memory", memory_type="fact")
+        await nm_graph._add_memory(user_id=user_id, content="test memory", memory_type="fact")
         await nm_graph.conversations.add_message(user_id=user_id, role="user", content="hello")
         await nm_graph.kv.set(user_id, "profile", "name", "Test User")
         await nm_graph.graph.create_node(NodeType.PERSON, "test_person", user_id=user_id)
@@ -56,8 +57,8 @@ class TestDeleteUserData:
         """Deleting one user's data should not affect another user."""
         u1, u2 = "delete_iso_u1", "delete_iso_u2"
 
-        await nm_graph.add_memory(user_id=u1, content="u1 memory")
-        await nm_graph.add_memory(user_id=u2, content="u2 memory")
+        await nm_graph._add_memory(user_id=u1, content="u1 memory")
+        await nm_graph._add_memory(user_id=u2, content="u2 memory")
 
         await nm_graph.delete_user_data(u1)
 
@@ -86,7 +87,7 @@ class TestExportUserData:
         """export_user_data should include memories, conversations, kv, etc."""
         user_id = "export_u1"
 
-        await nm.add_memory(user_id=user_id, content="export test memory", memory_type="fact")
+        await nm._add_memory(user_id=user_id, content="export test memory", memory_type="fact")
         await nm.conversations.add_message(user_id=user_id, role="user", content="export hello")
         await nm.kv.set(user_id, "profile", "lang", "en")
 

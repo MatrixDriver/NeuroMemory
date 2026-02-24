@@ -45,11 +45,12 @@ docker compose -f docker-compose.yml up -d db
 ### 2.1 基础初始化
 
 ```python
-from neuromemory import NeuroMemory, SiliconFlowEmbedding
+from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
 
 nm = NeuroMemory(
     database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
     embedding=SiliconFlowEmbedding(api_key="your-key"),
+    llm=OpenAILLM(api_key="your-llm-key", model="deepseek-chat"),
 )
 await nm.init()   # 创建表、初始化扩展
 
@@ -64,8 +65,9 @@ await nm.close()  # 关闭连接池
 async with NeuroMemory(
     database_url="postgresql+asyncpg://...",
     embedding=SiliconFlowEmbedding(api_key="..."),
+    llm=OpenAILLM(api_key="...", model="deepseek-chat"),
 ) as nm:
-    await nm.add_memory(user_id="alice", content="Hello")
+    await nm.conversations.add_message(user_id="alice", role="user", content="Hello")
     # 自动调用 init() 和 close()
 ```
 
@@ -82,7 +84,7 @@ from neuromemory import (
 nm = NeuroMemory(
     database_url="postgresql+asyncpg://user:pass@host:5432/db",
     embedding=SiliconFlowEmbedding(api_key="..."),
-    llm=OpenAILLM(                          # 可选：记忆提取
+    llm=OpenAILLM(                          # 必需：记忆提取和反思
         api_key="...",
         model="deepseek-chat",
         base_url="https://api.deepseek.com/v1",
@@ -103,54 +105,50 @@ nm = NeuroMemory(
 |------|------|------|------|
 | database_url | str | 是 | PostgreSQL 连接字符串 |
 | embedding | EmbeddingProvider | 是 | Embedding 服务 |
-| llm | LLMProvider | 否 | LLM 服务（记忆提取需要） |
+| llm | LLMProvider | 是 | LLM 服务（记忆提取和反思） |
 | storage | ObjectStorage | 否 | 文件存储（文件功能需要） |
 | pool_size | int | 否 | 连接池大小（默认 10） |
 
 ---
 
-## 3. 语义记忆
+## 3. 记忆写入与检索
 
-### 3.1 添加记忆
+### 3.1 通过对话写入记忆
+
+记忆通过 `add_message()` 自动提取，无需手动添加：
 
 ```python
-# 基础用法
-embedding = await nm.add_memory(
+# 存储对话消息，自动提取记忆（facts/episodes/relations）
+await nm.conversations.add_message(
     user_id="alice",
+    role="user",
     content="I work at ABC Company as a software engineer",
 )
-
-# 带类型和元数据
-embedding = await nm.add_memory(
-    user_id="alice",
-    content="Attended team meeting on project planning",
-    memory_type="episodic",
-    metadata={"date": "2026-02-10", "participants": ["bob"]},
-)
+# → 自动提取: fact: "在 ABC Company 工作", fact: "软件工程师"
 ```
 
-记忆类型建议：
+记忆类型（由 LLM 自动分类）：
 
 | 类型 | 说明 | 示例 |
 |------|------|------|
 | `fact` | 事实性知识 | "Python 是一种编程语言" |
 | `episodic` | 事件记录 | "昨天参加了项目会议" |
-| `document` | 文档内容 | 自动从文件提取 |
-| `general` | 通用（默认） | 其他 |
+| `insight` | 洞察（reflect 生成） | "用户倾向于晚上工作" |
+| `general` | 通用 | 其他 |
 
 > **注**：用户偏好（如"喜欢喝咖啡"）由 LLM 自动提取后存入 profile（KV 存储），不作为独立记忆类型。
 
-### 3.2 语义检索
+### 3.2 混合检索（recall）
 
 ```python
-# 基础检索
-results = await nm.search(
+# 基础检索（三因子评分：相关性 x 时效性 x 重要性）
+result = await nm.recall(
     user_id="alice",
     query="Where does Alice work?",
 )
 
 # 带过滤
-results = await nm.search(
+result = await nm.recall(
     user_id="alice",
     query="meetings",
     memory_type="episodic",
@@ -158,9 +156,8 @@ results = await nm.search(
 )
 
 # 结果格式
-for r in results:
-    print(f"[{r['similarity']:.2f}] {r['content']}")
-    # r['id'], r['memory_type'], r['metadata'], r['created_at']
+for r in result["merged"]:
+    print(f"[{r['score']:.2f}] {r['content']}")
 ```
 
 ---
@@ -516,7 +513,7 @@ stats = await nm.get_memory_timeline(
 
 ```python
 try:
-    await nm.add_memory(user_id="alice", content="test")
+    result = await nm.recall(user_id="alice", query="test")
 except Exception as e:
     # 数据库连接错误、Embedding API 错误等
     print(f"Error: {e}")
@@ -756,7 +753,7 @@ def build_system_prompt(recall_result: dict, user_input: str) -> str:
 | **merged 按类型分层** | facts/insights 按相关性，episodes 按时间升序排列，呈现完整时间线 |
 | **时间戳含义要说清** | fact 时间 = 用户提及时间；episodic 时间 = 事件发生时间；需在 prompt 中注明区别 |
 | **graph_context 补充结构化知识** | 向量检索可能遗漏"alice 在 Google 工作"这类关系，图谱能补充 |
-| **insight 无需单独 search** | 默认 `reflection_interval=20`，insight 自动进入 merged，无需额外调用 |
+| **insight 自动包含** | 默认 `reflection_interval=20`，insight 自动进入 merged，无需额外调用 |
 | **token 预算控制** | 每类记忆取 3-5 条，总记忆上下文建议 400-600 tokens |
 | **自然注入，不逐条引用** | system prompt 结尾提示 LLM"像朋友一样对话"，避免机械引用 |
 

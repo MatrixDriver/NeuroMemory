@@ -11,15 +11,9 @@
 - [初始化](#初始化)
 - [易混淆 API 说明](#易混淆-api-说明) ⚠️ **必读**
 - [核心 API](#核心-api)
-  - [写入 API 对比](#写入-api-对比)
-    - [add_message() - 添加对话消息](#add_message---添加对话消息) ⭐ **最常用**
-    - [add_memory() - 直接添加记忆](#add_memory---直接添加记忆)
-  - [检索 API 对比](#检索-api-对比)
-    - [recall() - 混合检索](#recall---混合检索) ⭐ **推荐**
-    - [search() - 向量检索](#search---向量检索)
-  - [记忆管理 API 对比](#记忆管理-api-对比)
-    - [extract_memories() - 提取记忆](#extract_memories---提取记忆)
-    - [reflect() - 记忆整理](#reflect---记忆整理)
+  - [add_message() - 添加对话消息](#add_message---添加对话消息) ⭐ **最常用**
+  - [recall() - 混合检索](#recall---混合检索) ⭐ **推荐**
+  - [reflect() - 记忆整理](#reflect---记忆整理)
 - [对话管理（完整 API）](#对话管理完整-api)
 - [KV 存储](#kv-存储)
 - [文件管理](#文件管理)
@@ -39,7 +33,7 @@ from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM, S3Storage
 nm = NeuroMemory(
     database_url: str,
     embedding: EmbeddingProvider,
-    llm: LLMProvider | None = None,
+    llm: LLMProvider,
     storage: ObjectStorage | None = None,
     auto_extract: bool = True,
     graph_enabled: bool = False,
@@ -55,7 +49,7 @@ nm = NeuroMemory(
 |------|------|------|------|
 | `database_url` | `str` | ✅ | PostgreSQL 连接字符串，格式：`postgresql+asyncpg://user:pass@host:port/db` |
 | `embedding` | `EmbeddingProvider` | ✅ | Embedding 提供者（SiliconFlowEmbedding / OpenAIEmbedding） |
-| `llm` | `LLMProvider` | ❌ | LLM 提供者，用于自动提取和 `reflect()` |
+| `llm` | `LLMProvider` | ✅ | LLM 提供者，用于自动提取和 `reflect()` |
 | `storage` | `ObjectStorage` | ❌ | 对象存储，用于文件管理（S3Storage） |
 | `auto_extract` | `bool` | ❌ | 是否自动提取记忆（每次 `add_message()` 时），默认 `True` |
 | `reflection_interval` | `int` | ❌ | 每 N 次提取后自动在后台运行 `reflect()`（0 = 禁用，默认 `20`）。需要配置 `llm`。 |
@@ -81,7 +75,7 @@ async with NeuroMemory(
 async with NeuroMemory(
     database_url="...",
     embedding=SiliconFlowEmbedding(api_key="sk-xxx"),
-    llm=OpenAILLM(api_key="sk-xxx", model="deepseek-chat"),
+    llm=OpenAILLM(api_key="sk-xxx", model="deepseek-chat"),  # 必需
     auto_extract=False,  # 关闭自动提取
 ) as nm:
     await nm.conversations.add_message(user_id="alice", role="user", content="I work at Google")
@@ -90,94 +84,38 @@ async with NeuroMemory(
 
 ---
 
-## 易混淆 API 说明
+## 公共 API 概览
 
-NeuroMemory 有三组容易混淆的 API，请先理解它们的区别：
+NeuroMemory 的公共 API 围绕三个核心操作：
 
-### ✏️ 写入 API：add_message() vs add_memory()
+| API | 用途 | 说明 |
+|-----|------|------|
+| **add_message()** ⭐ | 存储对话消息 + 自动提取记忆 | 对话驱动，LLM 自动提取 facts/episodes/relations |
+| **recall()** ⭐ | 智能混合检索 | 三因子向量（相关性x时效x重要性）+ 图实体检索 + 去重 |
+| **reflect()** ⭐ | 生成洞察 + 更新画像 | 定期调用，分析记忆、提炼洞察 |
 
-| API | 用途 | 写入目标 | 何时使用 |
-|-----|------|---------|---------|
-| **add_message()** ⭐ | 存储对话消息 + 自动提取记忆 | 对话历史表 + 记忆表（默认 `auto_extract=True`） | **日常使用（推荐）**：对话驱动，记忆自动提取 |
-| **add_memory()** | 直接写入记忆 | 记忆表（embedding） | **特定场景**：手动导入、批量初始化、已知结构化信息 |
-
-**示例对比**：
+**示例**：
 ```python
-# add_message(): 对话驱动（推荐），默认自动提取
-# v0.2.0: 一次调用即可，自动提取记忆
+# 1. 对话驱动（推荐），默认自动提取
 await nm.conversations.add_message(user_id="alice", role="user",
     content="我在 Google 工作，做后端开发")
 # → 自动提取: fact: "在 Google 工作", fact: "做后端开发"
 # → 自动标注: importance=8, emotion={valence: 0.3, arousal: 0.2}
 # → 立即可检索
 
-# add_memory(): 直接写入（手动指定一切）
-await nm.add_memory(user_id="alice", content="在 Google 工作",
-    memory_type="fact", metadata={"importance": 8})
-# → 直接存入记忆库，不经过对话和 LLM 提取
-```
-
-**核心区别**：
-- `add_message()`: **对话驱动 + 自动提取** - 存对话 → LLM 自动提取记忆（含情感、重要性）→ 立即可用
-- `add_memory()`: **手动写入** - 跳过对话，直接存记忆（需自行指定类型和元数据）
-
----
-
-### 📚 检索 API：recall() vs search()
-
-| API | 用途 | 检索方式 | 何时使用 |
-|-----|------|---------|---------|
-| **recall()** ⭐ | 智能混合检索 | 三因子向量（相关性×时效×重要性）+ 图实体检索 + 去重 | **日常使用（推荐）**：需要考虑时间、重要性的综合召回 |
-| **search()** | 纯语义检索 | 仅 embedding 余弦相似度 | **特定场景**：只需语义相似度，不考虑时间和重要性 |
-
-**示例对比**：
-```python
-# recall(): 综合考虑，最近的重要记忆优先
+# 2. 召回记忆（综合考虑，最近的重要记忆优先）
 result = await nm.recall(user_id="alice", query="工作")
 # → "昨天面试 Google"（最近 + 重要）优先于 "去年在微软实习"（久远）
 
-# search(): 只看语义，可能返回很久以前的记忆
-results = await nm.search(user_id="alice", query="工作")
-# → "去年在微软实习" 和 "昨天面试 Google" 都可能返回，只按相似度排序
-```
-
----
-
-### 🧠 记忆管理 API：reflect() vs extract_memories()
-
-| API | 用途 | 处理内容 | 何时使用 |
-|-----|------|---------|---------|
-| **reflect()** ⭐ | 生成洞察 + 更新画像 | 生成行为模式、阶段总结 + 更新情感画像 | **定期调用**：分析记忆、提炼洞察 |
-| **extract_memories()** | 提取基础记忆 | 从对话中提取事实/偏好/关系（不生成洞察） | **内部使用**：由 `auto_extract` 自动调用 |
-
-**示例（v0.2.0）**：
-```python
-# 默认模式：add_message() 自动提取基础记忆
-await nm.conversations.add_message(user_id="alice", role="user", content="我在 Google 工作")
-# → 自动提取: fact: "在 Google 工作", relation: (alice)-[works_at]->(Google)
-# → 立即可通过 recall() 检索
-
-# reflect(): 定期调用，生成洞察
+# 3. 定期调用，生成洞察
 result = await nm.reflect(user_id="alice")
 # → 洞察: "用户近期求职，面试了 Google 和微软"
 # → 画像: 更新情感状态
-# → 不再重复提取基础事实（已由 add_message 完成）
-
-# extract_memories(): 内部方法，由 auto_extract 自动调用
-# 通常不需要直接调用
 ```
-
-**核心区别（v0.2.0）**：
-- `reflect()`: **洞察生成** - 分析已有记忆，生成行为模式和阶段总结
-- `extract_memories()`: **基础提取** - 从对话提取事实，由 `add_message()` 自动调用（内部）
 
 ---
 
 ## 核心 API
-
-## 写入 API 对比
-
-这两个 API 都用于"写入"数据，但写入目标不同。**日常使用推荐 add_message()**。
 
 ### add_message() - 添加对话消息
 
@@ -195,7 +133,7 @@ message = await nm.conversations.add_message(
 
 **行为变化（v0.2.0）**：
 - 当 `auto_extract=True`（默认）时，每次调用会自动提取记忆到记忆库
-- 提取的记忆立即可通过 `recall()` 或 `search()` 检索
+- 提取的记忆立即可通过 `recall()` 检索
 - 如需关闭自动提取，初始化时设置 `auto_extract=False`
 
 **参数**：
@@ -272,86 +210,6 @@ session_id, msg_ids = await nm.conversations.add_messages_batch(
 
 ---
 
-### add_memory() - 直接添加记忆
-
-直接添加结构化记忆，无需 LLM 提取。适用于手动导入、批量初始化等场景。
-
-```python
-memory_id = await nm.add_memory(
-    user_id: str,
-    content: str,
-    memory_type: str = "general",
-    metadata: dict | None = None,
-) -> str
-```
-
-**参数**：
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `user_id` | `str` | - | 用户 ID |
-| `content` | `str` | - | 记忆内容 |
-| `memory_type` | `str` | `"general"` | 记忆类型：`fact`, `episodic`, `insight`, `general` |
-| `metadata` | `dict` | `None` | 元数据，支持 `importance`, `emotion`, `tags` 等 |
-
-**示例**：
-
-```python
-# 添加事实记忆
-await nm.add_memory(
-    user_id="alice",
-    content="在 Google 工作",
-    memory_type="fact",
-    metadata={"importance": 8, "source": "user_profile"}
-)
-
-# 添加情景记忆（带情感标注）
-await nm.add_memory(
-    user_id="alice",
-    content="昨天面试很紧张",
-    memory_type="episodic",
-    metadata={
-        "importance": 7,
-        "emotion": {
-            "valence": -0.6,   # 情感效价 (-1~1)
-            "arousal": 0.8,    # 情感唤醒 (0~1)
-            "label": "焦虑"
-        }
-    }
-)
-```
-
----
-
-### ✏️ add_message() vs add_memory() 对比
-
-| 特性 | add_message() (v0.2.0) | add_memory() |
-|------|--------------|-------------|
-| **写入目标** | 对话历史表 + 记忆表 | 记忆表（embedding） |
-| **记忆生成** | **自动提取**（默认 `auto_extract=True`） | 直接写入，立即可检索 |
-| **情感标注** | ✅ LLM 自动标注 | ❌ 需手动指定 |
-| **重要性评分** | ✅ LLM 自动评估 | ❌ 需手动指定 |
-| **记忆分类** | ✅ LLM 自动分类（fact/episode/relation） | ❌ 需手动指定 memory_type |
-| **图关系** | ✅ 自动提取关系到知识图谱 | ❌ 不涉及图数据库 |
-| **LLM 依赖** | ✅ 需要 LLM（自动提取） | 不需要 LLM |
-| **推荐场景** | 日常对话（推荐） | 手动导入、批量初始化、已知结构化数据 |
-
-**何时使用 add_message()**：
-- ✅ 构建对话 Agent（推荐）
-- ✅ 希望自动提取记忆、情感、关系
-- ✅ 日常对话场景
-
-**何时使用 add_memory()**：
-- 批量导入已有数据（如从其他系统迁移）
-- 手动添加已知信息（如用户资料）
-- 不想依赖 LLM 提取
-
----
-
-## 检索 API 对比
-
-这两个 API 都用于检索记忆，但检索策略不同。**日常使用推荐 recall()**。
-
 ### recall() - 混合检索
 
 **RRF 混合检索（向量 + BM25）+ 图融合排序**，综合召回相关记忆（推荐使用）。评分公式为 `rrf_score × recency × importance × graph_boost`，其中 rrf_score 通过 Reciprocal Rank Fusion 融合向量相似度和 BM25 关键词匹配，graph_boost 通过图三元组覆盖度提升命中记忆的排名。图三元组本身也参与 `merged` 统一排序。
@@ -363,6 +221,11 @@ result = await nm.recall(
     limit: int = 20,
     decay_rate: float | None = None,
     include_conversations: bool = False,
+    memory_type: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    event_after: datetime | None = None,
+    event_before: datetime | None = None,
 ) -> dict
 ```
 
@@ -375,6 +238,11 @@ result = await nm.recall(
 | `limit` | `int` | `20` | 返回结果数量 |
 | `decay_rate` | `float` | `86400*30` | 时间衰减率（秒），30 天 |
 | `include_conversations` | `bool` | `False` | 是否将原始对话片段合并进 `merged[]`（默认关闭，节省 token） |
+| `memory_type` | `str` | `None` | 过滤记忆类型（`fact`, `episodic`, `insight`, `general`） |
+| `created_after` | `datetime` | `None` | 只返回该时间之后创建的记忆 |
+| `created_before` | `datetime` | `None` | 只返回该时间之前创建的记忆 |
+| `event_after` | `datetime` | `None` | 只返回事件时间在该时间之后的记忆 |
+| `event_before` | `datetime` | `None` | 只返回事件时间在该时间之前的记忆 |
 
 **返回格式**：
 
@@ -495,101 +363,7 @@ print(f"图检索: {len(result['graph_results'])} 条")
 
 ---
 
-### search() - 混合检索（向量 + BM25）
-
-混合检索，通过 Reciprocal Rank Fusion 融合向量相似度和 BM25 关键词匹配（不考虑时间和重要性）。
-
-```python
-results = await nm.search(
-    user_id: str,
-    query: str,
-    limit: int = 5,
-    memory_type: str | None = None,
-    created_after: datetime | None = None,
-    created_before: datetime | None = None,
-    event_after: datetime | None = None,
-    event_before: datetime | None = None,
-) -> list[dict]
-```
-
-**参数**：
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `user_id` | `str` | - | 用户 ID |
-| `query` | `str` | - | 查询文本 |
-| `limit` | `int` | `5` | 返回结果数量 |
-| `memory_type` | `str` | `None` | 过滤记忆类型 |
-| `created_after` | `datetime` | `None` | 只返回该时间之后创建的记忆 |
-| `created_before` | `datetime` | `None` | 只返回该时间之前创建的记忆 |
-| `event_after` | `datetime` | `None` | 只返回事件时间在该时间之后的记忆 |
-| `event_before` | `datetime` | `None` | 只返回事件时间在该时间之前的记忆 |
-
-**返回格式**：
-
-```python
-[
-    {
-        "id": "uuid",
-        "content": "...",
-        "memory_type": "fact",
-        "metadata": {...},
-        "created_at": "2024-01-01T00:00:00",
-        "vector_score": 0.88,  # 向量相似度分数
-        "bm25_score": 12.5,    # BM25 关键词匹配分数
-        "rrf_score": 0.032,    # RRF 融合分数
-    },
-    ...
-]
-```
-
-**示例**：
-
-```python
-# 检索所有类型
-results = await nm.search(user_id="alice", query="工作", limit=10)
-
-# 只检索洞察
-insights = await nm.search(
-    user_id="alice",
-    query="行为模式",
-    memory_type="insight",
-    limit=5
-)
-```
-
----
-
-### 🔍 recall() vs search() 对比
-
-| 特性 | recall() | search() |
-|------|----------|----------|
-| **检索方式** | RRF 混合检索 + 图检索 | RRF 混合检索（向量 + BM25） |
-| **评分因素** | rrf_score × 时效性 × 重要性 × 图boost | 仅 rrf_score |
-| **结果来源** | vector_results + graph_results + merged（统一排序） | 单一列表 |
-| **时间衰减** | ✅ 支持（近期记忆优先） | ❌ 不考虑时间 |
-| **重要性** | ✅ 支持（重要记忆优先） | ❌ 不考虑重要性 |
-| **图实体** | ✅ 包含知识图谱关系 | ❌ 无图检索 |
-| **推荐场景** | 日常使用，构建对话 Agent | 纯语义搜索，特定类型筛选 |
-
-**何时使用 recall()**：
-- ✅ 构建对话 Agent（推荐）
-- ✅ 需要最相关的**最近**记忆
-- ✅ 考虑记忆重要性
-- ✅ 需要知识图谱关系
-
-**何时使用 search()**：
-- 只需要语义相似度，不考虑时间
-- 特定类型筛选（`memory_type="insight"`）
-- 调试或分析记忆分布
-
----
-
-## 记忆管理 API 对比
-
-推荐使用 `reflect()` 进行记忆处理。`extract_memories()` 是底层方法，由 `add_message()` 的 `auto_extract` 机制自动调用。
-
-### reflect() - 记忆整理 ⭐ 推荐
+### reflect() - 记忆整理
 
 **v0.2.0 更新**：专注于洞察生成和情感画像，基础记忆提取已由 `add_message()` 自动完成。
 
@@ -650,59 +424,6 @@ print(f"生成了 {result['insights_generated']} 条洞察")
 for insight in result["insights"]:
     print(f"[{insight['category']}] {insight['content']}")
 
-# 也可以通过 search 查找洞察
-insights = await nm.search(user_id="alice", query="行为模式", memory_type="insight")
-```
-
----
-
-### extract_memories() - 提取记忆（内部方法）
-
-**v0.2.0 更新**：此方法主要由 `add_message()` 内部调用（当 `auto_extract=True` 时），通常不需要直接使用。
-
-```python
-stats = await nm.extract_memories(
-    user_id: str,
-    messages: list,
-) -> dict
-```
-
-**提取内容**：事实 / 情景 / 关系 / 情感标注 / 重要性评分 / 用户画像（含偏好）
-
-**何时直接使用**：
-- 批量处理历史对话（关闭 `auto_extract`，手动批量提取）
-- 自定义提取逻辑
-
----
-
-### reflect() vs extract_memories() 对比（v0.2.0）
-
-| 特性 | reflect() ⭐ | extract_memories() |
-|------|-------------|-------------------|
-| **主要功能** | 洞察生成 + 画像更新 | 提取基础记忆 |
-| **处理对象** | 已有记忆 | 对话消息 |
-| **生成洞察** | ✅ 行为模式、阶段总结 | ❌ |
-| **更新画像** | ✅ 情感画像 | ❌ |
-| **提取事实** | ❌ 不再重复提取 | ✅ 提取事实/情景/关系 |
-| **LLM 调用** | 1-2 次（洞察生成） | 1 次 |
-| **推荐场景** | 定期调用（每天/周） | 内部自动调用（`add_message`） |
-
-**典型使用模式（v0.2.0）**：
-```python
-# 推荐：使用 auto_extract（默认）
-nm = NeuroMemory(
-    database_url="...",
-    embedding=SiliconFlowEmbedding(api_key="..."),
-    llm=OpenAILLM(api_key="..."),
-    auto_extract=True,  # 默认，每次 add_message 自动提取
-)
-
-# 对话时自动提取
-await nm.conversations.add_message(user_id, "user", content)
-# → 自动调用 extract_memories()
-
-# 定期生成洞察
-await nm.reflect(user_id)  # 分析记忆，生成洞察
 ```
 
 ---
@@ -904,7 +625,7 @@ messages = await nm.conversations.get_unextracted_messages(
 ) -> list[ConversationMessage]
 ```
 
-**获取尚未提取记忆的消息**，用于传入 `extract_memories()`。
+**获取尚未提取记忆的消息**。
 
 ### nm.conversations.close_session()
 
@@ -1342,12 +1063,8 @@ asyncio.run(main())
 ## 错误处理
 
 ```python
-from sqlalchemy.exc import IntegrityError
-
 try:
-    await nm.add_memory(user_id="alice", content="...")
-except IntegrityError:
-    print("记忆已存在或违反约束")
+    result = await nm.recall(user_id="alice", query="...")
 except Exception as e:
     print(f"错误: {e}")
 ```

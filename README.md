@@ -36,7 +36,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| **[API 参考](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/API.md)** | 完整的 Python API 文档（recall, search, extract_memories 等） |
+| **[API 参考](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/API.md)** | 完整的 Python API 文档（add_message, recall, reflect 等） |
 | **[快速开始](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
 | **[架构设计](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型、情感架构 |
 | **[使用指南](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/SDK_GUIDE.md)** | API 用法、代码示例、Prompt 组装最佳实践 |
@@ -90,10 +90,9 @@ docker compose -f docker-compose.yml up -d db
 - **SiliconFlow**：[siliconflow.cn](https://siliconflow.cn/)，需要 API Key
 - **OpenAI**：[platform.openai.com](https://platform.openai.com/)，需要 API Key
 
-### 3. LLM API Key（用于自动提取记忆，可选）
+### 3. LLM API Key（必需，用于自动提取记忆和反思）
 
 - [OpenAI](https://platform.openai.com/) 或 [DeepSeek](https://platform.deepseek.com/)
-- 不使用 LLM 时，仍可手动通过 `add_memory()` 添加记忆并用 `recall()`/`search()` 检索
 
 ### 4. MinIO/S3（可选，仅用于文件存储）
 
@@ -113,7 +112,7 @@ async def main():
     async with NeuroMemory(
         database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
         embedding=SiliconFlowEmbedding(api_key="your-key"),
-        llm=OpenAILLM(api_key="your-openai-key"),  # 用于自动提取记忆
+        llm=OpenAILLM(api_key="your-openai-key"),  # 必需，用于自动提取记忆
         auto_extract=True,  # 默认启用，像 mem0 那样实时提取记忆
     ) as nm:
         # 1. 存储对话消息 → 自动提取记忆（facts/episodes/relations）
@@ -141,7 +140,6 @@ NeuroMemory 的核心使用围绕三个操作：
 
 **插入记忆**（自动模式，默认）：
 - 对话驱动：`add_message()` 存储对话 **并自动提取记忆**（推荐，像 mem0）
-- 直接添加：`add_memory(user_id, content, memory_type)`（手动指定类型，不需要 LLM）
 
 **召回记忆（recall）**：
 - `await nm.recall(user_id, query)` — 综合考虑相关性、时效性、重要性，找出最匹配的记忆
@@ -177,10 +175,10 @@ NeuroMemory 提供 7 种记忆类型，每种有不同的存储和获取方式�
 | <nobr>**事实 Fact**</nobr> | Embedding + Graph | pgvector + 关系表 | `nm.recall(user_id, query)` | "在 Google 工作" |
 | <nobr>**情景 Episode**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | "昨天面试很紧张" |
 | <nobr>**关系 Relation**</nobr> | Graph Store | PostgreSQL 关系表 | `nm.graph.get_neighbors(user_id, type, id)` | `(user)-[works_at]->(Google)` |
-| <nobr>**洞察 Insight**</nobr> | Embedding | pgvector | `nm.search(user_id, query, memory_type="insight")` | "用户倾向于晚上工作" |
+| <nobr>**洞察 Insight**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | "用户倾向于晚上工作" |
 | <nobr>**情感画像**</nobr> | Table | PostgreSQL | `reflect()` 自动更新 | "容易焦虑，对技术兴奋" |
 | <nobr>**偏好 Preference**</nobr> | KV (Profile) | PostgreSQL | `nm.kv.get(user_id, "profile", "preferences")` | `["喜欢喝咖啡", "偏好深色模式"]` |
-| <nobr>**通用 General**</nobr> | Embedding | pgvector | `nm.search(user_id, query)` | 手动 `add_memory()` 的内容 |
+| <nobr>**通用 General**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | 通用记忆 |
 
 ### 单一 PostgreSQL 架构优势
 
@@ -219,7 +217,7 @@ NeuroMemory 的所有 API 都强制要求 `user_id` 参数，框架层面保证�
 
 ### LLM 驱动的记忆提取与反思
 
-- **提取** (`extract_memories`)：从对话中自动识别事实、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10），偏好存入用户画像
+- **提取**：`add_message()` 自动从对话中识别事实、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10），偏好存入用户画像
 - **反思** (`reflect`)：定期从近期记忆提炼高层洞察（行为模式、阶段总结），更新情感画像
 - **访问追踪**：自动记录 access_count 和 last_accessed_at，符合 ACT-R 记忆模型
 

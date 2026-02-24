@@ -17,11 +17,12 @@ TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432
 
 
 @pytest_asyncio.fixture
-async def nm_graph(mock_embedding):
+async def nm_graph(mock_embedding, mock_llm):
     """NeuroMemory instance with graph_enabled=True."""
     instance = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
+        llm=mock_llm,
         graph_enabled=True,
     )
     await instance.init()
@@ -51,12 +52,12 @@ class TestGraphBoost:
     async def test_graph_boost_dual_hit(self, nm_graph):
         """Memory containing both subject and object of a triple gets higher boost."""
         user_id = "boost_dual"
-        await nm_graph.add_memory(
+        await nm_graph._add_memory(
             user_id=user_id,
             content="张三在 Google 工作了3年",
             memory_type="fact",
         )
-        await nm_graph.add_memory(
+        await nm_graph._add_memory(
             user_id=user_id,
             content="今天天气很好适合出游",
             memory_type="episodic",
@@ -74,7 +75,7 @@ class TestGraphBoost:
     async def test_graph_boost_single_hit(self, nm_graph):
         """Memory containing only one entity of a triple gets a smaller boost."""
         user_id = "boost_single"
-        await nm_graph.add_memory(
+        await nm_graph._add_memory(
             user_id=user_id,
             content="Google 发布了新产品",
             memory_type="fact",
@@ -94,7 +95,7 @@ class TestGraphBoost:
     async def test_graph_boost_no_graph(self, nm):
         """Without graph enabled, no graph_boost field appears."""
         user_id = "boost_none"
-        await nm.add_memory(user_id=user_id, content="no graph test memory")
+        await nm._add_memory(user_id=user_id, content="no graph test memory")
         result = await nm.recall(user_id=user_id, query="no graph test memory")
 
         assert len(result["merged"]) > 0
@@ -106,7 +107,7 @@ class TestGraphBoost:
     async def test_graph_results_in_merged(self, nm_graph):
         """Graph triples should appear in merged with source='graph'."""
         user_id = "graph_merged"
-        await nm_graph.add_memory(user_id=user_id, content="测试记忆内容")
+        await nm_graph._add_memory(user_id=user_id, content="测试记忆内容")
         await _store_triple(nm_graph, user_id, "user", "lives_in", "北京")
 
         result = await nm_graph.recall(user_id=user_id, query="北京")
@@ -121,7 +122,7 @@ class TestGraphBoost:
         """Merged results should be sorted by score descending."""
         user_id = "sort_test"
         for i in range(5):
-            await nm_graph.add_memory(
+            await nm_graph._add_memory(
                 user_id=user_id,
                 content=f"memory item number {i} about sorting",
                 memory_type="fact",
@@ -138,7 +139,7 @@ class TestGraphBoost:
         """Graph boost should be capped at 2.0 even with many matching triples."""
         user_id = "boost_cap"
         # Memory that mentions both alice and bob
-        await nm_graph.add_memory(
+        await nm_graph._add_memory(
             user_id=user_id,
             content="alice and bob went to google together with charlie",
             memory_type="episodic",

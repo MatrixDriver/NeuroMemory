@@ -391,7 +391,7 @@ class TestRecallScenarios:
     async def test_recall_finds_inserted_memory(self, nm):
         """Insert a memory, recall with the same text, verify it appears."""
         content = "我在 Google 做后端开发"
-        await nm.add_memory(user_id="scene_u1", content=content)
+        await nm._add_memory(user_id="scene_u1", content=content)
 
         result = await nm.recall(user_id="scene_u1", query=content)
         recalled_contents = [m["content"] for m in result["merged"]]
@@ -408,7 +408,7 @@ class TestRecallScenarios:
             "用 Python 写代码",
         ]
         for content in inserted:
-            await nm.add_memory(user_id="scene_u2", content=content)
+            await nm._add_memory(user_id="scene_u2", content=content)
 
         result = await nm.recall(user_id="scene_u2", query="工作", limit=10)
         recalled_contents = {m["content"] for m in result["merged"]}
@@ -428,7 +428,7 @@ class TestRecallScenarios:
             ("fact", "本科毕业于清华大学"),
         ]
         for mtype, content in memories:
-            await nm.add_memory(user_id="scene_u3", content=content, memory_type=mtype)
+            await nm._add_memory(user_id="scene_u3", content=content, memory_type=mtype)
 
         # Query with exact content of one memory
         target = "在字节跳动担任算法工程师"
@@ -439,15 +439,15 @@ class TestRecallScenarios:
     @pytest.mark.asyncio
     async def test_recall_with_importance_ranking(self, nm):
         """Insert memories with different importance, verify high importance recalled first."""
-        await nm.add_memory(
+        await nm._add_memory(
             user_id="scene_u4", content="random chat about weather",
             metadata={"importance": 1},
         )
-        await nm.add_memory(
+        await nm._add_memory(
             user_id="scene_u4", content="user birthday is March 15",
             metadata={"importance": 9},
         )
-        await nm.add_memory(
+        await nm._add_memory(
             user_id="scene_u4", content="prefers dark mode",
             metadata={"importance": 3},
         )
@@ -463,8 +463,8 @@ class TestRecallScenarios:
     @pytest.mark.asyncio
     async def test_recall_preserves_memory_type(self, nm):
         """Recalled memories should carry their original memory_type."""
-        await nm.add_memory(user_id="scene_u5", content="fact content", memory_type="fact")
-        await nm.add_memory(user_id="scene_u5", content="episodic content", memory_type="episodic")
+        await nm._add_memory(user_id="scene_u5", content="fact content", memory_type="fact")
+        await nm._add_memory(user_id="scene_u5", content="episodic content", memory_type="episodic")
 
         result = await nm.recall(user_id="scene_u5", query="content", limit=10)
         types_found = {m["memory_type"] for m in result["merged"]}
@@ -476,12 +476,12 @@ class TestRecallScenarios:
         user_id = "scene_u6"
 
         # Round 1: insert first memory
-        await nm.add_memory(user_id=user_id, content="my name is Alice")
+        await nm._add_memory(user_id=user_id, content="my name is Alice")
         result1 = await nm.recall(user_id=user_id, query="my name is Alice")
         assert len(result1["merged"]) == 1
 
         # Round 2: insert second memory, recall should find both
-        await nm.add_memory(user_id=user_id, content="I live in Beijing")
+        await nm._add_memory(user_id=user_id, content="I live in Beijing")
         result2 = await nm.recall(user_id=user_id, query="name", limit=10)
         assert len(result2["merged"]) >= 1
         # Total memories should be 2 now
@@ -491,10 +491,10 @@ class TestRecallScenarios:
     @pytest.mark.asyncio
     async def test_recall_different_users_independent(self, nm):
         """Two users with separate memories should recall independently."""
-        await nm.add_memory(user_id="alice", content="Alice works at Google")
-        await nm.add_memory(user_id="alice", content="Alice likes Python")
-        await nm.add_memory(user_id="bob", content="Bob works at Microsoft")
-        await nm.add_memory(user_id="bob", content="Bob likes Java")
+        await nm._add_memory(user_id="alice", content="Alice works at Google")
+        await nm._add_memory(user_id="alice", content="Alice likes Python")
+        await nm._add_memory(user_id="bob", content="Bob works at Microsoft")
+        await nm._add_memory(user_id="bob", content="Bob likes Java")
 
         alice_result = await nm.recall(user_id="alice", query="works at", limit=10)
         bob_result = await nm.recall(user_id="bob", query="works at", limit=10)
@@ -510,7 +510,7 @@ class TestRecallScenarios:
     @pytest.mark.asyncio
     async def test_recall_returns_scores_for_ranking(self, nm):
         """Each vector result should have relevance, recency, importance, score."""
-        await nm.add_memory(
+        await nm._add_memory(
             user_id="scene_u7", content="test memory with score",
             metadata={"importance": 7},
         )
@@ -537,7 +537,7 @@ class TestRecallFacade:
     @pytest.mark.asyncio
     async def test_recall_returns_correct_keys(self, nm):
         """recall() should return vector_results, graph_results, merged."""
-        await nm.add_memory(user_id="facade_u1", content="facade test")
+        await nm._add_memory(user_id="facade_u1", content="facade test")
         result = await nm.recall(user_id="facade_u1", query="facade test")
 
         assert "vector_results" in result
@@ -547,7 +547,7 @@ class TestRecallFacade:
     @pytest.mark.asyncio
     async def test_recall_merged_has_source_tag(self, nm):
         """Each item in merged should have a 'source' field."""
-        await nm.add_memory(user_id="facade_u2", content="source tag test")
+        await nm._add_memory(user_id="facade_u2", content="source tag test")
         result = await nm.recall(user_id="facade_u2", query="source tag test")
 
         assert len(result["merged"]) > 0
@@ -558,8 +558,8 @@ class TestRecallFacade:
     @pytest.mark.asyncio
     async def test_recall_merged_deduplicates(self, nm):
         """Duplicate content should appear only once in merged."""
-        await nm.add_memory(user_id="facade_u3", content="duplicate content A")
-        await nm.add_memory(user_id="facade_u3", content="duplicate content A")
+        await nm._add_memory(user_id="facade_u3", content="duplicate content A")
+        await nm._add_memory(user_id="facade_u3", content="duplicate content A")
         result = await nm.recall(user_id="facade_u3", query="duplicate content A")
 
         contents = [m["content"] for m in result["merged"]]
@@ -569,7 +569,7 @@ class TestRecallFacade:
     async def test_recall_respects_limit(self, nm):
         """merged should not exceed the requested limit."""
         for i in range(20):
-            await nm.add_memory(user_id="facade_u4", content=f"memory number {i}")
+            await nm._add_memory(user_id="facade_u4", content=f"memory number {i}")
 
         result = await nm.recall(user_id="facade_u4", query="memory number", limit=5)
         assert len(result["merged"]) <= 5
@@ -577,8 +577,8 @@ class TestRecallFacade:
     @pytest.mark.asyncio
     async def test_recall_user_isolation(self, nm):
         """recall() should only return memories of the queried user."""
-        await nm.add_memory(user_id="user_x", content="secret of X")
-        await nm.add_memory(user_id="user_y", content="secret of Y")
+        await nm._add_memory(user_id="user_x", content="secret of X")
+        await nm._add_memory(user_id="user_y", content="secret of Y")
 
         result = await nm.recall(user_id="user_x", query="secret")
         for item in result["merged"]:
@@ -595,7 +595,7 @@ class TestRecallFacade:
     @pytest.mark.asyncio
     async def test_recall_custom_decay_rate(self, nm):
         """Custom decay_rate should be passed through to scored_search."""
-        await nm.add_memory(
+        await nm._add_memory(
             user_id="facade_u5", content="decay rate test",
             metadata={"importance": 5},
         )
@@ -611,7 +611,7 @@ class TestRecallFacade:
     @pytest.mark.asyncio
     async def test_recall_default_decay_rate(self, nm):
         """Without decay_rate, should use DEFAULT_DECAY_RATE (30 days)."""
-        await nm.add_memory(
+        await nm._add_memory(
             user_id="facade_u6", content="default decay",
             metadata={"importance": 5},
         )
@@ -756,7 +756,7 @@ class TestRecallFullPipeline:
 
         # Step 2: Get unextracted messages and extract
         messages = await nm_with_llm.conversations.get_unextracted_messages(user_id)
-        result = await nm_with_llm.extract_memories(user_id, messages)
+        result = await nm_with_llm._extract_memories(user_id, messages)
 
         assert result["facts_extracted"] == 2
 
@@ -775,7 +775,7 @@ class TestRecallFullPipeline:
             content="我喜欢用 Python 编程",
         )
         messages = await nm_with_llm.conversations.get_unextracted_messages(user_id)
-        await nm_with_llm.extract_memories(user_id, messages)
+        await nm_with_llm._extract_memories(user_id, messages)
 
         # Preferences should be in profile KV store
         pref = await nm_with_llm.kv.get(user_id, "profile", "preferences")
@@ -793,7 +793,7 @@ class TestRecallFullPipeline:
             content="我在 Google 工作",
         )
         messages = await nm_with_llm.conversations.get_unextracted_messages(user_id)
-        await nm_with_llm.extract_memories(user_id, messages)
+        await nm_with_llm._extract_memories(user_id, messages)
 
         recall_result = await nm_with_llm.recall(user_id=user_id, query="Google")
         for r in recall_result["vector_results"]:
@@ -840,14 +840,14 @@ class TestRecallFullPipeline:
             user_id=user_id, role="user", content="我在 Google 工作",
         )
         msgs1 = await nm_with_llm.conversations.get_unextracted_messages(user_id)
-        await nm_with_llm.extract_memories(user_id, msgs1)
+        await nm_with_llm._extract_memories(user_id, msgs1)
 
         # Conversation round 2 (same mock LLM response, but that's OK for structure testing)
         await nm_with_llm.conversations.add_message(
             user_id=user_id, role="user", content="住在北京海淀区",
         )
         msgs2 = await nm_with_llm.conversations.get_unextracted_messages(user_id)
-        await nm_with_llm.extract_memories(user_id, msgs2)
+        await nm_with_llm._extract_memories(user_id, msgs2)
 
         # Should have memories from both rounds
         recall_result = await nm_with_llm.recall(user_id=user_id, query="Google 北京", limit=10)

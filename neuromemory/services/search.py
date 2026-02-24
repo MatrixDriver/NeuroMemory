@@ -223,6 +223,8 @@ class SearchService:
         event_before: datetime | None = None,
         exclude_types: list[str] | None = None,
         as_of: datetime | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
     ) -> list[dict]:
         """Three-factor scored search with BM25 hybrid: relevance x recency x importance.
 
@@ -236,6 +238,8 @@ class SearchService:
             event_after: Filter episodes by extracted_timestamp >= this datetime
             event_before: Filter episodes by extracted_timestamp <= this datetime
             as_of: Time-travel query — return memories valid at this point in time.
+            created_after: Filter by created_at >= this datetime.
+            created_before: Filter by created_at <= this datetime.
         """
         if query_embedding is not None:
             query_vector = query_embedding
@@ -268,6 +272,14 @@ class SearchService:
         if event_before:
             filters += " AND extracted_timestamp <= :event_before"
             params["event_before"] = event_before
+
+        if created_after:
+            filters += " AND created_at >= :created_after"
+            params["created_after"] = created_after
+
+        if created_before:
+            filters += " AND created_at <= :created_before"
+            params["created_before"] = created_before
 
         # Time-travel filter
         if as_of is not None:

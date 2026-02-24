@@ -230,12 +230,12 @@ async def test_reflect_facade_method(db_session, mock_embedding):
     await nm.init()
 
     # Manually add memories to the memory store
-    await nm.add_memory(
+    await nm._add_memory(
         user_id="facade_user",
         content="I work at OpenAI on LLMs",
         memory_type="fact",
     )
-    await nm.add_memory(
+    await nm._add_memory(
         user_id="facade_user",
         content="Yesterday was very stressful",
         memory_type="episodic",

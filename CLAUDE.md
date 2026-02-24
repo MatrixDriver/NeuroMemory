@@ -140,7 +140,7 @@ from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM, S3Storage
 async with NeuroMemory(
     database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
     embedding=SiliconFlowEmbedding(api_key="..."),
-    llm=OpenAILLM(api_key="...", model="deepseek-chat"),  # 用于自动提取
+    llm=OpenAILLM(api_key="...", model="deepseek-chat"),  # 必需，用于自动提取和反思
     storage=S3Storage(endpoint="http://localhost:9000"),    # 可选
     auto_extract=True,       # 默认开启，每条 user 消息自动提取记忆
     graph_enabled=False,     # 是否启用图存储
@@ -153,16 +153,15 @@ async with NeuroMemory(
     result = await nm.recall(user_id="u1", query="workplace", include_conversations=False)
     # → {"vector_results": [...], "graph_results": [...], "merged": "..."}
 
+    # 带过滤参数的召回
+    result = await nm.recall(user_id="u1", query="workplace",
+                             memory_type="fact", created_after=some_datetime)
+
     # KV 存储
     await nm.kv.set("u1", "config", "language", "zh-CN")
 
     # 手动触发反思（生成洞察 + 情感画像）
     await nm.reflect(user_id="u1")
-
-    # 记忆管理
-    await nm.add_memory(user_id="u1", content="...", memory_type="fact")
-    await nm.search(user_id="u1", query="...", limit=5)
-    await nm.get_recent_memories(user_id="u1", days=7)
 
     # 图操作 (需要 graph_enabled=True)
     await nm.graph.create_node(node_type=NodeType.PERSON, node_id="u1")
