@@ -14,6 +14,7 @@
 6. [服务层](#6-服务层)
 7. [部署架构](#7-部署架构)
 8. [架构差异化：单一 PostgreSQL vs 多库拼装](#8-架构差异化单一-postgresql-vs-多库拼装)
+9. [情感架构](#9-情感架构)
 
 ---
 
@@ -491,6 +492,40 @@ NeuroMemory 作为库嵌入你的应用，不需要独立部署。只需确保�
 Mem0:    PostgreSQL + Qdrant Cloud + Neo4j Aura    → 3 个服务的连接串、认证、监控
 MemOS:   PostgreSQL + Redis Cloud + Qdrant + Neo4j → 4 个服务的运维负担
 ```
+
+---
+
+## 9. 情感架构
+
+### 9.1 三层情感设计
+
+NeuroMemory 实现了三层情感架构，从瞬时情感到长期画像全覆盖：
+
+| 层次 | 类型 | 存储位置 | 时间性 | 示例 |
+|------|------|---------|--------|------|
+| **微观** | 事件情感标注 | 记忆 metadata (valence/arousal/label) | 瞬时 | "说到面试时很紧张(valence=-0.6)" |
+| **中观** | 近期情感状态 | emotion_profiles.latest_state | 1-2周 | "最近工作压力大，情绪低落" |
+| **宏观** | 长期情感画像 | emotion_profiles.* | 长期稳定 | "容易焦虑，但对技术话题兴奋" |
+
+**各层职责**：
+
+- **微观**：捕捉瞬时情感，丰富记忆细节。每条记忆的 `metadata.emotion` 包含 `valence`（情感效价 -1~1）、`arousal`（唤醒度 0~1）、`label`（情感标签），由 LLM 提取时自动标注
+- **中观**：追踪近期状态，agent 可以关心"你最近还好吗"。`emotion_profiles.latest_state` 由 `reflect()` 自动更新
+- **宏观**：理解长期特质，形成真正的用户画像。`emotion_profiles` 中的 `dominant_emotions`、`valence_avg` 等字段反映长期情感倾向
+
+### 9.2 情感与记忆检索的联动
+
+情感标注不只是元数据——它直接参与 `recall()` 的评分计算：
+
+```
+recency = e^(-t / (decay_rate × (1 + arousal × 0.5)))
+```
+
+高情感唤醒（arousal）的记忆衰减更慢，模拟人类对强烈情感事件的持久记忆（闪光灯记忆效应）。
+
+### 9.3 隐私合规
+
+> **EU AI Act Article 5** 禁止自动推断用户人格（Big Five）或价值观。NeuroMemory 不自动推断此类信息。情感画像仅记录用户在对话中表达的情感状态，不做人格推断。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
 
 ---
 

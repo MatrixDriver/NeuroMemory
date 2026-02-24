@@ -18,6 +18,8 @@
 9. [时间查询](#9-时间查询)
 10. [错误处理](#10-错误处理)
 11. [自定义 Provider](#11-自定义-provider)
+12. [数据生命周期与分析](#12-数据生命周期与分析)
+13. [如何用 recall() 组装 Prompt](#13-如何用-recall-组装-prompt)
 
 ---
 
@@ -634,6 +636,129 @@ profile = await nm.entity_profile(user_id="alice", entity="Google")
 # profile["conversations"] — 提及该实体的对话
 # profile["timeline"] — 按时间排序的事件线
 ```
+
+---
+
+## 13. 如何用 recall() 组装 Prompt
+
+> 可运行的完整示例见 **[example/](../example/)**，支持终端交互、命令查询、自动记忆提取。
+
+这是使用 NeuroMemory 最关键的一步——**如何把 recall() 的结果变成高质量的 LLM 上下文**。正确组装 prompt 能充分利用 NeuroMemory 的全部能力：三因子检索、图谱关系、用户画像、情感洞察。
+
+### 13.1 recall() 返回的完整结构
+
+```python
+result = await nm.recall(user_id="alice", query=user_input, limit=10)
+
+# result 包含以下字段：
+result["merged"]               # ⭐ 主要使用：vector + graph + conversation 去重合并，已按评分排序
+result["user_profile"]         # ⭐ 用户画像：occupation, interests, identity 等
+result["graph_context"]        # ⭐ 图谱三元组文本：["alice → WORKS_AT → google", ...]
+result["vector_results"]       # 提取的记忆（fact/episodic/insight），含评分
+result["conversation_results"] # 原始对话片段，保留了日期细节
+result["graph_results"]        # 图谱原始三元组
+```
+
+**merged 中每条记忆的关键字段**：
+```python
+# 事实记忆（fact）：持久属性，无日期前缀
+{"content": "在 Google 工作",                                       "memory_type": "fact",     "score": 0.82}
+# 情节记忆（episodic）：时间戳 = 事件发生的时间
+{"content": "2025-03-01: 压力很大，担心项目延期. sentiment: anxious", "memory_type": "episodic", "score": 0.75}
+# 洞察记忆（insight）：reflect() 自动生成，无时间前缀
+{"content": "工作压力大时倾向于回避社交，独自消化",                   "memory_type": "insight",  "score": 0.68}
+
+# 完整字段
+{
+    "content": "...",                              # 格式化后的内容（含时间前缀）
+    "source": "vector",                            # "vector" / "graph" / "conversation"
+    "memory_type": "fact",                         # fact / episodic / insight / graph_fact
+    "score": 0.646,                                # 综合评分（相关性 × 时效 × 重要性 × 图boost）
+    "graph_boost": 1.5,                            # 图三元组覆盖度 boost（仅 source="vector" 时存在）
+    "extracted_timestamp": "2025-03-01T00:00:00+00:00",  # 可用于时间排序
+    "metadata": {
+        "importance": 8,                           # 重要性 (1-10)
+        "emotion": {"label": "满足", "valence": 0.6}
+    }
+}
+```
+
+> **时间戳含义**：
+> - `fact` 的时间 = 用户**提到**该信息的时间，不代表事情开始的时间
+> - `episodic` 的时间 = 事件**发生**的时间
+> - 组装 prompt 时应向 LLM 说明这一区别，避免误判时间线
+
+### 13.2 推荐的 Prompt 组装模板
+
+```python
+from datetime import datetime, timezone
+
+def build_system_prompt(recall_result: dict, user_input: str) -> str:
+    """将 recall() 结果组装为 LLM system prompt。"""
+
+    # 1. 用户画像 → 稳定背景信息，始终放在 system prompt 中
+    profile = recall_result.get("user_profile", {})
+    profile_lines = []
+    if profile.get("identity"):
+        profile_lines.append(f"身份：{profile['identity']}")
+    if profile.get("occupation"):
+        profile_lines.append(f"职业：{profile['occupation']}")
+    if profile.get("interests"):
+        profile_lines.append(f"兴趣：{profile['interests']}")
+    profile_text = "\n".join(profile_lines) if profile_lines else "暂无"
+
+    # 2. merged 按类型分层：facts/insights 按相关性，episodes 按时间升序
+    merged = recall_result.get("merged", [])
+    facts    = [m for m in merged if m.get("memory_type") == "fact"][:5]
+    insights = [m for m in merged if m.get("memory_type") == "insight"][:3]
+    # 情节记忆按时间升序 → 完整时间线
+    episodes = sorted(
+        [m for m in merged if m.get("memory_type") == "episodic"],
+        key=lambda m: m.get("extracted_timestamp") or datetime.min.replace(tzinfo=timezone.utc),
+    )[:5]
+
+    def fmt(items):
+        return "\n".join(f"- {m['content']}" for m in items) or "暂无"
+
+    # 3. 图谱关系 → 结构化事实，补充向量检索的盲区
+    graph_lines = recall_result.get("graph_context", [])[:5]
+    graph_text = "\n".join(f"- {g}" for g in graph_lines) or "暂无"
+
+    return f"""你是一个有长期记忆的 AI 助手，能根据对用户的了解提供个性化回复。
+
+## 用户画像
+{profile_text}
+
+## 关于当前话题，你记得的事实
+（括号内时间 = 用户提及该信息的时间，不代表事情开始的时间）
+{fmt(facts)}
+
+## 事件时间线（按时间排序）
+{fmt(episodes)}
+
+## 对用户的深层理解（洞察）
+{fmt(insights)}
+
+## 结构化关系
+{graph_text}
+
+---
+请根据以上记忆自然地回应用户，不要逐条引用记忆，而是像一个真正了解他的朋友那样对话。
+如果记忆与当前问题不相关，忽略它们即可。"""
+```
+
+### 13.3 组装 Prompt 的核心原则
+
+| 原则 | 说明 |
+|------|------|
+| **一次 recall，完整上下文** | 一次 `recall()` 已包含 merged、profile、graph，无需额外查询 |
+| **profile 放 system prompt** | 职业、兴趣等稳定画像每次都要注入，是 agent 个性化的基础 |
+| **merged 按类型分层** | facts/insights 按相关性，episodes 按时间升序排列，呈现完整时间线 |
+| **时间戳含义要说清** | fact 时间 = 用户提及时间；episodic 时间 = 事件发生时间；需在 prompt 中注明区别 |
+| **graph_context 补充结构化知识** | 向量检索可能遗漏"alice 在 Google 工作"这类关系，图谱能补充 |
+| **insight 无需单独 search** | 默认 `reflection_interval=20`，insight 自动进入 merged，无需额外调用 |
+| **token 预算控制** | 每类记忆取 3-5 条，总记忆上下文建议 400-600 tokens |
+| **自然注入，不逐条引用** | system prompt 结尾提示 LLM"像朋友一样对话"，避免机械引用 |
 
 ---
 
