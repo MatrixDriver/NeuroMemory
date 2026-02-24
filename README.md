@@ -28,7 +28,7 @@
 | LangMem | 62.2% | 47.9% | 71.1% | 23.4% | 58.1% |
 | OpenAI Memory | 63.8% | 42.9% | 62.3% | 21.7% | 52.9% |
 
-> 各框架使用不同的 Judge LLM，分数不完全可比。详见 [LoCoMo 优化历程](evaluation/history/OPTIMIZATION_HISTORY.md)。
+> 各框架使用不同的 Judge LLM，分数不完全可比。详见 [LoCoMo 优化历程](https://github.com/zhuqingxun/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)。
 
 ---
 
@@ -242,7 +242,7 @@ importance = metadata.importance / 10                     # LLM 评估的重要�
 
 ## API 使用说明
 
-> 完整 API 参考文档见 **[docs/API.md](docs/API.md)**，包含所有方法的签名、参数、返回值和示例。
+> 完整 API 参考文档见 **[docs/API.md](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/API.md)**，包含所有方法的签名、参数、返回值和示例。
 
 NeuroMemory 有三组容易混淆的 API，以下是快速对比：
 
@@ -510,12 +510,12 @@ ObjectStorage (ABC)
 
 | 文档 | 说明 |
 |------|------|
-| **[API 参考](docs/API.md)** | 完整的 Python API 文档（recall, search, extract_memories 等） |
-| **[快速开始](docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
-| **[架构设计](docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型 |
-| **[使用指南](docs/SDK_GUIDE.md)** | API 用法和代码示例 |
-| **[为什么不提供 Web UI](docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
-| **[LoCoMo 优化历程](evaluation/history/OPTIMIZATION_HISTORY.md)** | 基准测试迭代记录（0.125 → 0.802，+541%） |
+| **[API 参考](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/API.md)** | 完整的 Python API 文档（recall, search, extract_memories 等） |
+| **[快速开始](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
+| **[架构设计](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型 |
+| **[使用指南](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/SDK_GUIDE.md)** | API 用法和代码示例 |
+| **[为什么不提供 Web UI](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
+| **[LoCoMo 优化历程](https://github.com/zhuqingxun/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)** | 基准测试迭代记录（0.125 → 0.802，+541%） |
 
 ---
 
@@ -545,7 +545,7 @@ ObjectStorage (ABC)
 
 ### Phase 3（规划中）
 
-- [x] 基准测试：[LoCoMo](evaluation/history/OPTIMIZATION_HISTORY.md)（ACL 2024，Judge 0.802，13 轮迭代，+541%）
+- [x] 基准测试：[LoCoMo](https://github.com/zhuqingxun/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)（ACL 2024，Judge 0.802，13 轮迭代，+541%）
 - [ ] 基准测试：LongMemEval（ICLR 2025，超长记忆评测，500 个问题，115k~1.5M tokens）
 - [ ] 自然遗忘（主动记忆清理/归档机制）
 - [ ] 多模态 embedding（图片、音频）
