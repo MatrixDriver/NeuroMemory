@@ -28,7 +28,7 @@
 | LangMem | 62.2% | 47.9% | 71.1% | 23.4% | 58.1% |
 | OpenAI Memory | 63.8% | 42.9% | 62.3% | 21.7% | 52.9% |
 
-> 各框架使用不同的 Judge LLM，分数不完全可比。详见 [LoCoMo 优化历程](https://github.com/zhuqingxun/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)。
+> 各框架使用不同的 Judge LLM，分数不完全可比。详见 [LoCoMo 优化历程](https://github.com/MatrixDriver/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)。
 
 ---
 
@@ -36,12 +36,12 @@
 
 | 文档 | 说明 |
 |------|------|
-| **[API 参考](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/API.md)** | 完整的 Python API 文档（add_message, recall, reflect 等） |
-| **[快速开始](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
-| **[架构设计](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型、情感架构 |
-| **[使用指南](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/SDK_GUIDE.md)** | API 用法、代码示例、Prompt 组装最佳实践 |
-| **[为什么不提供 Web UI](https://github.com/zhuqingxun/NeuroMemory/blob/master/docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
-| **[LoCoMo 优化历程](https://github.com/zhuqingxun/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)** | 基准测试迭代记录（0.125 → 0.802，+541%） |
+| **[API 参考](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/API.md)** | 完整的 Python API 文档（add_message, recall, reflect 等） |
+| **[快速开始](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
+| **[架构设计](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型、情感架构 |
+| **[使用指南](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/SDK_GUIDE.md)** | API 用法、代码示例、Prompt 组装最佳实践 |
+| **[为什么不提供 Web UI](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
+| **[LoCoMo 优化历程](https://github.com/MatrixDriver/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)** | 基准测试迭代记录（0.125 → 0.802，+541%） |
 
 ---
 
@@ -122,7 +122,7 @@ async def main():
         )
         # → 后台自动提取：fact: "在 ABC Company 工作", relation: (alice)-[works_at]->(ABC Company)
 
-        # 2. 三因子检索（相关性 × 时效性 × 重要性）
+        # 2. 多因子检索（cosine 相关性 + 时效性 + 重要性）
         result = await nm.recall(user_id="alice", query="Where does Alice work?")
         for r in result["merged"]:
             print(f"[{r['score']:.2f}] {r['content']}")
@@ -142,7 +142,7 @@ NeuroMemory 的核心使用围绕三个操作：
 - 对话驱动：`add_message()` 存储对话 **并自动提取记忆**（推荐，像 mem0）
 
 **召回记忆（recall）**：
-- `await nm.recall(user_id, query)` — 综合考虑相关性、时效性、重要性，找出最匹配的记忆
+- `await nm.recall(user_id, query)` — cosine 相似度为主信号，时效性和重要性为加成，找出最匹配的记忆
 - 在对话中使用：让 agent 能"想起"相关的历史信息来回应用户
 
 **生成洞察（reflect）**（可选，定期调用）：
@@ -186,7 +186,7 @@ NeuroMemory 将所有记忆（向量、图谱、对话、KV、文档、情感画
 
 **1. 联合融合排序** — 图谱与向量结果交叉增强，而非各自为政
 
-`recall()` 中，图三元组不仅提供结构化关系，还参与向量结果的排序：被图三元组覆盖的向量记忆获得 boost（双端命中 +0.5，单端命中 +0.2），图三元组本身以 `source="graph"` 进入统一的 `merged` 列表。竞品（mem0、graphiti）的图和向量存储在不同数据库中，无法实现这种交叉增强。
+`recall()` 中，图三元组不仅提供结构化关系，还参与向量结果的排序：被图三元组覆盖的向量记忆获得加法 boost（双端命中 +0.10，单端命中 +0.04，上限 +0.20），图三元组本身以 `source="graph"` 进入统一的 `merged` 列表。竞品（mem0、graphiti）的图和向量存储在不同数据库中，无法实现这种交叉增强。
 
 **2. 事务一致性 + 数据治理** — 单库原子操作，零数据不一致风险
 
@@ -243,7 +243,7 @@ NeuroMemory 的所有 API 都强制要求 `user_id` 参数，框架层面保证�
 
 - [x] 情感标注（valence / arousal / label）
 - [x] 重要性评分（1-10）
-- [x] 三因子检索（relevance × recency × importance）
+- [x] 多因子检索（cosine similarity + recency bonus + importance bonus）
 - [x] 访问追踪（access_count / last_accessed_at）
 - [x] 反思机制（从记忆中生成高层洞察）
 - [x] 后台任务系统（ExtractionStrategy 自动触发）
@@ -251,7 +251,7 @@ NeuroMemory 的所有 API 都强制要求 `user_id` 参数，框架层面保证�
 
 ### Phase 3（进行中）
 
-- [x] 基准测试：[LoCoMo](https://github.com/zhuqingxun/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)（ACL 2024，Judge 0.802，13 轮迭代，+541%）
+- [x] 基准测试：[LoCoMo](https://github.com/MatrixDriver/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)（ACL 2024，Judge 0.802，13 轮迭代，+541%）
 - [x] 联合融合排序（图三元组覆盖度 boost）
 - [x] 事务一致性 API（delete_user_data / export_user_data）
 - [x] 时间旅行查询（记忆版本化 + as_of 召回 + rollback）
