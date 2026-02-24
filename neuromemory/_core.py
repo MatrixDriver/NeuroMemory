@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 from neuromemory.db import Database
@@ -666,12 +667,27 @@ class NeuroMemory:
         content: str,
         memory_type: str = "general",
         metadata: dict | None = None,
+        check_conflict: bool = True,
     ):
-        """Add a memory with auto-generated embedding."""
+        """Add a memory with auto-generated embedding.
+
+        Args:
+            check_conflict: For fact-type memories, detect contradicting
+                existing facts (cosine similarity > 0.85) and version them.
+                Defaults to True.
+        """
+        from datetime import timezone
         from neuromemory.services.search import SearchService
+
         async with self._db.session() as session:
             svc = SearchService(session, self._embedding, self._db.pg_search_available)
-            return await svc.add_memory(user_id, content, memory_type, metadata)
+            record = await svc.add_memory(user_id, content, memory_type, metadata)
+
+            # Conflict detection for fact-type memories
+            if check_conflict and memory_type == "fact" and self._embedding:
+                await self._check_memory_conflict(session, user_id, content, record)
+
+            return record
 
     async def search(
         self,
@@ -736,6 +752,7 @@ class NeuroMemory:
         limit: int = 20,
         decay_rate: float | None = None,
         include_conversations: bool = False,
+        as_of: datetime | None = None,
     ) -> dict:
         """Hybrid recall: memories + graph, merged and deduplicated.
 
@@ -747,6 +764,9 @@ class NeuroMemory:
             include_conversations: If True, also search raw conversation
                 fragments and include them in the result (adds latency).
                 Defaults to False — extracted memories are preferred.
+            as_of: Time-travel query — recall memories valid at this point
+                in time. When None (default), only returns currently valid
+                memories. Must be a timezone-aware datetime.
 
         Returns:
             {
@@ -770,6 +790,7 @@ class NeuroMemory:
         coros = [
             self._fetch_vector_memories(
                 user_id, query, limit, query_embedding, event_after, event_before, _decay,
+                as_of=as_of,
             ),
             self._fetch_user_profile(user_id),
         ]
@@ -780,7 +801,7 @@ class NeuroMemory:
             coros.append(self._search_conversations(user_id, query, limit, query_embedding=query_embedding))
         if self._graph_enabled:
             graph_idx = len(coros)
-            coros.append(self._fetch_graph_memories(user_id, query, limit))
+            coros.append(self._fetch_graph_memories(user_id, query, limit, as_of=as_of))
 
         results = await asyncio.gather(*coros, return_exceptions=True)
 
@@ -979,6 +1000,7 @@ class NeuroMemory:
         event_after,
         event_before,
         decay_rate: float,
+        as_of: datetime | None = None,
     ) -> list[dict]:
         """Search extracted memories (vector + BM25 hybrid).
 
@@ -998,6 +1020,7 @@ class NeuroMemory:
                         memory_type="episodic",
                         event_after=event_after,
                         event_before=event_before,
+                        as_of=as_of,
                     )
 
             async def _facts():
@@ -1008,6 +1031,7 @@ class NeuroMemory:
                         decay_rate=decay_rate,
                         query_embedding=query_embedding,
                         exclude_types=["episodic"],
+                        as_of=as_of,
                     )
 
             episodic_results, fact_results = await asyncio.gather(_episodic(), _facts())
@@ -1025,6 +1049,7 @@ class NeuroMemory:
                     user_id, query, limit,
                     decay_rate=decay_rate,
                     query_embedding=query_embedding,
+                    as_of=as_of,
                 )
 
     async def _fetch_user_profile(self, user_id: str) -> dict:
@@ -1047,7 +1072,10 @@ class NeuroMemory:
             logger.warning(f"Failed to read user profile: {e}")
             return {}
 
-    async def _fetch_graph_memories(self, user_id: str, query: str, limit: int) -> list[dict]:
+    async def _fetch_graph_memories(
+        self, user_id: str, query: str, limit: int,
+        as_of: datetime | None = None,
+    ) -> list[dict]:
         """Graph entity recall with SQL-pushed substring matching."""
         from sqlalchemy import text as sql_text
         from neuromemory.services.graph_memory import GraphMemoryService
@@ -1074,12 +1102,71 @@ class NeuroMemory:
             seen_triples: set[str] = set()
             graph_results: list[dict] = []
             for entity in matched_entities:
-                for f in await graph_svc.find_entity_facts(user_id, entity, limit):
+                for f in await graph_svc.find_entity_facts(user_id, entity, limit, as_of=as_of):
                     key = f"{f.get('subject')}|{f.get('relation')}|{f.get('object')}"
                     if key not in seen_triples:
                         seen_triples.add(key)
                         graph_results.append(f)
         return graph_results
+
+    async def _check_memory_conflict(
+        self, session, user_id: str, content: str, new_record,
+    ) -> None:
+        """Detect contradicting fact memories and version them.
+
+        If cosine similarity > 0.85 with an existing fact, the old memory
+        gets valid_until set and superseded_by pointing to the new one.
+        """
+        from datetime import timezone
+        from sqlalchemy import text as sql_text
+
+        try:
+            query_vector = await self._embedding.embed(content)
+            vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
+
+            result = await session.execute(
+                sql_text(f"""
+                    SELECT id, content, version,
+                           1 - (embedding <=> '{vector_str}'::vector) AS similarity
+                    FROM embeddings
+                    WHERE user_id = :uid
+                      AND memory_type = 'fact'
+                      AND valid_until IS NULL
+                      AND id != :new_id
+                    ORDER BY embedding <=> '{vector_str}'::vector
+                    LIMIT 3
+                """),
+                {"uid": user_id, "new_id": new_record.id},
+            )
+            rows = result.fetchall()
+
+            now = datetime.now(timezone.utc)
+            max_version = 1
+            for row in rows:
+                if float(row.similarity) > 0.85 and row.content != content:
+                    # Supersede the old memory
+                    await session.execute(
+                        sql_text("""
+                            UPDATE embeddings
+                            SET valid_until = :now, superseded_by = :new_id
+                            WHERE id = :old_id
+                        """),
+                        {"now": now, "new_id": new_record.id, "old_id": row.id},
+                    )
+                    if row.version >= max_version:
+                        max_version = row.version + 1
+                    logger.info(
+                        "Memory conflict: '%s' superseded by '%s'",
+                        row.content[:50], content[:50],
+                    )
+
+            if max_version > 1:
+                await session.execute(
+                    sql_text("UPDATE embeddings SET version = :ver WHERE id = :id"),
+                    {"ver": max_version, "id": new_record.id},
+                )
+        except Exception as e:
+            logger.warning("Memory conflict check failed: %s", e)
 
     async def reflect(
         self,
@@ -1258,6 +1345,91 @@ class NeuroMemory:
             "insights": all_insights,
             "emotion_profile": emotion_profile,
         }
+
+    # -- Time-travel APIs --
+
+    async def rollback_memories(self, user_id: str, to_time: datetime) -> dict:
+        """Rollback memories to a point in time.
+
+        Invalidates all memories created after to_time, and reactivates
+        their predecessors (if any were superseded).
+
+        Args:
+            user_id: User ID.
+            to_time: Rollback to this point in time. Must be timezone-aware.
+
+        Returns:
+            {"rolled_back": N, "reactivated": N}
+        """
+        from datetime import timezone
+        from sqlalchemy import text as sql_text
+
+        rolled_back = 0
+        reactivated = 0
+
+        async with self._db.session() as session:
+            # Find memories created after to_time
+            rows = (await session.execute(
+                sql_text("""
+                    SELECT id FROM embeddings
+                    WHERE user_id = :uid AND valid_from > :to_time
+                      AND valid_until IS NULL
+                """),
+                {"uid": user_id, "to_time": to_time},
+            )).fetchall()
+
+            new_ids = [row.id for row in rows]
+            if not new_ids:
+                return {"rolled_back": 0, "reactivated": 0}
+
+            # Invalidate these memories
+            placeholders = ", ".join(f":id_{i}" for i in range(len(new_ids)))
+            id_params = {f"id_{i}": nid for i, nid in enumerate(new_ids)}
+            now = datetime.now(timezone.utc)
+
+            result = await session.execute(
+                sql_text(f"""
+                    UPDATE embeddings SET valid_until = :now
+                    WHERE id IN ({placeholders}) AND user_id = :uid
+                """),
+                {"now": now, "uid": user_id, **id_params},
+            )
+            rolled_back = result.rowcount
+
+            # Reactivate predecessors (memories that were superseded by rolled-back ones)
+            result = await session.execute(
+                sql_text(f"""
+                    UPDATE embeddings SET valid_until = NULL, superseded_by = NULL
+                    WHERE user_id = :uid
+                      AND superseded_by IN ({placeholders})
+                """),
+                {"uid": user_id, **id_params},
+            )
+            reactivated = result.rowcount
+
+            # Also rollback graph edges created after to_time
+            await session.execute(
+                sql_text("""
+                    UPDATE graph_edges
+                    SET properties = jsonb_set(
+                        COALESCE(properties, '{}'::jsonb),
+                        '{valid_until}',
+                        to_jsonb(CAST(:now AS text))
+                    )
+                    WHERE user_id = :uid
+                      AND CAST(properties->>'valid_from' AS timestamptz) > :to_time
+                      AND (properties->>'valid_until') IS NULL
+                """),
+                {"uid": user_id, "to_time": to_time, "now": now.isoformat()},
+            )
+
+            await session.commit()
+
+        logger.info(
+            "rollback_memories[%s] to=%s: rolled_back=%d reactivated=%d",
+            user_id, to_time, rolled_back, reactivated,
+        )
+        return {"rolled_back": rolled_back, "reactivated": reactivated}
 
     # -- Data lifecycle APIs --
 

@@ -38,11 +38,25 @@ class Embedding(Base, TimestampMixin):
     extracted_timestamp: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+    # Versioning fields for time-travel queries
+    valid_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    valid_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False,
+    )
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True,
+    )
 
     __table_args__ = (
         Index("ix_emb_user", "user_id"),
         Index("ix_emb_user_ts", "user_id", "extracted_timestamp"),
         Index("ix_emb_type_user", "user_id", "memory_type"),
+        Index("ix_emb_user_valid", "user_id", "valid_from", "valid_until"),
     )
 
     @classmethod

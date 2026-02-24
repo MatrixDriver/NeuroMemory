@@ -60,6 +60,19 @@ class Database:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
             await conn.run_sync(Base.metadata.create_all)
 
+            # Add versioning columns to embeddings (idempotent)
+            for col_sql in [
+                "ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS valid_from TIMESTAMPTZ",
+                "ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS valid_until TIMESTAMPTZ",
+                "ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
+                "ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS superseded_by UUID",
+            ]:
+                await conn.execute(text(col_sql))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_emb_user_valid "
+                "ON embeddings (user_id, valid_from, valid_until)"
+            ))
+
         # Try to enable pg_search (graceful degradation)
         try:
             async with self.engine.begin() as conn:

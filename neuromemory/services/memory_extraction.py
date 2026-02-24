@@ -678,6 +678,7 @@ Return format (JSON only, no other content):
                     memory_type="fact",
                     metadata_=meta,
                     extracted_timestamp=resolved_ts,
+                    valid_from=datetime.now(timezone.utc),
                 )
                 self.db.add(embedding_obj)
                 count += 1
@@ -762,6 +763,7 @@ Return format (JSON only, no other content):
                     memory_type="episodic",
                     metadata_=meta,
                     extracted_timestamp=resolved_ts,
+                    valid_from=datetime.now(timezone.utc),
                 )
                 self.db.add(embedding_obj)
                 count += 1

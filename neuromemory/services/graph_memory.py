@@ -324,22 +324,34 @@ class GraphMemoryService:
         user_id: str,
         entity_name: str,
         limit: int = 20,
+        as_of: datetime | None = None,
     ) -> list[dict[str, Any]]:
         """Find all active facts related to an entity.
 
         Searches both outgoing and incoming edges for the entity node.
-        Only returns edges where valid_until is None (active).
+        Only returns edges where valid_until is None (active), or
+        edges valid at the as_of time point for time-travel queries.
         """
         node_id = _normalize_node_id(entity_name)
 
-        # Single query covers both outgoing and incoming edges, active only
-        result = await self.db.execute(
-            select(GraphEdge).where(
-                GraphEdge.user_id == user_id,
-                or_(GraphEdge.source_id == node_id, GraphEdge.target_id == node_id),
-                text("(properties->>'valid_until') IS NULL"),
-            ).limit(limit)
-        )
+        # Time-travel filter on graph edge properties
+        if as_of is not None:
+            time_filter = text(
+                "(properties->>'valid_from' IS NULL OR (properties->>'valid_from')::timestamptz <= :as_of)"
+                " AND (properties->>'valid_until' IS NULL OR (properties->>'valid_until')::timestamptz > :as_of)"
+            )
+        else:
+            time_filter = text("(properties->>'valid_until') IS NULL")
+
+        # Single query covers both outgoing and incoming edges
+        query = select(GraphEdge).where(
+            GraphEdge.user_id == user_id,
+            or_(GraphEdge.source_id == node_id, GraphEdge.target_id == node_id),
+            time_filter,
+        ).limit(limit)
+        if as_of is not None:
+            query = query.params(as_of=as_of)
+        result = await self.db.execute(query)
         edges = result.scalars().all()
 
         if not edges:
