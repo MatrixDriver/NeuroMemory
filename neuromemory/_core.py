@@ -18,6 +18,109 @@ from neuromemory.storage.base import ObjectStorage
 logger = logging.getLogger(__name__)
 
 
+# -- Instrumented provider proxies (for on_llm_call / on_embedding_call) --
+
+class _InstrumentedLLM(LLMProvider):
+    """Proxy that fires on_llm_call callback after each LLM call."""
+
+    def __init__(self, inner: LLMProvider, get_callback):
+        self._inner = inner
+        self._get_callback = get_callback
+        # Forward model attribute if present
+        if hasattr(inner, "model"):
+            self.model = inner.model
+
+    async def chat(self, messages, temperature=0.1, max_tokens=2048) -> str:
+        t0 = time.monotonic()
+        success = True
+        try:
+            result = await self._inner.chat(messages, temperature, max_tokens)
+            return result
+        except Exception:
+            success = False
+            raise
+        finally:
+            duration_ms = (time.monotonic() - t0) * 1000
+            cb = self._get_callback()
+            if cb:
+                try:
+                    _r = cb({
+                        "duration_ms": round(duration_ms, 1),
+                        "model": getattr(self._inner, "model", "unknown"),
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                        "success": success,
+                    })
+                    if asyncio.iscoroutine(_r):
+                        await _r
+                except Exception as e:
+                    logger.warning("on_llm_call callback error: %s", e)
+
+
+class _InstrumentedEmbedding(EmbeddingProvider):
+    """Proxy that fires on_embedding_call callback after each embedding call."""
+
+    def __init__(self, inner: EmbeddingProvider, get_callback):
+        self._inner = inner
+        self._get_callback = get_callback
+        if hasattr(inner, "model"):
+            self.model = inner.model
+
+    @property
+    def dims(self) -> int:
+        return self._inner.dims
+
+    async def embed(self, text: str) -> list[float]:
+        t0 = time.monotonic()
+        success = True
+        try:
+            result = await self._inner.embed(text)
+            return result
+        except Exception:
+            success = False
+            raise
+        finally:
+            duration_ms = (time.monotonic() - t0) * 1000
+            cb = self._get_callback()
+            if cb:
+                try:
+                    _r = cb({
+                        "text_count": 1,
+                        "duration_ms": round(duration_ms, 1),
+                        "model": getattr(self._inner, "model", "unknown"),
+                        "success": success,
+                    })
+                    if asyncio.iscoroutine(_r):
+                        await _r
+                except Exception as e:
+                    logger.warning("on_embedding_call callback error: %s", e)
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        t0 = time.monotonic()
+        success = True
+        try:
+            result = await self._inner.embed_batch(texts)
+            return result
+        except Exception:
+            success = False
+            raise
+        finally:
+            duration_ms = (time.monotonic() - t0) * 1000
+            cb = self._get_callback()
+            if cb:
+                try:
+                    _r = cb({
+                        "text_count": len(texts),
+                        "duration_ms": round(duration_ms, 1),
+                        "model": getattr(self._inner, "model", "unknown"),
+                        "success": success,
+                    })
+                    if asyncio.iscoroutine(_r):
+                        await _r
+                except Exception as e:
+                    logger.warning("on_embedding_call callback error: %s", e)
+
+
 @dataclass
 class ExtractionStrategy:
     """Memory extraction trigger strategy.
@@ -442,6 +545,8 @@ class NeuroMemory:
         echo: bool = False,
         reflection_interval: int = 20,
         on_extraction: Callable[[dict], Any] | None = None,
+        on_llm_call: Callable[[dict], Any] | None = None,
+        on_embedding_call: Callable[[dict], Any] | None = None,
     ):
         """
         Args:
@@ -452,14 +557,23 @@ class NeuroMemory:
                 Receives a dict with keys: user_id, session_id, duration, facts_extracted,
                 episodes_extracted, triples_extracted, messages_processed.
                 Can be sync or async.
+            on_llm_call: Optional callback invoked after each internal LLM call.
+                Receives a dict with keys: duration_ms, model, max_tokens, temperature, success.
+                Can be sync or async.
+            on_embedding_call: Optional callback invoked after each internal embedding call.
+                Receives a dict with keys: text_count, duration_ms, model, success.
+                Can be sync or async.
         """
         # Set embedding dimensions before any model import
         import neuromemory.models as _models
         _models._embedding_dims = embedding.dims
 
         self._db = Database(database_url, pool_size=pool_size, echo=echo)
-        self._embedding = embedding
-        self._llm = llm
+        self._on_llm_call = on_llm_call
+        self._on_embedding_call = on_embedding_call
+        # Wrap providers with instrumented proxies (callbacks read dynamically)
+        self._embedding = _InstrumentedEmbedding(embedding, lambda: self._on_embedding_call)
+        self._llm = _InstrumentedLLM(llm, lambda: self._on_llm_call)
         self._storage = storage
         self._extraction = extraction
         self._auto_extract = auto_extract
@@ -557,6 +671,22 @@ class NeuroMemory:
     @on_extraction.setter
     def on_extraction(self, value: Callable[[dict], Any] | None) -> None:
         self._on_extraction = value
+
+    @property
+    def on_llm_call(self) -> Callable[[dict], Any] | None:
+        return self._on_llm_call
+
+    @on_llm_call.setter
+    def on_llm_call(self, value: Callable[[dict], Any] | None) -> None:
+        self._on_llm_call = value
+
+    @property
+    def on_embedding_call(self) -> Callable[[dict], Any] | None:
+        return self._on_embedding_call
+
+    @on_embedding_call.setter
+    def on_embedding_call(self, value: Callable[[dict], Any] | None) -> None:
+        self._on_embedding_call = value
 
     async def init(self) -> None:
         """Initialize database tables and optional storage."""
