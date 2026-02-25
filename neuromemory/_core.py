@@ -1017,7 +1017,8 @@ class NeuroMemory:
                     merged.append(entry)
 
         # Graph triples participate in unified ranking
-        # Use confidence as score, capped at 0.9 to avoid dominating vector results
+        # Scale confidence by 0.85 to preserve ranking differentiation
+        # while keeping graph_fact scores below top vector results
         for triple in graph_results:
             subj = triple.get("subject", "")
             rel = triple.get("relation", "")
@@ -1025,7 +1026,8 @@ class NeuroMemory:
             triple_content = f"{subj} → {rel} → {obj}"
             if triple_content not in seen_contents:
                 seen_contents.add(triple_content)
-                base_score = min(float(triple.get("confidence", 0.5)), 0.9)
+                confidence = float(triple.get("confidence", 0.5))
+                base_score = confidence * 0.85
                 merged.append({
                     "content": triple_content,
                     "score": round(base_score, 4),
@@ -1033,8 +1035,9 @@ class NeuroMemory:
                     "memory_type": "graph_fact",
                 })
 
-        # Sort by score descending for unified ranking
-        merged.sort(key=lambda x: x.get("score", 0), reverse=True)
+        # Sort: vector first, then graph, then conversation; within each group by score desc
+        _source_order = {"vector": 0, "graph": 1, "conversation": 2}
+        merged.sort(key=lambda x: (_source_order.get(x.get("source", ""), 9), -x.get("score", 0)))
 
         graph_context: list[str] = [
             f"{r.get('subject')} → {r.get('relation')} → {r.get('object')}"
