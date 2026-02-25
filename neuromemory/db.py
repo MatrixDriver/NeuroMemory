@@ -73,6 +73,23 @@ class Database:
                 "ON embeddings (user_id, valid_from, valid_until)"
             ))
 
+            # v0.6.3: extraction status tracking columns (idempotent)
+            for col_sql in [
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS extraction_status VARCHAR(20) DEFAULT 'pending'",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS extraction_error TEXT",
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS extraction_retries INTEGER DEFAULT 0",
+            ]:
+                await conn.execute(text(col_sql))
+            # Migrate legacy extracted=true rows to extraction_status='done'
+            await conn.execute(text(
+                "UPDATE conversations SET extraction_status = 'done' "
+                "WHERE extracted = true AND extraction_status = 'pending'"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_conversations_extraction_status "
+                "ON conversations (user_id, extraction_status)"
+            ))
+
         # Try to enable pg_search (graceful degradation)
         try:
             async with self.engine.begin() as conn:

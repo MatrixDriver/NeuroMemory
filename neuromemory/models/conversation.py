@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Index, String, Text, text
+from sqlalchemy import DateTime, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
@@ -40,10 +40,19 @@ class Conversation(Base, TimestampMixin):
     extraction_task_id: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True
     )
+    # v0.6.3: extraction status tracking (pending/done/failed)
+    extraction_status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default=text("'pending'")
+    )
+    extraction_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extraction_retries: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0")
+    )
 
     __table_args__ = (
         Index("idx_conversations_session", "user_id", "session_id"),
         Index("idx_conversations_extraction", "user_id", "extracted"),
+        Index("idx_conversations_extraction_status", "user_id", "extraction_status"),
     )
 
     @classmethod

@@ -146,6 +146,15 @@ async def _ingest_conversation(
         await set_timestamps(nm, user_a, sid_a, ts)
         await set_timestamps(nm, user_b, sid_b, ts)
 
+    # Retry any failed extractions before reflecting
+    for uid in [user_a, user_b]:
+        retry_stats = await nm.retry_failed_extractions(user_id=uid)
+        if retry_stats["retried"] > 0:
+            logger.info(
+                "Retry extractions[%s]: retried=%d succeeded=%d failed=%d",
+                uid, retry_stats["retried"], retry_stats["succeeded"], retry_stats["failed"],
+            )
+
     # Reflect: extract memories + generate insights
     # If reflection_interval > 0, reflect runs automatically in background via library.
     # Otherwise fall back to explicit synchronous reflect (unless skip_reflect).

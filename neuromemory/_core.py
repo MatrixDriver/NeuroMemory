@@ -216,14 +216,20 @@ class ConversationsFacade:
     async def _extract_single_message_async(self, user_id: str, session_id: str, messages: list):
         """异步后台提取单条消息的记忆，不阻塞主流程。
 
-        所有异常都会被捕获并记录，不会影响对话响应。
+        成功时标记 extraction_status='done'，失败时标记 'failed' 并记录错误。
         """
+        from neuromemory.services.conversation import ConversationService
+        msg_ids = [m.id for m in messages if hasattr(m, "id")]
         try:
             await self._extract_single_message(user_id, session_id, messages)
+            # Mark as done
+            if msg_ids:
+                async with self._db.session() as session:
+                    conv_svc = ConversationService(session)
+                    await conv_svc.mark_messages_extracted(msg_ids)
             if self._on_extraction_done:
                 await self._on_extraction_done(user_id)
         except Exception as e:
-            # 在测试环境中，session 可能已经关闭，这是正常的
             from sqlalchemy.exc import IllegalStateChangeError
             if isinstance(e, IllegalStateChangeError) or "connection is closed" in str(e):
                 logger.debug(
@@ -234,6 +240,14 @@ class ConversationsFacade:
                     f"后台记忆提取失败: user_id={user_id}, session_id={session_id}, error={e}",
                     exc_info=True
                 )
+                # Mark as failed
+                if msg_ids:
+                    try:
+                        async with self._db.session() as session:
+                            conv_svc = ConversationService(session)
+                            await conv_svc.mark_messages_failed(msg_ids, str(e)[:500])
+                    except Exception as mark_err:
+                        logger.error(f"Failed to mark extraction failure: {mark_err}")
 
     async def _extract_batch(self, user_id: str, session_id: str, messages: list):
         """Extract memories from a batch of messages (auto-extract mode)."""
@@ -711,6 +725,57 @@ class NeuroMemory:
                 conv_svc = ConversationService(session)
                 await conv_svc.mark_messages_extracted(msg_ids)
             return result
+
+    async def retry_failed_extractions(
+        self,
+        user_id: str | None = None,
+        max_retries: int = 3,
+    ) -> dict:
+        """Retry failed memory extractions.
+
+        Args:
+            user_id: If provided, retry only for this user. Otherwise retry all.
+            max_retries: Skip messages that have already been retried this many times.
+
+        Returns:
+            {"retried": N, "succeeded": M, "failed": K}
+        """
+        from neuromemory.services.conversation import ConversationService
+
+        async with self._db.session() as session:
+            conv_svc = ConversationService(session)
+            failed_msgs = await conv_svc.get_failed_messages(user_id, max_retries)
+
+        retried = 0
+        succeeded = 0
+        failed = 0
+
+        for msg in failed_msgs:
+            retried += 1
+            try:
+                await self.conversations._extract_single_message(
+                    msg.user_id, msg.session_id, [msg]
+                )
+                # Mark as done
+                async with self._db.session() as session:
+                    conv_svc = ConversationService(session)
+                    await conv_svc.mark_messages_extracted([msg.id])
+                succeeded += 1
+            except Exception as e:
+                failed += 1
+                logger.warning(
+                    "Retry extraction failed: msg=%s user=%s error=%s",
+                    msg.id, msg.user_id, e,
+                )
+                async with self._db.session() as session:
+                    conv_svc = ConversationService(session)
+                    await conv_svc.mark_messages_failed([msg.id], str(e)[:500])
+
+        logger.info(
+            "retry_failed_extractions: retried=%d succeeded=%d failed=%d",
+            retried, succeeded, failed,
+        )
+        return {"retried": retried, "succeeded": succeeded, "failed": failed}
 
     async def recall(
         self,

@@ -137,7 +137,7 @@ class ConversationService:
         """Get messages not yet processed for memory extraction."""
         conditions = [
             Conversation.user_id == user_id,
-            Conversation.extracted == False,  # noqa: E712
+            Conversation.extraction_status == "pending",
         ]
 
         if session_id:
@@ -158,16 +158,65 @@ class ConversationService:
         message_ids: list[UUID],
         task_id: Optional[str] = None,
     ) -> int:
-        """Mark messages as extracted."""
+        """Mark messages as successfully extracted."""
         stmt = (
             update(Conversation)
             .where(Conversation.id.in_(message_ids))
-            .values(extracted=True, extraction_task_id=task_id)
+            .values(
+                extracted=True,
+                extraction_task_id=task_id,
+                extraction_status="done",
+                extraction_error=None,
+            )
         )
 
         result = await self.db.execute(stmt)
         await self.db.commit()
         return result.rowcount
+
+    async def mark_messages_failed(
+        self,
+        message_ids: list[UUID],
+        error: str,
+    ) -> int:
+        """Mark messages as failed extraction, incrementing retry count."""
+        stmt = (
+            update(Conversation)
+            .where(Conversation.id.in_(message_ids))
+            .values(
+                extraction_status="failed",
+                extraction_error=error,
+                extraction_retries=Conversation.extraction_retries + 1,
+            )
+        )
+
+        result = await self.db.execute(stmt)
+        await self.db.commit()
+        return result.rowcount
+
+    async def get_failed_messages(
+        self,
+        user_id: Optional[str] = None,
+        max_retries: int = 3,
+        limit: int = 100,
+    ) -> list[Conversation]:
+        """Get messages that failed extraction and are eligible for retry."""
+        conditions = [
+            Conversation.extraction_status == "failed",
+            Conversation.extraction_retries < max_retries,
+        ]
+        if user_id:
+            conditions.append(Conversation.user_id == user_id)
+
+        stmt = (
+            select(Conversation)
+            .where(and_(*conditions))
+            .order_by(Conversation.created_at.asc())
+            .limit(limit)
+        )
+
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def _update_session_metadata(
         self,
