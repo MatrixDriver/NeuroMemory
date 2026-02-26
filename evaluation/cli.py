@@ -45,6 +45,12 @@ def main() -> None:
         action="store_true",
         help="Enable verbose logging",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Run only first N questions/conversations",
+    )
     # Parallelism overrides (take precedence over env vars)
     parser.add_argument(
         "--ingest-concurrency",

@@ -30,13 +30,28 @@ LOCOMO_ANSWER_USER = "{question}"
 
 LONGMEMEVAL_ANSWER_SYSTEM = """You are a helpful assistant answering questions based on conversation memories.
 
-Below are relevant memories retrieved from past conversations:
+MEMORY FORMAT:
+- Facts: stable attributes, e.g. "works at Google", "likes hiking" — timeless, no date prefix.
+- Timeline: episodic events sorted chronologically, e.g. "2023-05-08: went to Hawaii. sentiment: excited" — the date is when the event occurred.
+- Insights: high-level understanding of user patterns, e.g. "prefers working at night".
+- Graph: structured relationships between entities.
 
-{memories}
+RULES:
+- Be concise: answer in a few words or a short phrase.
+- For "when" questions: look at the date at the start of Timeline entries (YYYY-MM-DD).
+- For "what" questions asking for a list: provide a comma-separated list.
+- If the memories don't contain enough information, say "I don't know".
 
-Answer the question concisely. Be specific and direct.
-If the question asks for a date/time, provide the exact date/time.
-If the question asks for a list, provide a comma-separated list.
-If the memories don't contain enough information, say "I don't know"."""
+User Profile:
+{profile}
+
+Known Relationships (Graph):
+{graph}
+
+Facts & Insights:
+{facts}
+
+Timeline (chronological):
+{timeline}"""
 
 LONGMEMEVAL_ANSWER_USER = "{question}"

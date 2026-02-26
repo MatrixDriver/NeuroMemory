@@ -1,11 +1,13 @@
-"""LongMemEval evaluation pipeline: ingest → query → evaluate."""
+"""LongMemEval evaluation pipeline: ingest → query → evaluate (parallel)."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 from evaluation.config import EvalConfig
 from evaluation.datasets.longmemeval_loader import LongMemEvalQuestion, load_longmemeval
@@ -24,10 +26,39 @@ from evaluation.prompts.answer import LONGMEMEVAL_ANSWER_SYSTEM, LONGMEMEVAL_ANS
 
 logger = logging.getLogger(__name__)
 
+# Rate-limit retry settings
+_MAX_RETRIES = 5
+_BASE_DELAY = 5.0  # seconds
 
-async def run_longmemeval(cfg: EvalConfig, phase: str | None = None) -> None:
+
+async def _retry_on_rate_limit(coro_fn, *args, **kwargs):
+    """Retry an async call with exponential backoff on rate-limit errors."""
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return await coro_fn(*args, **kwargs)
+        except Exception as e:
+            err_str = str(e).lower()
+            is_retryable = any(kw in err_str for kw in (
+                "429", "rate", "too many", "502", "503", "overloaded",
+                "timeout", "timed out", "readtimeout",
+            ))
+            if is_retryable and attempt < _MAX_RETRIES - 1:
+                delay = _BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "Retryable error (attempt %d/%d), retrying in %.0fs: %s",
+                    attempt + 1, _MAX_RETRIES, delay, str(e)[:80],
+                )
+                await asyncio.sleep(delay)
+            else:
+                raise
+
+
+async def run_longmemeval(cfg: EvalConfig, phase: str | None = None, limit: int | None = None) -> None:
     """Run LongMemEval evaluation (all phases or a specific one)."""
     questions = load_longmemeval(cfg.longmemeval_data_path)
+    if limit:
+        questions = questions[:limit]
+        logger.info("Limited to first %d LongMemEval questions", limit)
     logger.info("Loaded %d LongMemEval questions", len(questions))
 
     if phase is None or phase == "ingest":
@@ -38,101 +69,150 @@ async def run_longmemeval(cfg: EvalConfig, phase: str | None = None) -> None:
         await _evaluate(cfg)
 
 
+# ---------------------------------------------------------------------------
+# Phase 1: Ingest (parallel across questions)
+# ---------------------------------------------------------------------------
+
 async def _ingest(cfg: EvalConfig, questions: list[LongMemEvalQuestion]) -> None:
-    """Phase 1: Ingest haystack sessions and extract memories per question."""
-    nm = create_nm(cfg)
-    await nm.init()
+    """Ingest haystack sessions in parallel."""
+    # Pre-init DB schema once
+    nm0 = create_nm(cfg)
+    await nm0.init()
+    await nm0.close()
 
     checkpoint_path = os.path.join(cfg.results_dir, "longmemeval_ingest_checkpoint.json")
     checkpoint = load_checkpoint(checkpoint_path)
     completed = set(checkpoint["completed"])
+    ckpt_lock = asyncio.Lock()
 
-    try:
-        for q_idx, q in enumerate(questions):
-            if q.question_id in completed:
-                continue
+    sem = asyncio.Semaphore(cfg.ingest_concurrency)
 
+    async def _ingest_one(q: LongMemEvalQuestion, idx: int) -> None:
+        if q.question_id in completed:
+            return
+
+        async with sem:
+            nm = create_nm(cfg)
+            await nm.init()
             user_id = f"lme_{q.question_id}"
-            await cleanup_user(nm, user_id)
+            try:
+                await cleanup_user(nm, user_id)
 
-            # Ingest all haystack sessions
-            for sess in q.sessions:
-                session_id = f"{q.question_id}_s{sess.session_idx}"
-                msgs = [
-                    {"role": m.role, "content": m.content}
-                    for m in sess.messages
-                ]
-                if not msgs:
-                    continue
-                await nm.conversations.add_messages_batch(
-                    user_id=user_id, messages=msgs, session_id=session_id,
-                )
-                if sess.timestamp:
-                    await set_timestamps(nm, user_id, session_id, sess.timestamp)
+                # Batch ingest all sessions
+                for sess in q.sessions:
+                    session_id = f"{q.question_id}_s{sess.session_idx}"
+                    msgs = [
+                        {"role": m.role, "content": m.content}
+                        for m in sess.messages
+                    ]
+                    if not msgs:
+                        continue
+                    
+                    # Use add_messages_batch for speed
+                    await _retry_on_rate_limit(
+                        nm.conversations.add_messages_batch,
+                        user_id=user_id, messages=msgs, session_id=session_id,
+                    )
+                    if sess.timestamp:
+                        await set_timestamps(nm, user_id, session_id, sess.timestamp)
 
-            # Reflect: extract memories + generate insights, in batches
-            batch_size = cfg.extraction_batch_size
-            round_idx = 0
-            while True:
-                try:
-                    result = await nm.reflect(user_id, limit=batch_size)
-                except Exception as e:
-                    logger.error("Reflect failed for %s: %s", user_id, e)
-                    break
-                processed = result.get("conversations_processed", 0)
-                if processed == 0:
-                    break
-                round_idx += 1
+                # Reflect: extract memories + generate insights
+                # Note: If reflection_interval > 0 in cfg, this might be redundant 
+                # but for evaluation we want to ensure everything is processed.
+                batch_size = cfg.extraction_batch_size
+                round_idx = 0
+                while True:
+                    result = await _retry_on_rate_limit(nm.reflect, user_id, limit=batch_size)
+                    processed = result.get("conversations_processed", 0)
+                    if processed == 0:
+                        break
+                    round_idx += 1
+                
+                async with ckpt_lock:
+                    checkpoint["completed"].append(q.question_id)
+                    completed.add(q.question_id)
+                    save_checkpoint(checkpoint_path, checkpoint)
+
                 logger.info(
-                    "Reflect[%s] round %d: processed=%d insights=%d",
-                    user_id, round_idx, processed,
-                    result.get("insights_generated", 0),
+                    "Ingested Q[%d/%d]: %s (%d sessions)",
+                    idx + 1, len(questions), q.question_id, len(q.sessions),
                 )
+            except Exception as e:
+                logger.error("Ingest failed for %s: %s", user_id, e)
+            finally:
+                await nm.close()
 
-            checkpoint["completed"].append(q.question_id)
-            completed.add(q.question_id)
-            save_checkpoint(checkpoint_path, checkpoint)
-            logger.info(
-                "Ingested question %d/%d: %s (%d sessions)",
-                q_idx + 1, len(questions), q.question_id, len(q.sessions),
-            )
-    finally:
-        await nm.close()
+    tasks = [asyncio.create_task(_ingest_one(q, i)) for i, q in enumerate(questions)]
+    await asyncio.gather(*tasks)
+    logger.info("Ingest phase complete: %d questions", len(questions))
 
+
+# ---------------------------------------------------------------------------
+# Phase 2: Query (parallel across questions)
+# ---------------------------------------------------------------------------
 
 async def _query(cfg: EvalConfig, questions: list[LongMemEvalQuestion]) -> None:
-    """Phase 2: Query memories and generate answers."""
-    nm = create_nm(cfg)
-    await nm.init()
+    """Query memories and generate answers in parallel."""
+    nm_base = create_nm(cfg)
+    await nm_base.init()
 
     checkpoint_path = os.path.join(cfg.results_dir, "longmemeval_query_checkpoint.json")
     checkpoint = load_checkpoint(checkpoint_path)
     completed_keys = set(checkpoint["completed"])
+    ckpt_lock = asyncio.Lock()
 
-    answer_llm = nm._llm
+    # Use separate answer LLM if configured
+    if cfg.answer_llm_model:
+        from neuromemory.providers.openai_llm import OpenAILLM
+        answer_llm = OpenAILLM(
+            api_key=cfg.answer_llm_api_key or cfg.llm_api_key,
+            model=cfg.answer_llm_model,
+            base_url=cfg.answer_llm_base_url or cfg.llm_base_url,
+        )
+    else:
+        answer_llm = nm_base._llm
 
-    try:
-        for q_idx, q in enumerate(questions):
-            if q.question_id in completed_keys:
-                continue
+    sem = asyncio.Semaphore(cfg.query_concurrency)
 
+    async def _query_one(q: LongMemEvalQuestion, idx: int) -> None:
+        if q.question_id in completed_keys:
+            return
+
+        async with sem:
             user_id = f"lme_{q.question_id}"
             t0 = time.time()
 
-            recall_result = await nm.recall(
-                user_id, q.question, limit=cfg.recall_limit,
+            # Single recall call to get all context
+            recall_result = await _retry_on_rate_limit(
+                nm_base.recall, user_id, q.question, limit=cfg.recall_limit,
             )
 
-            memories = recall_result.get("merged", [])
-            memories_text = "\n".join(
-                f"- {m.get('content', '')}" for m in memories
+            merged = recall_result.get("merged", [])
+            
+            # Format memories for prompt
+            facts = [m for m in merged if m.get("memory_type") != "episodic"]
+            episodes = [m for m in merged if m.get("memory_type") == "episodic"]
+            episodes_sorted = sorted(
+                episodes,
+                key=lambda m: m.get("extracted_timestamp") or datetime.min.replace(tzinfo=timezone.utc),
             )
 
-            # Track which sessions were retrieved (for Recall@k)
-            retrieved_sessions: list[int] = []
-            for m in memories:
+            facts_text = "\n".join(f"- {m['content']}" for m in facts) or "None."
+            timeline_text = "\n".join(f"- {m['content']}" for m in episodes_sorted) or "None."
+            
+            # Format graph & profile
+            graph_lines = recall_result.get("graph_context", [])[:10]
+            graph_text = "\n".join(f"- {g}" for g in graph_lines) or "None."
+            
+            profile = recall_result.get("user_profile", {})
+            profile_lines = [f"{k}: {v}" for k, v in profile.items() if v]
+            profile_text = "\n".join(profile_lines) or "None."
+
+            # Track retrieved sessions for Recall@k
+            retrieved_sessions = []
+            for m in merged:
                 meta = m.get("metadata", {}) or {}
-                src = meta.get("extracted_from", "")
+                src = meta.get("extracted_from", "") # session_id
                 if isinstance(src, str) and "_s" in src:
                     try:
                         s_idx = int(src.split("_s")[-1])
@@ -141,14 +221,24 @@ async def _query(cfg: EvalConfig, questions: list[LongMemEvalQuestion]) -> None:
                     except (ValueError, IndexError):
                         pass
 
-            predicted = await answer_llm.chat([
-                {"role": "system", "content": LONGMEMEVAL_ANSWER_SYSTEM.format(
-                    memories=memories_text,
-                )},
-                {"role": "user", "content": LONGMEMEVAL_ANSWER_USER.format(
-                    question=q.question,
-                )},
-            ], temperature=0.0, max_tokens=256)
+            # Generate answer
+            system_content = LONGMEMEVAL_ANSWER_SYSTEM.format(
+                profile=profile_text,
+                graph=graph_text,
+                facts=facts_text,
+                timeline=timeline_text,
+            )
+            
+            predicted = await _retry_on_rate_limit(
+                answer_llm.chat,
+                [
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": LONGMEMEVAL_ANSWER_USER.format(
+                        question=q.question,
+                    )},
+                ],
+                temperature=0.0, max_tokens=256,
+            )
 
             latency = time.time() - t0
 
@@ -158,27 +248,30 @@ async def _query(cfg: EvalConfig, questions: list[LongMemEvalQuestion]) -> None:
                 "gold_answer": q.answer,
                 "predicted": predicted.strip(),
                 "question_type": q.question_type,
-                "num_memories": len(memories),
+                "num_memories": len(merged),
                 "retrieved_sessions": retrieved_sessions,
                 "answer_sessions": q.answer_sessions,
                 "latency": round(latency, 2),
             }
-            checkpoint["results"].append(result)
-            checkpoint["completed"].append(q.question_id)
-            completed_keys.add(q.question_id)
-            save_checkpoint(checkpoint_path, checkpoint)
+
+            async with ckpt_lock:
+                checkpoint["results"].append(result)
+                checkpoint["completed"].append(q.question_id)
+                completed_keys.add(q.question_id)
+                save_checkpoint(checkpoint_path, checkpoint)
 
             logger.info(
-                "Q[%d/%d] %s type=%s latency=%.1fs",
-                q_idx + 1, len(questions),
-                q.question_id, q.question_type, latency,
+                "Q[%d/%d] %s latency=%.1fs memories=%d",
+                idx + 1, len(questions), q.question_id, latency, len(merged),
             )
-    finally:
-        await nm.close()
 
-    logger.info(
-        "Query phase complete: %d results", len(checkpoint["results"]),
-    )
+    try:
+        tasks = [asyncio.create_task(_query_one(q, i)) for i, q in enumerate(questions)]
+        await asyncio.gather(*tasks)
+    finally:
+        await nm_base.close()
+
+    logger.info("Query phase complete: %d results", len(checkpoint["results"]))
 
 
 def _recall_at_k(
@@ -194,8 +287,12 @@ def _recall_at_k(
     return hits / len(answer_sessions)
 
 
+# ---------------------------------------------------------------------------
+# Phase 3: Evaluate (parallel judge calls)
+# ---------------------------------------------------------------------------
+
 async def _evaluate(cfg: EvalConfig) -> None:
-    """Phase 3: Compute metrics on query results."""
+    """Compute metrics with parallel judge calls."""
     checkpoint_path = os.path.join(cfg.results_dir, "longmemeval_query_checkpoint.json")
     checkpoint = load_checkpoint(checkpoint_path)
     results = checkpoint.get("results", [])
@@ -205,70 +302,87 @@ async def _evaluate(cfg: EvalConfig) -> None:
         return
 
     judge_llm = create_judge_llm(cfg)
+    sem = asyncio.Semaphore(cfg.evaluate_concurrency)
+    
+    scored: list[dict | None] = [None] * len(results)
+    progress_count = 0
+    progress_lock = asyncio.Lock()
 
-    type_stats: dict[str, dict] = {}
-
-    try:
-        from tqdm import tqdm
-        iterator = tqdm(results, desc="Evaluating")
-    except ImportError:
-        iterator = results
-
-    for r in iterator:
+    async def _eval_one(idx: int, r: dict) -> None:
+        nonlocal progress_count
         qtype = r["question_type"]
-        gold = r["gold_answer"]
-        pred = r["predicted"]
+        gold = str(r["gold_answer"])
+        pred = str(r["predicted"])
 
         f1 = compute_f1(pred, gold)
         bleu = compute_bleu1(pred, gold)
-        judge_score = await judge_longmemeval(
-            judge_llm, qtype, r["question"], gold, pred,
-        )
+        
+        async with sem:
+            judge_score = await _retry_on_rate_limit(
+                judge_longmemeval, judge_llm, qtype, r["question"], gold, pred,
+            )
+        
         recall_k = _recall_at_k(
             r.get("retrieved_sessions", []),
             r.get("answer_sessions", []),
         )
 
+        scored[idx] = {
+            "qtype": qtype, "f1": f1, "bleu": bleu, 
+            "judge": judge_score, "recall_k": recall_k
+        }
+
+        async with progress_lock:
+            progress_count += 1
+            if progress_count % 50 == 0 or progress_count == len(results):
+                logger.info("Evaluate progress: %d/%d", progress_count, len(results))
+
+    tasks = [asyncio.create_task(_eval_one(i, r)) for i, r in enumerate(results)]
+    await asyncio.gather(*tasks)
+
+    # Aggregate
+    type_stats: dict[str, dict] = {}
+    total_n = total_f1 = total_bleu = total_judge = total_rk = 0
+
+    for s in scored:
+        if s is None: continue
+        qtype = s["qtype"]
         if qtype not in type_stats:
             type_stats[qtype] = {
-                "count": 0, "f1": 0.0, "bleu1": 0.0,
-                "judge": 0.0, "recall_k": 0.0,
+                "count": 0, "f1": 0.0, "bleu1": 0.0, "judge": 0.0, "recall_k": 0.0
             }
-        s = type_stats[qtype]
-        s["count"] += 1
-        s["f1"] += f1
-        s["bleu1"] += bleu
-        s["judge"] += judge_score
-        s["recall_k"] += recall_k
+        stats = type_stats[qtype]
+        stats["count"] += 1
+        stats["f1"] += s["f1"]
+        stats["bleu1"] += s["bleu"]
+        stats["judge"] += s["judge"]
+        stats["recall_k"] += s["recall_k"]
+        
+        total_n += 1
+        total_f1 += s["f1"]
+        total_bleu += s["bleu"]
+        total_judge += s["judge"]
+        total_rk += s["recall_k"]
 
     # Print results
     print("\nLongMemEval Evaluation Results")
-    print("=" * 65)
-    print(
-        f"{'Type':<16} {'Count':>6} {'F1':>8} {'BLEU-1':>8} "
-        f"{'Judge':>8} {'R@10':>8}"
-    )
-    print("-" * 65)
+    print("=" * 70)
+    print(f"{'Type':<20} {'Count':>6} {'F1':>8} {'BLEU-1':>8} {'Judge':>8} {'R@10':>8}")
+    print("-" * 70)
 
-    total_n = total_f1 = total_bleu = total_judge = total_rk = 0
     for qtype in sorted(type_stats):
         s = type_stats[qtype]
         n = s["count"]
         print(
-            f"{qtype:<16} {n:>6} "
+            f"{qtype:<20} {n:>6} "
             f"{s['f1']/n:>8.3f} {s['bleu1']/n:>8.3f} "
             f"{s['judge']/n:>8.3f} {s['recall_k']/n:>8.3f}"
         )
-        total_n += n
-        total_f1 += s["f1"]
-        total_bleu += s["bleu1"]
-        total_judge += s["judge"]
-        total_rk += s["recall_k"]
 
-    print("-" * 65)
+    print("-" * 70)
     if total_n:
         print(
-            f"{'Overall':<16} {total_n:>6} "
+            f"{'Overall':<20} {total_n:>6} "
             f"{total_f1/total_n:>8.3f} {total_bleu/total_n:>8.3f} "
             f"{total_judge/total_n:>8.3f} {total_rk/total_n:>8.3f}"
         )

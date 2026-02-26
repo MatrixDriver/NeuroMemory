@@ -43,6 +43,14 @@
 | **[为什么不提供 Web UI](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
 | **[LoCoMo 优化历程](https://github.com/MatrixDriver/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)** | 基准测试迭代记录（0.125 → 0.802，+541%） |
 
+### Claude Code Skill
+
+If you use [Claude Code](https://claude.com/claude-code), install the NeuroMemory docs skill for inline API reference:
+
+```bash
+npx skills add https://github.com/MatrixDriver/NeuroMemory
+```
+
 ---
 
 ## 安装
