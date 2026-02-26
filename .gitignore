@@ -39,3 +39,4 @@ evaluation/results/*.log
 nul
 Untitled
 .venv312/
+dist/
