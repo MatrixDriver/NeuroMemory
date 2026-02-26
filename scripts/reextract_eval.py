@@ -68,9 +68,9 @@ async def main():
     await nm.init()
 
     from sqlalchemy import and_, text, select, func
-    from neuromemory.models.conversation import Conversation
-    from neuromemory.models.memory import Embedding
-    from neuromemory.services.conversation import ConversationService
+    from neuromem.models.conversation import Conversation
+    from neuromem.models.memory import Embedding
+    from neuromem.services.conversation import ConversationService
 
     if not args.dry_run and not args.resume:
         # Clear all embeddings

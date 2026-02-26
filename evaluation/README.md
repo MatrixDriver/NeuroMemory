@@ -1,6 +1,6 @@
-# NeuroMemory 基准测试
+# neuromem 基准测试
 
-使用 [LoCoMo](https://arxiv.org/abs/2402.09302) (ACL 2024) 和 [LongMemEval](https://arxiv.org/abs/2407.15168) (ICLR 2025) 对 NeuroMemory 的记忆召回能力进行评测。
+使用 [LoCoMo](https://arxiv.org/abs/2402.09302) (ACL 2024) 和 [LongMemEval](https://arxiv.org/abs/2407.15168) (ICLR 2025) 对 neuromem 的记忆召回能力进行评测。
 
 ## 快速开始
 
@@ -19,7 +19,7 @@ cp /path/to/longmemeval_s_cleaned.json evaluation/data/
 
 ```bash
 # 数据库
-export DATABASE_URL=postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory
+export DATABASE_URL=postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem
 
 # Embedding (SiliconFlow 或 OpenAI)
 export EMBEDDING_PROVIDER=siliconflow   # 或 openai

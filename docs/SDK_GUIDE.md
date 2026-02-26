@@ -1,4 +1,4 @@
-# NeuroMemory 使用指南
+# neuromem 使用指南
 
 > **Python 版本**: 3.12+
 > **最后更新**: 2026-02-24
@@ -45,10 +45,10 @@ docker compose -f docker-compose.yml up -d db
 ### 2.1 基础初始化
 
 ```python
-from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
+from neuromem import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
 
 nm = NeuroMemory(
-    database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+    database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem",
     embedding=SiliconFlowEmbedding(api_key="your-key"),
     llm=OpenAILLM(api_key="your-llm-key", model="deepseek-chat"),
 )
@@ -74,8 +74,8 @@ async with NeuroMemory(
 ### 2.3 完整配置
 
 ```python
-from neuromemory import (
-    NeuroMemory,
+from neuromem import (
+    neuromem,
     SiliconFlowEmbedding,
     OpenAILLM,
     S3Storage,
@@ -91,9 +91,9 @@ nm = NeuroMemory(
     ),
     storage=S3Storage(                       # 可选：文件存储
         endpoint="http://localhost:9000",
-        access_key="neuromemory",
-        secret_key="neuromemory123",
-        bucket="neuromemory",
+        access_key="neuromem",
+        secret_key="neuromem123",
+        bucket="neuromem",
     ),
     pool_size=20,                            # 数据库连接池大小
 )
@@ -333,7 +333,7 @@ await nm.files.delete(file_id=some_uuid)
 ### 7.1 节点和关系类型
 
 ```python
-from neuromemory.models.graph import NodeType, EdgeType
+from neuromem.models.graph import NodeType, EdgeType
 
 # 内置节点类型
 NodeType.USER         # 用户
@@ -434,7 +434,7 @@ path = await nm.graph.find_path(
 ### 8.1 基础用法
 
 ```python
-from neuromemory import OpenAILLM
+from neuromem import OpenAILLM
 
 nm = NeuroMemory(
     database_url="...",
@@ -539,7 +539,7 @@ except Exception as e:
 ### 11.1 自定义 Embedding
 
 ```python
-from neuromemory.providers.embedding import EmbeddingProvider
+from neuromem.providers.embedding import EmbeddingProvider
 
 class MyEmbedding(EmbeddingProvider):
     @property
@@ -556,7 +556,7 @@ nm = NeuroMemory(database_url="...", embedding=MyEmbedding())
 ### 11.2 自定义 LLM
 
 ```python
-from neuromemory.providers.llm import LLMProvider
+from neuromem.providers.llm import LLMProvider
 
 class MyLLM(LLMProvider):
     async def chat(self, messages, temperature=0.7, max_tokens=1024):
@@ -569,7 +569,7 @@ nm = NeuroMemory(database_url="...", embedding=..., llm=MyLLM())
 ### 11.3 自定义 Storage
 
 ```python
-from neuromemory.storage.base import ObjectStorage
+from neuromem.storage.base import ObjectStorage
 
 class MyStorage(ObjectStorage):
     async def upload(self, prefix, filename, data, content_type):
@@ -644,7 +644,7 @@ profile = await nm.entity_profile(user_id="alice", entity="Google")
 
 > 可运行的完整示例见 **[example/](../example/)**，支持终端交互、命令查询、自动记忆提取。
 
-这是使用 NeuroMemory 最关键的一步——**如何把 recall() 的结果变成高质量的 LLM 上下文**。正确组装 prompt 能充分利用 NeuroMemory 的全部能力：三因子检索、图谱关系、用户画像、情感洞察。
+这是使用 neuromem 最关键的一步——**如何把 recall() 的结果变成高质量的 LLM 上下文**。正确组装 prompt 能充分利用 neuromem 的全部能力：三因子检索、图谱关系、用户画像、情感洞察。
 
 ### 13.1 recall() 返回的完整结构
 

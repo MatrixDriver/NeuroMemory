@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock
 
-from neuromemory.services.memory_extraction import MemoryExtractionService
-from neuromemory.services.conversation import ConversationService
-from neuromemory.providers.llm import LLMProvider
+from neuromem.services.memory_extraction import MemoryExtractionService
+from neuromem.services.conversation import ConversationService
+from neuromem.providers.llm import LLMProvider
 
 
 class MockLLMProvider(LLMProvider):
@@ -68,9 +68,9 @@ async def test_all_memory_types_committed_atomically(db_session, mock_embedding)
 
     # Before calling extract, count existing records
     from sqlalchemy import select, func
-    from neuromemory.models.kv import KeyValue
-    from neuromemory.models.memory import Embedding
-    from neuromemory.models.graph import GraphNode
+    from neuromem.models.kv import KeyValue
+    from neuromem.models.memory import Embedding
+    from neuromem.models.graph import GraphNode
 
     kv_before = await db_session.execute(select(func.count(KeyValue.id)))
     emb_before = await db_session.execute(select(func.count(Embedding.id)))
@@ -160,8 +160,8 @@ async def test_rollback_on_failure_prevents_partial_commit(db_session, mock_embe
 
     # Count before
     from sqlalchemy import select, func
-    from neuromemory.models.kv import KeyValue
-    from neuromemory.models.memory import Embedding
+    from neuromem.models.kv import KeyValue
+    from neuromem.models.memory import Embedding
 
     kv_before = await db_session.execute(select(func.count(KeyValue.id)))
     emb_before = await db_session.execute(select(func.count(Embedding.id)))
@@ -292,8 +292,8 @@ async def test_graph_triples_committed_with_other_memories(db_session, mock_embe
 
     # Verify both are in database
     from sqlalchemy import select, func
-    from neuromemory.models.memory import Embedding
-    from neuromemory.models.graph import GraphNode
+    from neuromem.models.memory import Embedding
+    from neuromem.models.graph import GraphNode
 
     fact_count = await db_session.execute(
         select(func.count(Embedding.id))

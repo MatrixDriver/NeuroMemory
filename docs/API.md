@@ -1,4 +1,4 @@
-# NeuroMemory API 参考文档
+# neuromem API 参考文档
 
 > **版本**: 0.6.x
 > **Python**: 3.12+
@@ -28,7 +28,7 @@
 ### NeuroMemory(...)
 
 ```python
-from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM, S3Storage
+from neuromem import NeuroMemory, SiliconFlowEmbedding, OpenAILLM, S3Storage
 
 nm = NeuroMemory(
     database_url: str,
@@ -66,7 +66,7 @@ nm = NeuroMemory(
 ```python
 # 默认模式：自动提取（推荐）
 async with NeuroMemory(
-    database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+    database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem",
     embedding=SiliconFlowEmbedding(api_key="sk-xxx"),
     llm=OpenAILLM(api_key="sk-xxx", model="deepseek-chat"),
     auto_extract=True,  # 默认，每次 add_message 自动提取
@@ -101,7 +101,7 @@ nm.on_extraction = my_callback   # 挂载/替换提取完成回调
 
 ## 公共 API 概览
 
-NeuroMemory 的公共 API 围绕三个核心操作：
+neuromem 的公共 API 围绕三个核心操作：
 
 | API | 用途 | 说明 |
 |-----|------|------|
@@ -728,8 +728,8 @@ document = await nm.files.upload(
 **支持格式**：
 
 - 文本：`.txt`, `.md`, `.json`, `.csv`
-- PDF：`.pdf`（需要 `pip install neuromemory[pdf]`）
-- Word：`.docx`（需要 `pip install neuromemory[docx]`）
+- PDF：`.pdf`（需要 `pip install neuromem[pdf]`）
+- Word：`.docx`（需要 `pip install neuromem[docx]`）
 - 图片：`.jpg`, `.png`, `.gif`（仅存储，不提取文本）
 
 **示例**：
@@ -843,7 +843,7 @@ node_id = await nm.graph.create_node(
 **NodeType 枚举**：
 
 ```python
-from neuromemory.models.graph import NodeType
+from neuromem.models.graph import NodeType
 
 NodeType.USER         # 用户
 NodeType.ENTITY       # 通用实体
@@ -855,7 +855,7 @@ NodeType.SKILL        # 技能
 **示例**：
 
 ```python
-from neuromemory.models.graph import NodeType, EdgeType
+from neuromem.models.graph import NodeType, EdgeType
 
 # 创建用户节点
 await nm.graph.create_node(NodeType.USER, "alice", {"name": "Alice"})
@@ -996,7 +996,7 @@ await nm.graph.delete_node(
 自定义 Embedding 提供者。
 
 ```python
-from neuromemory.providers.embedding import EmbeddingProvider
+from neuromem.providers.embedding import EmbeddingProvider
 
 class CustomEmbedding(EmbeddingProvider):
     @property
@@ -1024,7 +1024,7 @@ class CustomEmbedding(EmbeddingProvider):
 自定义 LLM 提供者。
 
 ```python
-from neuromemory.providers.llm import LLMProvider
+from neuromem.providers.llm import LLMProvider
 
 class CustomLLM(LLMProvider):
     async def chat(self, messages: list[dict], **kwargs) -> str:
@@ -1042,7 +1042,7 @@ class CustomLLM(LLMProvider):
 自定义对象存储。
 
 ```python
-from neuromemory.storage.base import ObjectStorage
+from neuromem.storage.base import ObjectStorage
 
 class CustomStorage(ObjectStorage):
     async def upload(self, key: str, data: bytes) -> str:
@@ -1072,11 +1072,11 @@ class CustomStorage(ObjectStorage):
 
 ```python
 import asyncio
-from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
+from neuromem import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
 
 async def main():
     async with NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem",
         embedding=SiliconFlowEmbedding(api_key="sk-xxx"),
         llm=OpenAILLM(api_key="sk-xxx", model="deepseek-chat"),
     ) as nm:

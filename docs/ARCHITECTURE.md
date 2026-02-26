@@ -1,4 +1,4 @@
-# NeuroMemory 架构文档
+# neuromem 架构文档
 
 > **最后更新**: 2026-02-24
 
@@ -22,7 +22,7 @@
 
 ### 1.1 设计理念
 
-NeuroMemory 是一个 **Python 框架**（非 Client-Server），AI agent 开发者直接 `from neuromemory import NeuroMemory` 嵌入自己的程序使用。核心设计原则：
+neuromem 是一个 **Python 框架**（非 Client-Server），AI agent 开发者直接 `from neuromem import neuromem` 嵌入自己的程序使用。核心设计原则：
 
 1. **框架而非服务**: 无需部署后台服务器，直接在 Python 程序中使用
 2. **可插拔 Provider**: Embedding、LLM、Storage 通过抽象接口注入
@@ -34,7 +34,7 @@ NeuroMemory 是一个 **Python 框架**（非 Client-Server），AI agent 开发
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   NeuroMemory 架构                           │
+│                   neuromem 架构                           │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐  │
@@ -43,8 +43,8 @@ NeuroMemory 是一个 **Python 框架**（非 Client-Server），AI agent 开发
 │  └──────────────────────┬───────────────────────────────┘  │
 │                         │                                   │
 │  ┌──────────────────────▼───────────────────────────────┐  │
-│  │  门面层 (neuromemory/_core.py)                        │  │
-│  │  NeuroMemory 主类                                     │  │
+│  │  门面层 (neuromem/_core.py)                        │  │
+│  │  neuromem 主类                                     │  │
 │  │  ├── nm.add_memory() / nm.search()                    │  │
 │  │  ├── nm.kv          (KVFacade)                        │  │
 │  │  ├── nm.conversations (ConversationsFacade)           │  │
@@ -53,14 +53,14 @@ NeuroMemory 是一个 **Python 框架**（非 Client-Server），AI agent 开发
 │  └──────────────────────┬───────────────────────────────┘  │
 │                         │                                   │
 │  ┌──────────────────────▼───────────────────────────────┐  │
-│  │  服务层 (neuromemory/services/)                        │  │
+│  │  服务层 (neuromem/services/)                        │  │
 │  │  SearchService │ KVService │ ConversationService       │  │
 │  │  FileService │ GraphService │ MemoryExtractionService  │  │
 │  │  MemoryService │ FileProcessor                        │  │
 │  └──────────────────────┬───────────────────────────────┘  │
 │                         │                                   │
 │  ┌──────────────────────▼───────────────────────────────┐  │
-│  │  Provider 层 (neuromemory/providers/)                  │  │
+│  │  Provider 层 (neuromem/providers/)                  │  │
 │  │  EmbeddingProvider (ABC)                               │  │
 │  │  ├── SiliconFlowEmbedding (BAAI/bge-m3, 1024 维)     │  │
 │  │  └── OpenAIEmbedding (text-embedding-3-small, 1536 维)│  │
@@ -72,7 +72,7 @@ NeuroMemory 是一个 **Python 框架**（非 Client-Server），AI agent 开发
 │                         │                                   │
 │  ┌──────────────────────▼───────────────────────────────┐  │
 │  │  数据层                                               │  │
-│  │  Database (neuromemory/db.py)                          │  │
+│  │  Database (neuromem/db.py)                          │  │
 │  │  ├── PostgreSQL + pgvector (向量 + 结构化)            │  │
 │  │  ├── 关系表图谱 (GraphNode/GraphEdge)                  │  │
 │  │  └── SQLAlchemy 2.0 async (asyncpg)                   │  │
@@ -106,10 +106,10 @@ NeuroMemory 是一个 **Python 框架**（非 Client-Server），AI agent 开发
 
 ### 3.1 门面模式 (Facade)
 
-`NeuroMemory` 主类是门面，提供简洁的顶层 API。每个子模块是一个 Facade 类：
+`neuromem` 主类是门面，提供简洁的顶层 API。每个子模块是一个 Facade 类：
 
 ```python
-class NeuroMemory:
+class neuromem:
     def __init__(self, database_url, embedding, llm=None, storage=None):
         self._db = Database(database_url)
         self._embedding = embedding
@@ -171,11 +171,11 @@ class Database:
 Embedding 维度在运行时确定（不同 Provider 维度不同）：
 
 ```python
-# neuromemory/models/__init__.py
+# neuromem/models/__init__.py
 _embedding_dims = 1024  # 默认值
 
-# NeuroMemory.__init__() 中设置
-import neuromemory.models as _models
+# neuromem.__init__() 中设置
+import neuromem.models as _models
 _models._embedding_dims = embedding.dims  # 在 init() 建表前设置
 ```
 
@@ -352,7 +352,7 @@ class ObjectStorage(ABC):
 实现 ABC 接口即可：
 
 ```python
-from neuromemory.providers.embedding import EmbeddingProvider
+from neuromem.providers.embedding import EmbeddingProvider
 
 class MyEmbedding(EmbeddingProvider):
     @property
@@ -429,7 +429,7 @@ docker compose -f docker-compose.yml up -d
 ┌───────────────────────────────┐
 │  Your Agent Application       │
 │  ┌─────────────────────────┐ │
-│  │  NeuroMemory Framework  │ │
+│  │  neuromem Framework  │ │
 │  └───────────┬─────────────┘ │
 └──────────────┼───────────────┘
                │
@@ -443,7 +443,7 @@ docker compose -f docker-compose.yml up -d
     └──────────────────────┘
 ```
 
-NeuroMemory 作为库嵌入你的应用，不需要独立部署。只需确保：
+neuromem 作为库嵌入你的应用，不需要独立部署。只需确保：
 1. PostgreSQL 可访问
 2. Embedding API 可用
 3. S3 存储可访问（如果使用文件功能）
@@ -456,7 +456,7 @@ NeuroMemory 作为库嵌入你的应用，不需要独立部署。只需确保�
 
 | 框架 | 向量存储 | 图存储 | KV/缓存 | 结构化数据 | 部署组件数 |
 |------|---------|--------|---------|-----------|-----------|
-| **NeuroMemory** | pgvector | 关系表 | PostgreSQL | PostgreSQL | **1** |
+| **neuromem** | pgvector | 关系表 | PostgreSQL | PostgreSQL | **1** |
 | Mem0 | Qdrant | Neo4j | — | PostgreSQL | 3 |
 | MemOS | Qdrant | Neo4j | Redis | PostgreSQL | 4 |
 | graphiti | 向量数据库 | Neo4j | — | PostgreSQL | 3+ |
@@ -483,7 +483,7 @@ NeuroMemory 作为库嵌入你的应用，不需要独立部署。只需确保�
 
 生产环境:
   托管 PostgreSQL (AWS RDS / Supabase / 阿里云 RDS)
-  + pip install neuromemory
+  + pip install neuromem
   → 完整记忆系统就绪
 ```
 
@@ -499,7 +499,7 @@ MemOS:   PostgreSQL + Redis Cloud + Qdrant + Neo4j → 4 个服务的运维负�
 
 ### 9.1 三层情感设计
 
-NeuroMemory 实现了三层情感架构，从瞬时情感到长期画像全覆盖：
+neuromem 实现了三层情感架构，从瞬时情感到长期画像全覆盖：
 
 | 层次 | 类型 | 存储位置 | 时间性 | 示例 |
 |------|------|---------|--------|------|
@@ -525,7 +525,7 @@ recency = e^(-t / (decay_rate × (1 + arousal × 0.5)))
 
 ### 9.3 隐私合规
 
-> **EU AI Act Article 5** 禁止自动推断用户人格（Big Five）或价值观。NeuroMemory 不自动推断此类信息。情感画像仅记录用户在对话中表达的情感状态，不做人格推断。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
+> **EU AI Act Article 5** 禁止自动推断用户人格（Big Five）或价值观。neuromem 不自动推断此类信息。情感画像仅记录用户在对话中表达的情感状态，不做人格推断。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
 
 ---
 

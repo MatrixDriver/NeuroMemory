@@ -1,4 +1,4 @@
-# 发布 NeuroMemory 到 PyPI 指南
+# 发布 neuromem 到 PyPI 指南
 
 ## 一次性准备工作
 
@@ -67,8 +67,8 @@ python -m build
 ```
 
 这会在 `dist/` 目录生成两个文件：
-- `neuromemory-2.0.1.tar.gz` - 源码分发包
-- `neuromemory-2.0.1-py3-none-any.whl` - Wheel 二进制包
+- `neuromem-2.0.1.tar.gz` - 源码分发包
+- `neuromem-2.0.1-py3-none-any.whl` - Wheel 二进制包
 
 ### 步骤 5: 上传到 PyPI
 
@@ -79,13 +79,13 @@ python -m twine upload dist/*
 **成功输出示例**：
 ```
 Uploading distributions to https://upload.pypi.org/legacy/
-Uploading neuromemory-2.0.1-py3-none-any.whl
+Uploading neuromem-2.0.1-py3-none-any.whl
 100% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50.0/50.0 kB
-Uploading neuromemory-2.0.1.tar.gz
+Uploading neuromem-2.0.1.tar.gz
 100% ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 45.0/45.0 kB
 
 View at:
-https://pypi.org/project/neuromemory/2.0.1/
+https://pypi.org/project/neuromem/2.0.1/
 ```
 
 ### 步骤 6: 验证安装
@@ -94,10 +94,10 @@ https://pypi.org/project/neuromemory/2.0.1/
 
 ```bash
 # 在新环境中测试
-pip install neuromemory==2.0.1
+pip install neuromem==2.0.1
 
 # 或者升级现有安装
-pip install --upgrade neuromemory
+pip install --upgrade neuromem
 ```
 
 ---
@@ -133,7 +133,7 @@ echo "📤 上传到 PyPI..."
 python -m twine upload dist/*
 
 echo "✅ 发布成功！"
-echo "🔗 查看: https://pypi.org/project/neuromemory/$VERSION/"
+echo "🔗 查看: https://pypi.org/project/neuromem/$VERSION/"
 ```
 
 使用：
@@ -166,7 +166,7 @@ python -m twine upload --repository testpypi dist/*
 ### 3. 从 TestPyPI 安装测试
 
 ```bash
-pip install --index-url https://test.pypi.org/simple/ neuromemory
+pip install --index-url https://test.pypi.org/simple/ neuromem
 ```
 
 ---
@@ -178,14 +178,14 @@ pip install --index-url https://test.pypi.org/simple/ neuromemory
 
 **解决**：增加版本号后重新构建上传。
 
-### Q2: 导入错误 "No module named neuromemory"
+### Q2: 导入错误 "No module named neuromem"
 **检查**：
 ```bash
 # 确认包结构正确
 python -m build
-tar -tzf dist/neuromemory-*.tar.gz | grep neuromemory/
+tar -tzf dist/neuromem-*.tar.gz | grep neuromem/
 
-# 应该看到 neuromemory/__init__.py 等文件
+# 应该看到 neuromem/__init__.py 等文件
 ```
 
 ### Q3: 缺少依赖
@@ -275,7 +275,7 @@ python -m twine upload dist/*
 python -m twine upload --repository testpypi dist/*
 
 # 检查包内容
-tar -tzf dist/neuromemory-*.tar.gz
+tar -tzf dist/neuromem-*.tar.gz
 ```
 
 ---
@@ -284,7 +284,7 @@ tar -tzf dist/neuromemory-*.tar.gz
 
 ### 1. 确保包名可用
 
-访问 https://pypi.org/project/neuromemory/ 查看是否已被占用。
+访问 https://pypi.org/project/neuromem/ 查看是否已被占用。
 
 ### 2. 完善 pyproject.toml
 

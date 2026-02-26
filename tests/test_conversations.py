@@ -2,7 +2,7 @@
 
 import pytest
 
-from neuromemory.services.conversation import ConversationService
+from neuromem.services.conversation import ConversationService
 
 
 @pytest.mark.asyncio

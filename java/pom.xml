@@ -12,10 +12,10 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.neuromemory</groupId>
-    <artifactId>neuromemory-server</artifactId>
+    <groupId>com.neuromem</groupId>
+    <artifactId>neuromem-server</artifactId>
     <version>2.0.0</version>
-    <name>NeuroMemory Server</name>
+    <name>neuromem Server</name>
     <description>Memory-as-a-Service API Server</description>
 
     <properties>

@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from neuromemory import NeuroMemory
-from neuromemory.providers.llm import LLMProvider
+from neuromem import NeuroMemory
+from neuromem.providers.llm import LLMProvider
 
 
 class MockTemporalLLM(LLMProvider):
@@ -71,7 +71,7 @@ class MockTemporalLLM(LLMProvider):
 async def test_episode_timestamp_preservation(mock_embedding):
     """Test that episode timestamps are preserved during extraction."""
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=MockTemporalLLM(),
         auto_extract=False,  # Manual control for this test
@@ -123,7 +123,7 @@ async def test_episode_timestamp_preservation(mock_embedding):
 async def test_episode_people_and_location_extraction(mock_embedding):
     """Test that episode people and location are extracted (v0.2.0 feature)."""
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=MockTemporalLLM(),
         auto_extract=False,
@@ -173,7 +173,7 @@ async def test_long_term_memory_recall_without_excessive_decay(mock_embedding):
     This addresses LoCoMo P4: 30-day decay is too aggressive for multi-month conversations.
     """
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=MockTemporalLLM(),
     )
@@ -244,7 +244,7 @@ async def test_long_term_memory_recall_without_excessive_decay(mock_embedding):
 async def test_relative_time_expressions_in_episodes(mock_embedding):
     """Test handling of relative time expressions (yesterday, last week, next month)."""
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=MockTemporalLLM(),
         auto_extract=False,
@@ -288,7 +288,7 @@ async def test_temporal_context_in_recall(mock_embedding):
     This supports LoCoMo scenarios where temporal ordering matters.
     """
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=MockTemporalLLM(),
     )
@@ -338,7 +338,7 @@ async def test_multi_month_conversation_recall(mock_embedding):
     This is the core LoCoMo use case that revealed decay issues.
     """
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=MockTemporalLLM(),
     )

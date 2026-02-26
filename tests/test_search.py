@@ -2,7 +2,7 @@
 
 import pytest
 
-from neuromemory.services.search import SearchService
+from neuromem.services.search import SearchService
 
 
 @pytest.mark.asyncio

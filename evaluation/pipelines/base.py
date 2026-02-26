@@ -9,8 +9,8 @@ from datetime import datetime
 
 from sqlalchemy import text
 
-from neuromemory import NeuroMemory, OpenAILLM
-from neuromemory.providers.embedding import EmbeddingProvider
+from neuromem import NeuroMemory, OpenAILLM
+from neuromem.providers.embedding import EmbeddingProvider
 
 from evaluation.config import EvalConfig
 
@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 def create_embedding_provider(cfg: EvalConfig) -> EmbeddingProvider:
     """Create embedding provider from config."""
     if cfg.embedding_provider == "sentence_transformer":
-        from neuromemory.providers.sentence_transformer import SentenceTransformerEmbedding
+        from neuromem.providers.sentence_transformer import SentenceTransformerEmbedding
         model = cfg.embedding_model or "all-MiniLM-L6-v2"
         return SentenceTransformerEmbedding(model=model)
     elif cfg.embedding_provider == "openai":
-        from neuromemory import OpenAIEmbedding
+        from neuromem import OpenAIEmbedding
         kwargs = {"api_key": cfg.embedding_api_key}
         if cfg.embedding_model:
             kwargs["model"] = cfg.embedding_model
@@ -32,7 +32,7 @@ def create_embedding_provider(cfg: EvalConfig) -> EmbeddingProvider:
             kwargs["base_url"] = cfg.embedding_base_url
         return OpenAIEmbedding(**kwargs)
     else:
-        from neuromemory import SiliconFlowEmbedding
+        from neuromem import SiliconFlowEmbedding
         kwargs = {"api_key": cfg.embedding_api_key}
         if cfg.embedding_model:
             kwargs["model"] = cfg.embedding_model

@@ -1,4 +1,4 @@
-# NeuroMemory 快速开始指南
+# neuromem 快速开始指南
 
 > **预计时间**: 10 分钟
 > **最后更新**: 2026-02-24
@@ -33,11 +33,11 @@ docker --version   # 20.0+
 
 ### 2.1 启动 PostgreSQL
 
-NeuroMemory 使用 PostgreSQL + pgvector 作为存储后端。提供了预配置的 Docker Compose 文件：
+neuromem 使用 PostgreSQL + pgvector 作为存储后端。提供了预配置的 Docker Compose 文件：
 
 ```bash
-git clone https://github.com/your-repo/NeuroMemory.git
-cd NeuroMemory
+git clone https://github.com/your-repo/neuromem.git
+cd neuromem
 
 # 启动 PostgreSQL（含 pgvector 扩展）
 docker compose -f docker-compose.yml up -d db
@@ -49,7 +49,7 @@ docker compose -f docker-compose.yml ps db
 # STATUS 应为 healthy
 ```
 
-### 2.2 安装 NeuroMemory
+### 2.2 安装 neuromem
 
 ```bash
 # 安装核心依赖
@@ -72,7 +72,7 @@ pip install -e ".[all]"
 
 ### 2.3 获取 Embedding API Key
 
-NeuroMemory 需要 Embedding 服务将文本转为向量。支持两种 Provider：
+neuromem 需要 Embedding 服务将文本转为向量。支持两种 Provider：
 
 **SiliconFlow**（推荐，支持中英文）：
 1. 访问 [SiliconFlow](https://siliconflow.cn) 注册
@@ -92,11 +92,11 @@ NeuroMemory 需要 Embedding 服务将文本转为向量。支持两种 Provider
 
 ```python
 import asyncio
-from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
+from neuromem import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
 
 async def main():
     async with NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem",
         embedding=SiliconFlowEmbedding(api_key="your-siliconflow-key"),
         llm=OpenAILLM(api_key="your-llm-key", model="deepseek-chat"),
     ) as nm:
@@ -125,7 +125,7 @@ python demo.py
 
 ```python
 async with NeuroMemory(
-    database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+    database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem",
     embedding=SiliconFlowEmbedding(api_key="your-key"),
     llm=OpenAILLM(api_key="your-llm-key", model="deepseek-chat"),
 ) as nm:
@@ -137,7 +137,7 @@ async with NeuroMemory(
 ### 3.3 使用 OpenAI Embedding
 
 ```python
-from neuromemory import NeuroMemory, OpenAIEmbedding, OpenAILLM
+from neuromem import NeuroMemory, OpenAIEmbedding, OpenAILLM
 
 async with NeuroMemory(
     database_url="...",
@@ -210,16 +210,16 @@ sessions = await nm.conversations.list_sessions(user_id="alice")
 需要配置 S3/MinIO 存储：
 
 ```python
-from neuromemory import NeuroMemory, SiliconFlowEmbedding, S3Storage
+from neuromem import NeuroMemory, SiliconFlowEmbedding, S3Storage
 
 async with NeuroMemory(
     database_url="...",
     embedding=SiliconFlowEmbedding(api_key="..."),
     storage=S3Storage(
         endpoint="http://localhost:9000",
-        access_key="neuromemory",
-        secret_key="neuromemory123",
-        bucket="neuromemory",
+        access_key="neuromem",
+        secret_key="neuromem123",
+        bucket="neuromem",
     ),
 ) as nm:
     # 上传文件（自动提取文本和生成 embedding）
@@ -248,7 +248,7 @@ docker compose -f docker-compose.yml up -d minio
 图数据库（PostgreSQL 关系表实现）：
 
 ```python
-from neuromemory.models.graph import NodeType, EdgeType
+from neuromem.models.graph import NodeType, EdgeType
 
 # 创建节点
 await nm.graph.create_node(
@@ -281,7 +281,7 @@ path = await nm.graph.find_path(
 配置 `llm` 后，`add_message()` 默认自动提取记忆（`auto_extract=True`）：
 
 ```python
-from neuromemory import OpenAILLM
+from neuromem import OpenAILLM
 
 async with NeuroMemory(
     database_url="...",
@@ -380,7 +380,7 @@ nm = NeuroMemory(
 
 ```python
 import os
-from neuromemory import NeuroMemory, SiliconFlowEmbedding
+from neuromem import NeuroMemory, SiliconFlowEmbedding
 
 nm = NeuroMemory(
     database_url=os.environ["DATABASE_URL"],
@@ -417,4 +417,4 @@ pytest tests/ -v --timeout=30
 
 ---
 
-**需要帮助？** 提交 Issue: https://github.com/your-repo/NeuroMemory/issues
+**需要帮助？** 提交 Issue: https://github.com/your-repo/neuromem/issues

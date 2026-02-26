@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from neuromemory.providers.llm import LLMProvider
-from neuromemory.services.reflection import ReflectionService
+from neuromem.providers.llm import LLMProvider
+from neuromem.services.reflection import ReflectionService
 
 
 class MockLLMProvider(LLMProvider):
@@ -213,7 +213,7 @@ async def test_reflect_facade_method(db_session, mock_embedding):
     v0.2.0 behavior: reflect() only generates insights and updates emotion profile.
     Basic memory extraction is handled by add_message() when auto_extract=True.
     """
-    from neuromemory import NeuroMemory
+    from neuromem import NeuroMemory
 
     # Create NeuroMemory with LLM and auto_extract disabled for manual control
     mock_llm = MockLLMProvider(
@@ -222,7 +222,7 @@ async def test_reflect_facade_method(db_session, mock_embedding):
     )
 
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=mock_llm,
         auto_extract=False,  # Disable auto-extract for explicit control

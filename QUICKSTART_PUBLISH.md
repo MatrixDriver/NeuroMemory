@@ -70,10 +70,10 @@ rm -rf dist/ && python -m build && python -m twine upload dist/*
 
 等待 1-2 分钟后：
 ```bash
-pip install neuromemory==2.0.1
+pip install neuromem==2.0.1
 ```
 
-访问查看：https://pypi.org/project/neuromemory/
+访问查看：https://pypi.org/project/neuromem/
 
 ---
 
@@ -83,7 +83,7 @@ pip install neuromemory==2.0.1
 
 **"Invalid or non-existent authentication"** → 检查 `~/.pypirc` 中的 token 是否正确
 
-**导入失败** → 确保 `neuromemory/__init__.py` 存在并正确导出
+**导入失败** → 确保 `neuromem/__init__.py` 存在并正确导出
 
 ---
 

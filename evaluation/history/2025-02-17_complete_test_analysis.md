@@ -334,7 +334,7 @@ def find_path(
 ) -> list[Path]:
     """使用 Cypher 查询实体间路径"""
     query = """
-    SELECT * FROM cypher('neuromemory', $$
+    SELECT * FROM cypher('neuromem', $$
         MATCH path = (a:Entity {name: $start})-[*1..${max_hops}]-(b:Entity {name: $end})
         WHERE a.user_id = $user_id AND b.user_id = $user_id
         RETURN path

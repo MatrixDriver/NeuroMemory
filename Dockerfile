@@ -1,4 +1,4 @@
-# NeuroMemory Dockerfile for Railway Deployment
+# neuromem Dockerfile for Railway Deployment
 # 多阶段构建优化镜像大小
 FROM python:3.13-slim as builder
 

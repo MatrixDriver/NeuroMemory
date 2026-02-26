@@ -6,10 +6,10 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
-from neuromemory import NeuroMemory
-from neuromemory.services.graph_memory import GraphMemoryService
+from neuromem import NeuroMemory
+from neuromem.services.graph_memory import GraphMemoryService
 
-TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory"
+TEST_DATABASE_URL = "postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem"
 
 
 @pytest_asyncio.fixture
@@ -65,7 +65,7 @@ class TestStats:
         import uuid
         suffix = uuid.uuid4().hex[:8]
         user_id = f"stats_graph_{suffix}"
-        from neuromemory.models.graph import NodeType
+        from neuromem.models.graph import NodeType
         await nm_graph.graph.create_node(NodeType.PERSON, f"alice_{suffix}", user_id=user_id)
         await nm_graph.graph.create_node(NodeType.ORGANIZATION, f"google_{suffix}", user_id=user_id)
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from neuromemory.services.files import FileService
+from neuromem.services.files import FileService
 
 
 @pytest.fixture

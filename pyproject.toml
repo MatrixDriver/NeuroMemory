@@ -1,6 +1,6 @@
 [project]
-name = "neuromemory"
-version = "0.6.6"
+name = "neuromem"
+version = "0.7.0"
 description = "Memory management framework for AI agents"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -27,10 +27,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/MatrixDriver/NeuroMemory"
-Documentation = "https://github.com/MatrixDriver/NeuroMemory"
-Repository = "https://github.com/MatrixDriver/NeuroMemory"
-Issues = "https://github.com/MatrixDriver/NeuroMemory/issues"
+Homepage = "https://github.com/MatrixDriver/neuromem"
+Documentation = "https://github.com/MatrixDriver/neuromem"
+Repository = "https://github.com/MatrixDriver/neuromem"
+Issues = "https://github.com/MatrixDriver/neuromem/issues"
 
 [project.optional-dependencies]
 s3 = ["boto3>=1.34.0"]
@@ -56,7 +56,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["neuromemory*"]
+include = ["neuromem*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

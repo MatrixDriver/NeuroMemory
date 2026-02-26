@@ -85,7 +85,7 @@ Memories for user {speaker_2_user_id}:
 
 ## 公平对比配置（目标）
 
-| 组件 | NeuroMemory | mem0 |
+| 组件 | neuromem | mem0 |
 |------|------------|------|
 | Embedding | text-embedding-3-small | text-embedding-3-small |
 | LLM | gpt-4o-mini | gpt-4o-mini |

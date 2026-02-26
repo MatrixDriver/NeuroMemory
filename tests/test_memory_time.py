@@ -4,8 +4,8 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from neuromemory.models.memory import Embedding
-from neuromemory.services.memory import MemoryService
+from neuromem.models.memory import Embedding
+from neuromem.services.memory import MemoryService
 
 
 @pytest.fixture

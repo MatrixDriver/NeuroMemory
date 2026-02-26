@@ -1,6 +1,6 @@
 """Tests for BM25 query sanitization."""
 
-from neuromemory.services.search import _sanitize_bm25_query
+from neuromem.services.search import _sanitize_bm25_query
 
 
 class TestSanitizeBM25Query:

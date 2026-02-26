@@ -1,6 +1,6 @@
-# NeuroMemory 示例：带记忆的对话 Agent
+# neuromem 示例：带记忆的对话 Agent
 
-一个终端交互式聊天机器人，展示 NeuroMemory 框架的核心能力。
+一个终端交互式聊天机器人，展示 neuromem 框架的核心能力。
 
 ## 功能
 
@@ -15,7 +15,7 @@
 # 启动 PostgreSQL
 docker compose -f docker-compose.yml up -d db
 
-# 安装 neuromemory
+# 安装 neuromem
 pip install -e ".[dev]"
 ```
 
@@ -23,7 +23,7 @@ pip install -e ".[dev]"
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `DATABASE_URL` | PostgreSQL 连接地址 | `postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory` |
+| `DATABASE_URL` | PostgreSQL 连接地址 | `postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem` |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key | **必填** |
 | `LLM_MODEL` | LLM 模型名 | `deepseek-chat` (DeepSeek V3.2) |
 | `LLM_BASE_URL` | LLM API 地址 | `https://api.deepseek.com/v1` |

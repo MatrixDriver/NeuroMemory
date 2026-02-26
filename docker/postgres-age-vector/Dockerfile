@@ -29,7 +29,7 @@ RUN echo "#!/bin/bash" > /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "    CREATE EXTENSION IF NOT EXISTS age;" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "    LOAD 'age';" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "    SET search_path = ag_catalog, '\$user', public;" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
-    echo "    SELECT create_graph('neuromemory_graph');" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
+    echo "    SELECT create_graph('neuromem_graph');" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     echo "EOSQL" >> /docker-entrypoint-initdb.d/01-init-extensions.sh && \
     chmod +x /docker-entrypoint-initdb.d/01-init-extensions.sh
 

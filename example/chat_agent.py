@@ -22,8 +22,8 @@ import math
 import os
 import uuid
 
-from neuromemory import ExtractionStrategy, NeuroMemory, OpenAILLM
-from neuromemory.providers.embedding import EmbeddingProvider
+from neuromem import ExtractionStrategy, NeuroMemory, OpenAILLM
+from neuromem.providers.embedding import EmbeddingProvider
 
 USER_ID = "demo-user"
 SESSION_ID = str(uuid.uuid4())
@@ -275,7 +275,7 @@ HELP_TEXT = """
 async def main():
     database_url = os.getenv(
         "DATABASE_URL",
-        "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        "postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem",
     )
 
     # 使用默认提取策略：每 10 条消息 + 10 分钟空闲 + session 关闭 + 程序退出
@@ -286,7 +286,7 @@ async def main():
 
     # 开启 extraction 日志，便于观察自动提取过程
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    logging.getLogger("neuromemory").setLevel(logging.INFO)
+    logging.getLogger("neuromem").setLevel(logging.INFO)
 
     async with NeuroMemory(
         database_url=database_url,

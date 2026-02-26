@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from neuromemory.models.graph import EdgeType, GraphEdge, GraphNode, NodeType
-from neuromemory.services.graph_memory import GraphMemoryService
+from neuromem.models.graph import EdgeType, GraphEdge, GraphNode, NodeType
+from neuromem.services.graph_memory import GraphMemoryService
 
 
 @pytest.mark.asyncio

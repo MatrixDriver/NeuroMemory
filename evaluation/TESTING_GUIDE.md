@@ -147,7 +147,7 @@ python evaluation/scripts/add_test_record.py \
 # 检查记忆数据
 python3 -c "
 from sqlalchemy import create_engine, text
-engine = create_engine('postgresql://neuromemory:neuromemory@localhost:5433/neuromemory_eval')
+engine = create_engine('postgresql://neuromem:neuromem@localhost:5433/neuromem_eval')
 with engine.connect() as conn:
     result = conn.execute(text('SELECT user_id, COUNT(*) FROM embeddings GROUP BY user_id'))
     for row in result:
@@ -188,7 +188,7 @@ python evaluation/scripts/validate_test_data.py query
 # 查看残留数据的创建时间
 python3 -c "
 from sqlalchemy import create_engine, text
-engine = create_engine('postgresql://neuromemory:neuromemory@localhost:5433/neuromemory_eval')
+engine = create_engine('postgresql://neuromem:neuromem@localhost:5433/neuromem_eval')
 with engine.connect() as conn:
     result = conn.execute(text('''
         SELECT user_id, COUNT(*),

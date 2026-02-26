@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from neuromemory.services.graph_memory import GraphMemoryService
+from neuromem.services.graph_memory import GraphMemoryService
 
 
 @pytest.mark.asyncio
@@ -116,7 +116,7 @@ async def test_user_isolation_in_node_lookup(db_session):
 
     # Query to verify: there should be 2 separate "Google" nodes
     from sqlalchemy import select, func
-    from neuromemory.models.graph import GraphNode
+    from neuromem.models.graph import GraphNode
 
     result = await db_session.execute(
         select(func.count(GraphNode.id))
@@ -158,7 +158,7 @@ async def test_cross_user_edge_isolation(db_session):
 
     # Verify: each user should have exactly 1 works_at edge
     from sqlalchemy import select, func
-    from neuromemory.models.graph import GraphEdge
+    from neuromem.models.graph import GraphEdge
 
     for user_id in ["user_1", "user_2"]:
         result = await db_session.execute(

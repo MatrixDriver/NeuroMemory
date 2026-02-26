@@ -10,14 +10,14 @@ from __future__ import annotations
 import pytest
 from datetime import datetime, timezone
 
-from neuromemory import NeuroMemory
+from neuromem import NeuroMemory
 
 
 @pytest.mark.asyncio
 async def test_conversation_embedding_generated_on_add_message(mock_embedding, mock_llm):
     """Test that conversation embeddings are generated when adding messages."""
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=mock_llm,
         auto_extract=False,  # Disable auto-extract to test embedding only
@@ -39,7 +39,7 @@ async def test_conversation_embedding_generated_on_add_message(mock_embedding, m
 
     # Verify embedding was generated
     from sqlalchemy import select, text
-    from neuromemory.models.conversation import Conversation
+    from neuromem.models.conversation import Conversation
 
     async with nm._db.session() as session:
         result = await session.execute(
@@ -58,7 +58,7 @@ async def test_conversation_embedding_generated_on_add_message(mock_embedding, m
 async def test_recall_includes_conversation_results(mock_embedding, mock_llm):
     """Test that recall returns conversation_results alongside memory results."""
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=mock_llm,
         auto_extract=False,
@@ -100,7 +100,7 @@ async def test_recall_includes_conversation_results(mock_embedding, mock_llm):
 @pytest.mark.asyncio
 async def test_conversation_preserves_temporal_details(mock_embedding):
     """Test that conversations preserve dates/times that might be lost in extraction."""
-    from neuromemory.providers.llm import LLMProvider
+    from neuromem.providers.llm import LLMProvider
 
     class MockLossyLLM(LLMProvider):
         """Mock LLM that loses temporal details during extraction."""
@@ -119,7 +119,7 @@ async def test_conversation_preserves_temporal_details(mock_embedding):
 ```"""
 
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=MockLossyLLM(),
         auto_extract=True,  # Enable auto-extract with lossy LLM
@@ -162,7 +162,7 @@ async def test_conversation_preserves_temporal_details(mock_embedding):
 async def test_merged_results_deduplicate_conversations_and_memories(mock_embedding, mock_llm):
     """Test that merged results deduplicate between conversations and memories."""
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=mock_llm,
         auto_extract=False,
@@ -209,7 +209,7 @@ async def test_merged_results_deduplicate_conversations_and_memories(mock_embedd
 async def test_conversation_recall_with_role_and_session(mock_embedding, mock_llm):
     """Test that conversation results include role and session_id."""
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=mock_llm,
         auto_extract=False,
@@ -257,7 +257,7 @@ async def test_conversation_recall_with_role_and_session(mock_embedding, mock_ll
 async def test_conversation_recall_empty_when_no_embeddings(mock_embedding, mock_llm):
     """Test that conversations without embeddings are not returned."""
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=mock_llm,
         auto_extract=False,
@@ -267,7 +267,7 @@ async def test_conversation_recall_empty_when_no_embeddings(mock_embedding, mock
     user_id = "conv_recall_user_6"
 
     # Manually insert conversation without embedding
-    from neuromemory.models.conversation import Conversation
+    from neuromem.models.conversation import Conversation
     async with nm._db.session() as session:
         conv = Conversation(
             user_id=user_id,

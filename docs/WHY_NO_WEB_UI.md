@@ -1,14 +1,14 @@
-# 为什么 NeuroMemory 不提供 Web 管理界面
+# 为什么 neuromem 不提供 Web 管理界面
 
 ## 设计决策
 
-NeuroMemory 是一个 **Python 库/框架**，不是 SaaS 服务或独立应用，因此不提供 Web 管理界面。
+neuromem 是一个 **Python 库/框架**，不是 SaaS 服务或独立应用，因此不提供 Web 管理界面。
 
 ## 原因
 
 ### 1. 定位清晰
 
-NeuroMemory 的定位是为 AI agent 开发者提供**记忆管理能力**，而不是提供完整的用户界面。
+neuromem 的定位是为 AI agent 开发者提供**记忆管理能力**，而不是提供完整的用户界面。
 
 类似的例子：
 - **SQLAlchemy** 不提供数据库管理界面
@@ -23,7 +23,7 @@ NeuroMemory 的定位是为 AI agent 开发者提供**记忆管理能力**，而
 | 层级 | 职责 | 提供方 |
 |------|------|--------|
 | **应用层** | 用户界面、交互逻辑、业务流程 | agent 应用开发者 |
-| **框架层** | 记忆管理能力（存储、检索、提取） | NeuroMemory |
+| **框架层** | 记忆管理能力（存储、检索、提取） | neuromem |
 | **存储层** | 数据持久化 | PostgreSQL |
 
 Web UI 属于应用层，不应该由框架层提供。
@@ -54,7 +54,7 @@ st.dataframe(await nm.search(...))
 # 完全自定义的 UI 和交互逻辑
 ```
 
-如果 NeuroMemory 强制提供 Web Console，对这些场景来说都是多余的。
+如果 neuromem 强制提供 Web Console，对这些场景来说都是多余的。
 
 ### 4. 维护成本
 
@@ -93,7 +93,7 @@ for msg in messages:
 
 ```python
 import pandas as pd
-from neuromemory import NeuroMemory, SiliconFlowEmbedding
+from neuromem import NeuroMemory, SiliconFlowEmbedding
 
 async with NeuroMemory(...) as nm:
     # 搜索记忆
@@ -113,7 +113,7 @@ async with NeuroMemory(...) as nm:
 ### 方式 3: 直接查询 PostgreSQL
 
 ```bash
-psql -U neuromemory -d neuromemory
+psql -U neuromem -d neuromem
 
 # 查看所有记忆
 SELECT content, memory_type, metadata->>'importance' as importance
@@ -143,7 +143,7 @@ LIMIT 20;
 
 ```python
 import streamlit as st
-from neuromemory import NeuroMemory, SiliconFlowEmbedding
+from neuromem import NeuroMemory, SiliconFlowEmbedding
 
 st.title("Memory Management")
 
@@ -175,7 +175,7 @@ demo = gr.Interface(
     fn=search_memories,
     inputs=["text", "text"],
     outputs="text",
-    title="NeuroMemory Search"
+    title="neuromem Search"
 )
 demo.launch()
 ```
@@ -185,7 +185,7 @@ demo.launch()
 ```python
 # backend/main.py
 from fastapi import FastAPI
-from neuromemory import NeuroMemory
+from neuromem import NeuroMemory
 
 app = FastAPI()
 nm = NeuroMemory(...)
@@ -236,11 +236,11 @@ function App() {
 | **Pinecone SDK** | ❌ | 向量数据库 SDK，Pinecone 提供独立的 Web 控制台（SaaS） |
 | **LangChain** | ❌ | AI 框架，不提供记忆管理 UI |
 | **Mem0** | ❌ | 记忆库，不提供 UI |
-| **NeuroMemory** | ❌ | 记忆框架，不提供 UI |
+| **neuromem** | ❌ | 记忆框架，不提供 UI |
 
 ## 总结
 
-NeuroMemory 专注于提供**高质量的记忆管理能力**：
+neuromem 专注于提供**高质量的记忆管理能力**：
 - ✅ 三因子混合检索
 - ✅ 情感标注和重要性评分
 - ✅ 自动记忆提取和反思
@@ -249,4 +249,4 @@ NeuroMemory 专注于提供**高质量的记忆管理能力**：
 
 记忆数据的**可视化和管理界面**应该由你的 agent 应用程序根据实际场景和用户需求来设计和实现。
 
-这样的分工让 NeuroMemory 保持简洁、专注、易于集成，同时给予应用开发者最大的灵活性。
+这样的分工让 neuromem 保持简洁、专注、易于集成，同时给予应用开发者最大的灵活性。

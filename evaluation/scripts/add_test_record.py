@@ -67,9 +67,9 @@ def create_test_record(
         "dataset": "locomo10.json",
 
         "environment": {
-            "neuromemory_commit": commit,
-            "neuromemory_branch": branch,
-            "neuromemory_version": "v0.2.x-dev",
+            "neuromem_commit": commit,
+            "neuromem_branch": branch,
+            "neuromem_version": "v0.2.x-dev",
             "eval_commit": commit,
             "database": {
                 "type": "postgresql",

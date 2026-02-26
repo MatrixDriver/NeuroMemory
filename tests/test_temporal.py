@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from neuromemory.services.temporal import TemporalExtractor
+from neuromem.services.temporal import TemporalExtractor
 
 
 @pytest.fixture

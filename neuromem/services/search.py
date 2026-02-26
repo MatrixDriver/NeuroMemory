@@ -1,0 +1,417 @@
+"""Semantic search service - vector similarity + BM25 hybrid search."""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from neuromem.models.memory import Embedding
+from neuromem.providers.embedding import EmbeddingProvider
+
+logger = logging.getLogger(__name__)
+
+# Default decay rate: 30 days in seconds
+DEFAULT_DECAY_RATE = 86400 * 30
+
+# RRF constant (standard value from the original paper)
+RRF_K = 60
+
+
+def _sanitize_bm25_query(query: str) -> str:
+    """Sanitize query text for pg_search BM25 parser.
+
+    paradedb.parse() uses Tantivy query syntax where certain characters
+    (quotes, apostrophes, special operators) can cause parse errors.
+    """
+    # Remove characters that break Tantivy query parser
+    sanitized = query.replace("'", " ").replace("\u2018", " ").replace("\u2019", " ")
+    # Remove other Tantivy special chars
+    for ch in ['"', '\u201c', '\u201d', '(', ')', '[', ']', '{', '}', '~', '^', '\\']:
+        sanitized = sanitized.replace(ch, " ")
+    # Collapse multiple spaces
+    return " ".join(sanitized.split())
+
+
+class SearchService:
+    def __init__(self, db: AsyncSession, embedding: EmbeddingProvider, pg_search_available: bool = False):
+        self.db = db
+        self._embedding = embedding
+        self._pg_search = pg_search_available
+
+    async def add_memory(
+        self,
+        user_id: str,
+        content: str,
+        memory_type: str = "general",
+        metadata: dict | None = None,
+        valid_from: datetime | None = None,
+    ) -> Embedding:
+        """Add a memory with its embedding vector."""
+        from datetime import timezone
+
+        vector = await self._embedding.embed(content)
+
+        record = Embedding(
+            user_id=user_id,
+            content=content,
+            embedding=vector,
+            memory_type=memory_type,
+            metadata_=metadata,
+            valid_from=valid_from or datetime.now(timezone.utc),
+        )
+        self.db.add(record)
+        await self.db.flush()
+        return record
+
+    async def search(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 5,
+        memory_type: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        query_embedding: list[float] | None = None,
+        event_after: datetime | None = None,
+        event_before: datetime | None = None,
+        as_of: datetime | None = None,
+    ) -> list[dict]:
+        """Hybrid search: vector similarity + BM25 keyword search, merged via RRF.
+
+        Args:
+            query_embedding: Optional pre-computed embedding to avoid recomputation
+            event_after: Filter episodes by extracted_timestamp >= this datetime
+            event_before: Filter episodes by extracted_timestamp <= this datetime
+            as_of: Time-travel query — return memories valid at this point in time.
+                When None, only returns currently valid memories (valid_until IS NULL).
+        """
+        if query_embedding is not None:
+            query_vector = query_embedding
+        else:
+            query_vector = await self._embedding.embed(query)
+
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in query_vector):
+            raise ValueError("Invalid vector data: must contain only numeric values")
+
+        vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
+
+        filters = "user_id = :user_id"
+        bm25_query = _sanitize_bm25_query(query) if self._pg_search else query
+        params: dict = {"user_id": user_id, "limit": limit, "query_text": bm25_query}
+
+        if memory_type:
+            filters += " AND memory_type = :memory_type"
+            params["memory_type"] = memory_type
+
+        if created_after:
+            filters += " AND created_at >= :created_after"
+            params["created_after"] = created_after
+
+        if created_before:
+            filters += " AND created_at < :created_before"
+            params["created_before"] = created_before
+
+        if event_after:
+            filters += " AND extracted_timestamp >= :event_after"
+            params["event_after"] = event_after
+
+        if event_before:
+            filters += " AND extracted_timestamp <= :event_before"
+            params["event_before"] = event_before
+
+        # Time-travel filter
+        if as_of is not None:
+            filters += (
+                " AND (valid_from IS NULL OR valid_from <= :as_of)"
+                " AND (valid_until IS NULL OR valid_until > :as_of)"
+            )
+            params["as_of"] = as_of
+        else:
+            filters += " AND valid_until IS NULL"
+
+        # Hybrid search: RRF fusion of vector and BM25 results
+        candidate_limit = limit * 2 if self._pg_search else limit * 4
+
+        if self._pg_search:
+            bm25_cte = f"""
+            bm25_ranked AS (
+                SELECT id,
+                       paradedb.score(id) AS bm25_score,
+                       ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
+                FROM embeddings
+                WHERE {filters}
+                  AND id @@@ paradedb.parse(:query_text)
+                ORDER BY bm25_score DESC
+                LIMIT {candidate_limit}
+            )"""
+        else:
+            bm25_cte = f"""
+            bm25_ranked AS (
+                SELECT id,
+                       ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) AS bm25_score,
+                       ROW_NUMBER() OVER (
+                           ORDER BY ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) DESC
+                       ) AS bm25_rank
+                FROM embeddings
+                WHERE {filters}
+                  AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
+                ORDER BY bm25_score DESC
+                LIMIT {candidate_limit}
+            )"""
+
+        sql = text(
+            f"""
+            WITH vector_ranked AS (
+                SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
+                       1 - (embedding <=> '{vector_str}'::vector) AS vector_score,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}'::vector) AS vector_rank
+                FROM embeddings
+                WHERE {filters}
+                ORDER BY embedding <=> '{vector_str}'::vector
+                LIMIT {candidate_limit}
+            ),
+            {bm25_cte}
+            SELECT v.id, v.content, v.memory_type, v.metadata, v.created_at,
+                   v.extracted_timestamp,
+                   v.vector_score,
+                   COALESCE(b.bm25_score, 0) AS bm25_score,
+                   (1.0 / ({RRF_K} + v.vector_rank))
+                   + COALESCE(1.0 / ({RRF_K} + b.bm25_rank), 0) AS rrf_score
+            FROM vector_ranked v
+            LEFT JOIN bm25_ranked b ON v.id = b.id
+            ORDER BY rrf_score DESC
+            LIMIT :limit
+        """
+        )
+
+        result = await self.db.execute(sql, params)
+        rows = result.fetchall()
+
+        results = [
+            {
+                "id": str(row.id),
+                "content": row.content,
+                "memory_type": row.memory_type,
+                "metadata": row.metadata,
+                "created_at": row.created_at,
+                "extracted_timestamp": row.extracted_timestamp,
+                "score": round(float(row.rrf_score), 4),
+                "vector_score": round(float(row.vector_score), 4),
+                "bm25_score": round(float(row.bm25_score), 4),
+            }
+            for row in rows
+        ]
+
+        # Update access tracking asynchronously
+        if results:
+            await self._update_access_tracking(user_id, [r["id"] for r in results])
+
+        return results
+
+    async def scored_search(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 5,
+        memory_type: str | None = None,
+        decay_rate: float = DEFAULT_DECAY_RATE,
+        query_embedding: list[float] | None = None,
+        event_after: datetime | None = None,
+        event_before: datetime | None = None,
+        exclude_types: list[str] | None = None,
+        as_of: datetime | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> list[dict]:
+        """Cosine-based scored search with BM25 hybrid and recency/importance bonuses.
+
+        Score = base_relevance × (1 + recency_bonus + importance_bonus)
+        - base_relevance: min(cosine_similarity + bm25_hit*0.05, 1.0)
+        - recency_bonus: 0~0.15, exponential decay with emotional arousal slowdown
+        - importance_bonus: 0~0.15, from metadata importance (1-10), default 0.5
+
+        Args:
+            query_embedding: Optional pre-computed embedding to avoid recomputation
+            event_after: Filter episodes by extracted_timestamp >= this datetime
+            event_before: Filter episodes by extracted_timestamp <= this datetime
+            as_of: Time-travel query — return memories valid at this point in time.
+            created_after: Filter by created_at >= this datetime.
+            created_before: Filter by created_at <= this datetime.
+        """
+        if query_embedding is not None:
+            query_vector = query_embedding
+        else:
+            query_vector = await self._embedding.embed(query)
+
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in query_vector):
+            raise ValueError("Invalid vector data: must contain only numeric values")
+
+        vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
+
+        filters = "user_id = :user_id"
+        bm25_query = _sanitize_bm25_query(query) if self._pg_search else query
+        params: dict = {"user_id": user_id, "limit": limit, "decay_rate": decay_rate, "query_text": bm25_query}
+
+        if memory_type:
+            filters += " AND memory_type = :memory_type"
+            params["memory_type"] = memory_type
+
+        if exclude_types:
+            placeholders = ", ".join(f":excl_{i}" for i in range(len(exclude_types)))
+            filters += f" AND memory_type NOT IN ({placeholders})"
+            for i, t in enumerate(exclude_types):
+                params[f"excl_{i}"] = t
+
+        if event_after:
+            filters += " AND extracted_timestamp >= :event_after"
+            params["event_after"] = event_after
+
+        if event_before:
+            filters += " AND extracted_timestamp <= :event_before"
+            params["event_before"] = event_before
+
+        if created_after:
+            filters += " AND created_at >= :created_after"
+            params["created_after"] = created_after
+
+        if created_before:
+            filters += " AND created_at <= :created_before"
+            params["created_before"] = created_before
+
+        # Time-travel filter
+        if as_of is not None:
+            filters += (
+                " AND (valid_from IS NULL OR valid_from <= :as_of)"
+                " AND (valid_until IS NULL OR valid_until > :as_of)"
+            )
+            params["as_of"] = as_of
+        else:
+            filters += " AND valid_until IS NULL"
+
+        candidate_limit = limit * 2 if self._pg_search else limit * 4
+
+        if self._pg_search:
+            bm25_cte = f"""
+            bm25_ranked AS (
+                SELECT id,
+                       paradedb.score(id) AS bm25_score,
+                       ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
+                FROM embeddings
+                WHERE {filters}
+                  AND id @@@ paradedb.parse(:query_text)
+                ORDER BY bm25_score DESC
+                LIMIT {candidate_limit}
+            ),"""
+        else:
+            bm25_cte = f"""
+            bm25_ranked AS (
+                SELECT id,
+                       ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) AS bm25_score,
+                       ROW_NUMBER() OVER (
+                           ORDER BY ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) DESC
+                       ) AS bm25_rank
+                FROM embeddings
+                WHERE {filters}
+                  AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
+                ORDER BY bm25_score DESC
+                LIMIT {candidate_limit}
+            ),"""
+
+        sql = text(
+            f"""
+            WITH vector_ranked AS (
+                SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
+                       access_count, last_accessed_at,
+                       1 - (embedding <=> '{vector_str}'::vector) AS vector_score,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}'::vector) AS vector_rank
+                FROM embeddings
+                WHERE {filters}
+                ORDER BY embedding <=> '{vector_str}'::vector
+                LIMIT {candidate_limit}
+            ),
+            {bm25_cte}
+            hybrid AS (
+                SELECT v.*,
+                       COALESCE(b.bm25_score, 0) AS bm25_score,
+                       -- RRF fusion as relevance signal
+                       (1.0 / ({RRF_K} + v.vector_rank))
+                       + COALESCE(1.0 / ({RRF_K} + b.bm25_rank), 0) AS rrf_score
+                FROM vector_ranked v
+                LEFT JOIN bm25_ranked b ON v.id = b.id
+            )
+            SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
+                   access_count, last_accessed_at,
+                   vector_score AS relevance,
+                   bm25_score,
+                   rrf_score,
+                   -- recency_bonus: 0~0.15
+                   0.15 * EXP(
+                       -EXTRACT(EPOCH FROM (NOW() - created_at))
+                       / (:decay_rate * (1 + COALESCE((metadata->'emotion'->>'arousal')::float, 0) * 0.5))
+                   ) AS recency,
+                   -- importance_bonus: 0~0.15
+                   0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5) AS importance,
+                   -- final score: base_relevance × (1 + recency_bonus + importance_bonus)
+                   LEAST(vector_score + CASE WHEN bm25_score > 0 THEN 0.05 ELSE 0 END, 1.0)
+                   * (1.0
+                      + 0.15 * EXP(
+                          -EXTRACT(EPOCH FROM (NOW() - created_at))
+                          / (:decay_rate * (1 + COALESCE((metadata->'emotion'->>'arousal')::float, 0) * 0.5))
+                      )
+                      + 0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5)
+                   ) AS score
+            FROM hybrid
+            ORDER BY score DESC
+            LIMIT :limit
+        """
+        )
+
+        result = await self.db.execute(sql, params)
+        rows = result.fetchall()
+
+        results = [
+            {
+                "id": str(row.id),
+                "content": row.content,
+                "memory_type": row.memory_type,
+                "metadata": row.metadata,
+                "created_at": row.created_at,
+                "extracted_timestamp": row.extracted_timestamp,
+                "relevance": round(float(row.relevance), 4),
+                "bm25_score": round(float(row.bm25_score), 4),
+                "rrf_score": round(float(row.rrf_score), 4),
+                "recency": round(float(row.recency), 4),
+                "importance": round(float(row.importance), 4),
+                "score": round(float(row.score), 4),
+            }
+            for row in rows
+        ]
+
+        # Update access tracking
+        if results:
+            await self._update_access_tracking(user_id, [r["id"] for r in results])
+
+        return results
+
+    async def _update_access_tracking(self, user_id: str, ids: list[str]) -> None:
+        """Update access_count and last_accessed_at for retrieved memories."""
+        if not ids:
+            return
+        try:
+            placeholders = ", ".join(f":id_{i}" for i in range(len(ids)))
+            params = {f"id_{i}": id_ for i, id_ in enumerate(ids)}
+            params["user_id"] = user_id
+            sql = text(f"""
+                UPDATE embeddings
+                SET access_count = access_count + 1,
+                    last_accessed_at = NOW()
+                WHERE id IN ({placeholders})
+                  AND user_id = :user_id
+            """)
+            await self.db.execute(sql, params)
+            await self.db.commit()
+        except Exception as e:
+            logger.warning("Failed to update access tracking: %s", e)

@@ -163,7 +163,7 @@ async def _query(cfg: EvalConfig, questions: list[LongMemEvalQuestion]) -> None:
 
     # Use separate answer LLM if configured
     if cfg.answer_llm_model:
-        from neuromemory.providers.openai_llm import OpenAILLM
+        from neuromem.providers.openai_llm import OpenAILLM
         answer_llm = OpenAILLM(
             api_key=cfg.answer_llm_api_key or cfg.llm_api_key,
             model=cfg.answer_llm_model,

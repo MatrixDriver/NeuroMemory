@@ -7,10 +7,10 @@ import asyncio
 import pytest
 from sqlalchemy import text
 
-from neuromemory import NeuroMemory
-from neuromemory.providers.llm import LLMProvider
+from neuromem import NeuroMemory
+from neuromem.providers.llm import LLMProvider
 
-TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory"
+TEST_DATABASE_URL = "postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem"
 
 
 class MockLLMProvider(LLMProvider):

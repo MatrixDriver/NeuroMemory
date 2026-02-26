@@ -3,17 +3,17 @@ services:
     build:
       context: ./docker/postgres-age-vector
       dockerfile: Dockerfile
-    image: neuromemory-postgres:16-age-vector
+    image: neuromem-postgres:16-age-vector
     environment:
-      POSTGRES_USER: neuromemory
-      POSTGRES_PASSWORD: neuromemory
-      POSTGRES_DB: neuromemory
+      POSTGRES_USER: neuromem
+      POSTGRES_PASSWORD: neuromem
+      POSTGRES_DB: neuromem
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U neuromemory"]
+      test: ["CMD-SHELL", "pg_isready -U neuromem"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,8 +22,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: neuromemory
-      MINIO_ROOT_PASSWORD: neuromemory123
+      MINIO_ROOT_USER: neuromem
+      MINIO_ROOT_PASSWORD: neuromem123
     ports:
       - "9000:9000"
       - "9001:9001"

@@ -1,6 +1,6 @@
 # 特性开发文档目录
 
-本目录用于存放 NeuroMemory 项目的特性开发文档（Feature Development Plans）。
+本目录用于存放 neuromem 项目的特性开发文档（Feature Development Plans）。
 
 ## 目录说明
 

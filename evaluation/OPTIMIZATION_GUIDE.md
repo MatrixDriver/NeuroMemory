@@ -1,4 +1,4 @@
-# NeuroMemory LoCoMo 优化指南
+# neuromem LoCoMo 优化指南
 
 基于 2025-02-16 测试结果的详细优化建议，用于指导下一轮性能提升。
 
@@ -23,7 +23,7 @@
 - **目标**: 识别并标准化时间表达式
 - **实施步骤**:
   ```python
-  # 在 neuromemory/services/memory_extraction.py
+  # 在 neuromem/services/memory_extraction.py
 
   # 1. 添加时间解析依赖
   from dateutil import parser
@@ -46,14 +46,14 @@
   ```
 
 - **修改文件**:
-  - `neuromemory/services/memory_extraction.py` - 添加时间提取逻辑
-  - `neuromemory/models/memory.py` - 可选：添加时间索引
+  - `neuromem/services/memory_extraction.py` - 添加时间提取逻辑
+  - `neuromem/models/memory.py` - 可选：添加时间索引
 
 #### P0: 时间推理和计算 [预期: +40-60%]
 - **目标**: 将相对时间转换为绝对时间
 - **实施步骤**:
   ```python
-  # 在 neuromemory/services/conversation.py
+  # 在 neuromem/services/conversation.py
 
   def calculate_absolute_time(relative_expr: str, reference_time: datetime) -> datetime:
       """计算绝对时间"""
@@ -73,13 +73,13 @@
   ```
 
 - **修改文件**:
-  - `neuromemory/services/memory_extraction.py` - 时间计算逻辑
-  - `neuromemory/services/conversation.py` - 辅助函数
+  - `neuromem/services/memory_extraction.py` - 时间计算逻辑
+  - `neuromem/services/conversation.py` - 辅助函数
 
 #### P1: 时间索引和查询优化 [预期: +20-30%]
 - **实施步骤**:
   ```python
-  # 在 neuromemory/services/search.py
+  # 在 neuromem/services/search.py
 
   def search_by_time_range(
       user_id: str,
@@ -123,13 +123,13 @@
   """
   ```
 
-- **修改文件**: `neuromemory/services/memory_extraction.py`
+- **修改文件**: `neuromem/services/memory_extraction.py`
 
 #### P1: 增加关键词匹配 (Hybrid Search) [预期: +10-15%]
 - **目标**: 结合 BM25 和向量检索
 - **实施步骤**:
   ```python
-  # 在 neuromemory/services/search.py
+  # 在 neuromem/services/search.py
 
   # 1. 添加全文索引（数据库迁移）
   # CREATE INDEX idx_embeddings_content_fts ON embeddings USING gin(to_tsvector('english', content));
@@ -157,7 +157,7 @@
   ```
 
 - **修改文件**:
-  - `neuromemory/services/search.py` - 混合检索逻辑
+  - `neuromem/services/search.py` - 混合检索逻辑
   - `migrations/` - 添加全文索引
 
 #### P1: Metadata 精确过滤 [预期: +10-15%]
@@ -217,14 +217,14 @@
   ```
 
 - **修改文件**:
-  - `neuromemory/services/memory_extraction.py` - 改进 triple 提取
-  - `neuromemory/services/graph_memory.py` - 支持更多关系类型
+  - `neuromem/services/memory_extraction.py` - 改进 triple 提取
+  - `neuromem/services/graph_memory.py` - 支持更多关系类型
 
 #### P1: 实现多跳推理路径搜索 [预期: +15-25%]
 - **目标**: 使用 AGE (Apache AGE) Cypher 查询
 - **实施步骤**:
   ```python
-  # 在 neuromemory/services/graph_memory.py
+  # 在 neuromem/services/graph_memory.py
 
   async def find_path(
       start_entity: str,
@@ -253,12 +253,12 @@
       return await execute_cypher(cypher_query, entity=entity)
   ```
 
-- **修改文件**: `neuromemory/services/graph_memory.py`
+- **修改文件**: `neuromem/services/graph_memory.py`
 
 #### P1: 混合检索策略 [预期: +10-15%]
 - **实施步骤**:
   ```python
-  # 在 neuromemory/services/search.py
+  # 在 neuromem/services/search.py
 
   async def hybrid_vector_graph_search(query: str, user_id: str):
       """结合向量检索和图查询"""
@@ -281,7 +281,7 @@
       return rerank(all_results, query)
   ```
 
-- **修改文件**: `neuromemory/services/search.py`, `neuromemory/_core.py`
+- **修改文件**: `neuromem/services/search.py`, `neuromem/_core.py`
 
 ---
 
@@ -312,7 +312,7 @@
   """
   ```
 
-- **修改文件**: `neuromemory/services/memory_extraction.py`
+- **修改文件**: `neuromem/services/memory_extraction.py`
 
 #### P2: 改进语义召回精度 [预期: +5-10%]
 - **实施步骤**:
@@ -334,7 +334,7 @@
       return [r for r, s in ranked]
   ```
 
-- **修改文件**: `neuromemory/services/search.py`
+- **修改文件**: `neuromem/services/search.py`
 
 ---
 

@@ -1,4 +1,4 @@
-# Railway 部署配置 - NeuroMemory 应用服务
+# Railway 部署配置 - neuromem 应用服务
 # Neo4j 和 Qdrant 通过 Railway Dashboard 添加为独立服务
 
 [build]

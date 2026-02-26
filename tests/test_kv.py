@@ -2,7 +2,7 @@
 
 import pytest
 
-from neuromemory.services.kv import KVService
+from neuromem.services.kv import KVService
 
 
 @pytest.mark.asyncio

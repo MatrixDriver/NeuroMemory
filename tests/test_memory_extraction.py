@@ -1,10 +1,10 @@
 """Tests for memory extraction with LLM classifier."""
 
 import pytest
-from neuromemory.providers.llm import LLMProvider
-from neuromemory.services.conversation import ConversationService
-from neuromemory.services.memory_extraction import MemoryExtractionService
-from neuromemory.services.kv import KVService
+from neuromem.providers.llm import LLMProvider
+from neuromem.services.conversation import ConversationService
+from neuromem.services.memory_extraction import MemoryExtractionService
+from neuromem.services.kv import KVService
 
 
 class MockLLMProvider(LLMProvider):
@@ -508,7 +508,7 @@ async def test_chinese_prompt_generation():
 @pytest.mark.asyncio
 async def test_auto_extract_on_add_message(mock_embedding):
     """Test that auto_extract=True automatically extracts memories on add_message."""
-    from neuromemory import NeuroMemory
+    from neuromem import NeuroMemory
     from sqlalchemy import text
 
     # Mock LLM for extraction
@@ -523,7 +523,7 @@ async def test_auto_extract_on_add_message(mock_embedding):
 
     # Use full NeuroMemory instance with auto_extract
     nm = NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
         embedding=mock_embedding,
         llm=MockExtractionLLM(),
         auto_extract=True,  # Enable auto-extraction
@@ -557,8 +557,8 @@ async def test_auto_extract_on_add_message(mock_embedding):
 @pytest.mark.asyncio
 async def test_auto_extract_disabled(db_session, mock_embedding):
     """Test that auto_extract=False does not extract on add_message."""
-    from neuromemory._core import ConversationsFacade
-    from neuromemory.db import Database
+    from neuromem._core import ConversationsFacade
+    from neuromem.db import Database
     from sqlalchemy import text
 
     db = Database.__new__(Database)
@@ -596,8 +596,8 @@ async def test_auto_extract_disabled(db_session, mock_embedding):
 @pytest.mark.asyncio
 async def test_auto_extract_batch_messages(db_session, mock_embedding):
     """Test that auto_extract works with add_messages_batch."""
-    from neuromemory._core import ConversationsFacade
-    from neuromemory.db import Database
+    from neuromem._core import ConversationsFacade
+    from neuromem.db import Database
     from sqlalchemy import text
 
     class MockBatchLLM(LLMProvider):

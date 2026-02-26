@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from neuromemory.services.memory import MemoryService
-from neuromemory.services.search import SearchService
+from neuromem.services.memory import MemoryService
+from neuromem.services.search import SearchService
 
 
 @pytest.mark.asyncio

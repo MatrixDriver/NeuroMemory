@@ -9,9 +9,9 @@ async def run_migration():
     conn = await asyncpg.connect(
         host="localhost",
         port=5432,
-        user="neuromemory",
-        password="neuromemory",
-        database="neuromemory",
+        user="neuromem",
+        password="neuromem",
+        database="neuromem",
     )
 
     try:

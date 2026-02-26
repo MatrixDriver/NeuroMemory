@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 import pytest_asyncio
 
-from neuromemory import NeuroMemory
-from neuromemory.models.graph import EdgeType, NodeType
+from neuromem import NeuroMemory
+from neuromem.models.graph import EdgeType, NodeType
 
-TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory"
+TEST_DATABASE_URL = "postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem"
 
 
 @pytest_asyncio.fixture

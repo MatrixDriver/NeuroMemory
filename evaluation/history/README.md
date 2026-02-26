@@ -1,6 +1,6 @@
-# NeuroMemory Evaluation History
+# neuromem Evaluation History
 
-本目录记录 NeuroMemory 在各个基准测试上的历史结果，用于追踪性能演进和对比优化效果。
+本目录记录 neuromem 在各个基准测试上的历史结果，用于追踪性能演进和对比优化效果。
 
 ## 目录结构
 
@@ -25,8 +25,8 @@ evaluation/history/
 - `dataset`: 使用的数据集
 
 ### 环境配置
-- `neuromemory_commit`: NeuroMemory 代码的 Git commit
-- `neuromemory_branch`: Git 分支
+- `neuromem_commit`: NeuroMemory 代码的 Git commit
+- `neuromem_branch`: Git 分支
 - `database`: 数据库配置（类型、版本、隔离方式）
 - `embedding`: Embedding 提供商和模型
 - `llm`: LLM 提供商和模型
@@ -86,8 +86,8 @@ cat evaluation/results/locomo_results.json
   "benchmark": "locomo",
 
   "environment": {
-    "neuromemory_commit": "abc1234",
-    "neuromemory_branch": "main",
+    "neuromem_commit": "abc1234",
+    "neuromem_branch": "main",
     ...
   },
 

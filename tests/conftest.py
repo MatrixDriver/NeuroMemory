@@ -7,13 +7,13 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from neuromemory import NeuroMemory
-from neuromemory.models.base import Base
-from neuromemory.providers.embedding import EmbeddingProvider
-from neuromemory.providers.llm import LLMProvider
+from neuromem import NeuroMemory
+from neuromem.models.base import Base
+from neuromem.providers.embedding import EmbeddingProvider
+from neuromem.providers.llm import LLMProvider
 
 # Default test database URL
-TEST_DATABASE_URL = "postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory"
+TEST_DATABASE_URL = "postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem"
 
 
 class MockEmbeddingProvider(EmbeddingProvider):
@@ -54,14 +54,14 @@ async def db_engine():
 @pytest_asyncio.fixture(scope="function")
 async def db_session(db_engine) -> AsyncGenerator[AsyncSession]:
     """Create a database session for each test with table setup."""
-    import neuromemory.models as _models
+    import neuromem.models as _models
     _models._embedding_dims = 1024
 
-    import neuromemory.models.memory  # noqa: F401
-    import neuromemory.models.kv  # noqa: F401
-    import neuromemory.models.conversation  # noqa: F401
-    import neuromemory.models.document  # noqa: F401
-    import neuromemory.models.graph  # noqa: F401
+    import neuromem.models.memory  # noqa: F401
+    import neuromem.models.kv  # noqa: F401
+    import neuromem.models.conversation  # noqa: F401
+    import neuromem.models.document  # noqa: F401
+    import neuromem.models.graph  # noqa: F401
 
     async with db_engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

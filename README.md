@@ -1,4 +1,4 @@
-# NeuroMemory
+# neuromem
 
 **AI Agent 多层记忆框架**
 
@@ -18,7 +18,7 @@
 |------|:---:|:---:|:---:|:---:|:---:|
 | memU | — | — | — | — | 92.1% |
 | Backboard | 89.4% | 75.0% | 91.2% | 91.9% | 90.0% |
-| **NeuroMemory** | **87.1%** | **80.9%** | **81.9%** | **71.6%** | **80.2%** |
+| **neuromem** | **87.1%** | **80.9%** | **81.9%** | **71.6%** | **80.2%** |
 | MemOS | — | — | — | — | 75.8% |
 | Memobase v0.0.37 | 70.9% | 46.9% | 77.2% | 85.1% | 75.8% |
 | Zep | 74.1% | 66.0% | 67.7% | 79.8% | 75.1% |
@@ -28,7 +28,7 @@
 | LangMem | 62.2% | 47.9% | 71.1% | 23.4% | 58.1% |
 | OpenAI Memory | 63.8% | 42.9% | 62.3% | 21.7% | 52.9% |
 
-> 各框架使用不同的 Judge LLM，分数不完全可比。详见 [LoCoMo 优化历程](https://github.com/MatrixDriver/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)。
+> 各框架使用不同的 Judge LLM，分数不完全可比。详见 [LoCoMo 优化历程](https://github.com/MatrixDriver/neuromem/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)。
 
 ---
 
@@ -36,19 +36,19 @@
 
 | 文档 | 说明 |
 |------|------|
-| **[API 参考](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/API.md)** | 完整的 Python API 文档（add_message, recall, reflect 等） |
-| **[快速开始](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
-| **[架构设计](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型、情感架构 |
-| **[使用指南](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/SDK_GUIDE.md)** | API 用法、代码示例、Prompt 组装最佳实践 |
-| **[为什么不提供 Web UI](https://github.com/MatrixDriver/NeuroMemory/blob/master/docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
-| **[LoCoMo 优化历程](https://github.com/MatrixDriver/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)** | 基准测试迭代记录（0.125 → 0.802，+541%） |
+| **[API 参考](https://github.com/MatrixDriver/neuromem/blob/master/docs/API.md)** | 完整的 Python API 文档（add_message, recall, reflect 等） |
+| **[快速开始](https://github.com/MatrixDriver/neuromem/blob/master/docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
+| **[架构设计](https://github.com/MatrixDriver/neuromem/blob/master/docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型、情感架构 |
+| **[使用指南](https://github.com/MatrixDriver/neuromem/blob/master/docs/SDK_GUIDE.md)** | API 用法、代码示例、Prompt 组装最佳实践 |
+| **[为什么不提供 Web UI](https://github.com/MatrixDriver/neuromem/blob/master/docs/WHY_NO_WEB_UI.md)** | 设计理念和替代方案 |
+| **[LoCoMo 优化历程](https://github.com/MatrixDriver/neuromem/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)** | 基准测试迭代记录（0.125 → 0.802，+541%） |
 
 ### Claude Code Skill
 
-If you use [Claude Code](https://claude.com/claude-code), install the NeuroMemory docs skill for inline API reference:
+If you use [Claude Code](https://claude.com/claude-code), install the neuromem docs skill for inline API reference:
 
 ```bash
-npx skills add https://github.com/MatrixDriver/NeuroMemory
+npx skills add https://github.com/MatrixDriver/neuromem
 ```
 
 ---
@@ -59,10 +59,10 @@ npx skills add https://github.com/MatrixDriver/NeuroMemory
 
 ```bash
 # 基础安装（包含核心功能）
-pip install neuromemory
+pip install neuromem
 
 # 或安装所有可选依赖（推荐）
-pip install neuromemory[all]
+pip install neuromem[all]
 ```
 
 **依赖自动安装**: SQLAlchemy、asyncpg、pgvector、httpx 等核心依赖会自动安装。
@@ -70,8 +70,8 @@ pip install neuromemory[all]
 ### 方式 2: 从源码安装（开发者）
 
 ```bash
-git clone https://github.com/yourusername/NeuroMemory
-cd NeuroMemory
+git clone https://github.com/yourusername/neuromem
+cd neuromem
 pip install -e ".[dev]"  # 包含测试工具
 ```
 
@@ -79,11 +79,11 @@ pip install -e ".[dev]"  # 包含测试工具
 
 ## 外部依赖
 
-NeuroMemory 需要以下外部服务（**不包含在 pip 包中**）：
+neuromem 需要以下外部服务（**不包含在 pip 包中**）：
 
 ### 1. PostgreSQL 18 + pgvector + pg_search（必需）
 
-NeuroMemory 使用 [ParadeDB](https://www.paradedb.com/) 镜像，内置 PostgreSQL 18、pgvector 和 pg_search（BM25 全文检索）。
+neuromem 使用 [ParadeDB](https://www.paradedb.com/) 镜像，内置 PostgreSQL 18、pgvector 和 pg_search（BM25 全文检索）。
 
 ```bash
 # 使用项目提供的 Docker Compose（推荐）
@@ -114,11 +114,11 @@ docker compose -f docker-compose.yml up -d minio
 
 ```python
 import asyncio
-from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
+from neuromem import NeuroMemory, SiliconFlowEmbedding, OpenAILLM
 
 async def main():
     async with NeuroMemory(
-        database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+        database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem",
         embedding=SiliconFlowEmbedding(api_key="your-key"),
         llm=OpenAILLM(api_key="your-openai-key"),  # 必需，用于自动提取记忆
         auto_extract=True,  # 默认启用，像 mem0 那样实时提取记忆
@@ -144,7 +144,7 @@ asyncio.run(main())
 
 ### 核心操作流程
 
-NeuroMemory 的核心使用围绕三个操作：
+neuromem 的核心使用围绕三个操作：
 
 **插入记忆**（自动模式，默认）：
 - 对话驱动：`add_message()` 存储对话 **并自动提取记忆**（推荐，像 mem0）
@@ -176,7 +176,7 @@ agent 需要上下文 → 召回记忆 (recall)
 
 ### 记忆分类
 
-NeuroMemory 提供 7 种记忆类型，每种有不同的存储和获取方式：
+neuromem 提供 7 种记忆类型，每种有不同的存储和获取方式：
 
 | <nobr>记忆类型</nobr> | 存储方式 | 底层存储 | 获取方式 | 示例 |
 |---------|---------|---------|---------|------|
@@ -190,7 +190,7 @@ NeuroMemory 提供 7 种记忆类型，每种有不同的存储和获取方式�
 
 ### 单一 PostgreSQL 架构优势
 
-NeuroMemory 将所有记忆（向量、图谱、对话、KV、文档、情感画像）存储在**单一 PostgreSQL** 中，而非拼装多个独立数据库。这不是偶然选择，而是刻意的架构决策，带来六大差异化优势：
+neuromem 将所有记忆（向量、图谱、对话、KV、文档、情感画像）存储在**单一 PostgreSQL** 中，而非拼装多个独立数据库。这不是偶然选择，而是刻意的架构决策，带来六大差异化优势：
 
 **1. 联合融合排序** — 图谱与向量结果交叉增强，而非各自为政
 
@@ -210,13 +210,13 @@ NeuroMemory 将所有记忆（向量、图谱、对话、KV、文档、情感画
 
 **5. 安全与用户隔离** — 框架级强制隔离 + 集中式数据治理
 
-NeuroMemory 的所有 API 都强制要求 `user_id` 参数，框架层面保证每个查询都包含 `WHERE user_id = :uid` 过滤——开发者无法绕过隔离边界。所有数据存储在单一 PostgreSQL 中，可统一应用备份策略、审计日志和访问控制，数据治理只需管理一个数据库，而非 3-4 个不同技术栈的数据库。
+neuromem 的所有 API 都强制要求 `user_id` 参数，框架层面保证每个查询都包含 `WHERE user_id = :uid` 过滤——开发者无法绕过隔离边界。所有数据存储在单一 PostgreSQL 中，可统一应用备份策略、审计日志和访问控制，数据治理只需管理一个数据库，而非 3-4 个不同技术栈的数据库。
 
 **6. 部署极简** — 一个 PostgreSQL 搞定一切
 
 | 框架 | 需要的存储组件 | 部署复杂度 |
 |------|-------------|-----------|
-| **NeuroMemory** | PostgreSQL（含 pgvector + pg_search） | ⭐ 一个容器 |
+| **neuromem** | PostgreSQL（含 pgvector + pg_search） | ⭐ 一个容器 |
 | Mem0 | PostgreSQL + Qdrant + Neo4j | 3 个独立服务 |
 | MemOS | PostgreSQL + Redis + Qdrant + Neo4j | 4 个独立服务 |
 | graphiti | PostgreSQL + Neo4j + 向量数据库 | 3+ 个独立服务 |
@@ -259,7 +259,7 @@ NeuroMemory 的所有 API 都强制要求 `user_id` 参数，框架层面保证�
 
 ### Phase 3（进行中）
 
-- [x] 基准测试：[LoCoMo](https://github.com/MatrixDriver/NeuroMemory/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)（ACL 2024，Judge 0.802，13 轮迭代，+541%）
+- [x] 基准测试：[LoCoMo](https://github.com/MatrixDriver/neuromem/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)（ACL 2024，Judge 0.802，13 轮迭代，+541%）
 - [x] 联合融合排序（图三元组覆盖度 boost）
 - [x] 事务一致性 API（delete_user_data / export_user_data）
 - [x] 时间旅行查询（记忆版本化 + as_of 召回 + rollback）
@@ -288,4 +288,4 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ---
 
-**NeuroMemory** - 让您的 AI 拥有记忆
+**neuromem** - 让您的 AI 拥有记忆

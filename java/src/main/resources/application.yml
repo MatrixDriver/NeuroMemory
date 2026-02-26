@@ -1,11 +1,11 @@
 spring:
   application:
-    name: neuromemory-server
+    name: neuromem-server
 
   r2dbc:
-    url: r2dbc:postgresql://${DATABASE_HOST:localhost}:${DATABASE_PORT:5432}/${DATABASE_NAME:neuromemory}
-    username: ${DATABASE_USER:neuromemory}
-    password: ${DATABASE_PASSWORD:neuromemory}
+    url: r2dbc:postgresql://${DATABASE_HOST:localhost}:${DATABASE_PORT:5432}/${DATABASE_NAME:neuromem}
+    username: ${DATABASE_USER:neuromem}
+    password: ${DATABASE_PASSWORD:neuromem}
     pool:
       initial-size: 10
       max-size: 50
@@ -23,7 +23,7 @@ server:
 logging:
   level:
     root: INFO
-    com.neuromemory: DEBUG
+    com.neuromem: DEBUG
     org.springframework.r2dbc: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
@@ -43,7 +43,7 @@ management:
         enabled: true
 
 # Application specific
-neuromemory:
+neuromem:
   embedding:
     provider: ${EMBEDDING_PROVIDER:siliconflow}
     api-key: ${SILICONFLOW_API_KEY:}
@@ -57,4 +57,4 @@ neuromemory:
       prefix: "Bearer "
 
   graph:
-    name: neuromemory_graph
+    name: neuromem_graph

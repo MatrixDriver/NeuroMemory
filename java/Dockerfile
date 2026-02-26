@@ -17,7 +17,7 @@ FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
 # Copy JAR from builder
-COPY --from=builder /app/target/neuromemory-server-*.jar app.jar
+COPY --from=builder /app/target/neuromem-server-*.jar app.jar
 
 # Expose port
 EXPOSE 8765

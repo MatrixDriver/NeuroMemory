@@ -150,18 +150,18 @@ GET /v1/graph/neighbors?node_type=memory&node_id=mem123&edge_types=RELATED_TO,AB
 
 ```sql
 -- AGE 图模式
-CREATE GRAPH neuromemory_graph;
+CREATE GRAPH neuromem_graph;
 
 -- 设置搜索路径
 SET search_path = ag_catalog, "$user", public;
 
 -- 创建节点
-SELECT * FROM cypher('neuromemory_graph', $$
+SELECT * FROM cypher('neuromem_graph', $$
   CREATE (:User {id: 'u1', user_id: 'alice', tenant_id: 't1'})
 $$) as (v agtype);
 
 -- 创建边
-SELECT * FROM cypher('neuromemory_graph', $$
+SELECT * FROM cypher('neuromem_graph', $$
   MATCH (u:User {user_id: 'alice'}), (m:Memory {id: 'm1'})
   CREATE (u)-[:HAS_MEMORY {created_at: timestamp()}]->(m)
 $$) as (e agtype);

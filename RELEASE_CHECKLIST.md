@@ -1,4 +1,4 @@
-# NeuroMemory 2.0.0 发布检查清单
+# neuromem 2.0.0 发布检查清单
 
 ## ✅ 测试结果
 
@@ -36,7 +36,7 @@
 
 ### 构建成功
 ```
-Successfully built neuromemory-2.0.0.tar.gz and neuromemory-2.0.0-py3-none-any.whl
+Successfully built neuromem-2.0.0.tar.gz and neuromem-2.0.0-py3-none-any.whl
 ```
 
 ### 包内容验证
@@ -50,7 +50,7 @@ Successfully built neuromemory-2.0.0.tar.gz and neuromemory-2.0.0-py3-none-any.w
 - ✅ 许可证: MIT
 - ✅ Python 版本: >=3.12
 - ✅ 作者信息: Jacky
-- ✅ GitHub URL: https://github.com/zhuqingxun/NeuroMemory
+- ✅ GitHub URL: https://github.com/zhuqingxun/neuromem
 - ✅ 关键词: ai, memory, agent, llm, rag, vector-database
 - ✅ 分类器: Beta, Developers, AI
 
@@ -92,10 +92,10 @@ Successfully built neuromemory-2.0.0.tar.gz and neuromemory-2.0.0-py3-none-any.w
 ### 可以发布
 ```bash
 # 测试发布到 TestPyPI（推荐先测试）
-twine upload --repository testpypi dist/neuromemory-2.0.0*
+twine upload --repository testpypi dist/neuromem-2.0.0*
 
 # 正式发布到 PyPI
-twine upload dist/neuromemory-2.0.0*
+twine upload dist/neuromem-2.0.0*
 ```
 
 ### 发布后验证
@@ -103,27 +103,27 @@ twine upload dist/neuromemory-2.0.0*
 # 创建新的虚拟环境测试安装
 python -m venv test_env
 source test_env/bin/activate
-pip install neuromemory
+pip install neuromem
 
 # 验证导入
-python -c "from neuromemory import NeuroMemory; print('OK')"
+python -c "from neuromem import neuromem; print('OK')"
 ```
 
 ## 🎯 推荐的发布流程
 
 1. **先发布到 TestPyPI 测试**
    ```bash
-   twine upload --repository testpypi dist/neuromemory-2.0.0*
+   twine upload --repository testpypi dist/neuromem-2.0.0*
    ```
 
 2. **从 TestPyPI 安装测试**
    ```bash
-   pip install --index-url https://test.pypi.org/simple/ neuromemory
+   pip install --index-url https://test.pypi.org/simple/ neuromem
    ```
 
 3. **确认无误后发布到正式 PyPI**
    ```bash
-   twine upload dist/neuromemory-2.0.0*
+   twine upload dist/neuromem-2.0.0*
    ```
 
 4. **创建 Git Tag**

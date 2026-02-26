@@ -1,4 +1,4 @@
-# NeuroMemory Java Implementation Summary
+# neuromem Java Implementation Summary
 
 ## ✅ 完整实现清单
 
@@ -207,7 +207,7 @@ mvn test
 
 ### Docker 构建
 ```bash
-docker build -t neuromemory-java:latest .
+docker build -t neuromem-java:latest .
 ```
 
 ## 🎉 总结

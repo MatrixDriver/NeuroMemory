@@ -1,4 +1,4 @@
-# NeuroMemory 高层 API 设计文档
+# neuromem 高层 API 设计文档
 
 ## 概述
 
@@ -15,9 +15,9 @@
 ### 1.1 添加对话消息
 
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 
-client = NeuroMemoryClient(api_key="nm_xxx")
+client = neuromemClient(api_key="nm_xxx")
 
 # 方式1: 逐条添加消息
 client.conversations.add_message(
@@ -278,11 +278,11 @@ client.config.set_task_policy(
 ### 6.1 场景：聊天机器人自动记忆
 
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 
 class SmartChatbot:
     def __init__(self, api_key: str):
-        self.memory = NeuroMemoryClient(api_key=api_key)
+        self.memory = neuromemClient(api_key=api_key)
 
     def chat(self, user_id: str, message: str, session_id: str = None) -> str:
         # 1. 检索相关记忆（跨类型智能检索）
@@ -325,7 +325,7 @@ bot.chat("user1", "推荐一个主题色")
 ```python
 class KnowledgeAssistant:
     def __init__(self, api_key: str):
-        self.memory = NeuroMemoryClient(api_key=api_key)
+        self.memory = neuromemClient(api_key=api_key)
 
     def add_knowledge_source(self, user_id: str, url: str):
         """添加知识来源（自动下载、提取、存储）"""
@@ -471,4 +471,4 @@ client.users.set_preferences(
 4. **统一检索接口** - 一个 API 查询所有类型
 5. **文件系统支持** - URL/文档自动下载和索引
 
-让 AI Agent 开发者专注于业务逻辑，记忆管理交给 NeuroMemory！
+让 AI Agent 开发者专注于业务逻辑，记忆管理交给 neuromem！

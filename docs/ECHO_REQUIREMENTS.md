@@ -1,8 +1,8 @@
-# Echo 项目对 NeuroMemory 的改进需求
+# Echo 项目对 neuromem 的改进需求
 
 > 来源：`/Users/jacky/code/echo/rpiv/requirements/prd-echo-learning-assistant.md` § 15.3
 
-本文档列出了 Echo AI 个人学习助理项目对 NeuroMemory 的功能需求，并制定实施计划。
+本文档列出了 Echo AI 个人学习助理项目对 neuromem 的功能需求，并制定实施计划。
 
 ---
 
@@ -24,7 +24,7 @@
 
 ### 背景
 
-Echo 需要支持用户上传练习作业（代码截图、图片、PDF、Word 文档）进行反馈分析。当前 NeuroMemory 只支持 URL 方式添加文档，不支持直接文件上传。
+Echo 需要支持用户上传练习作业（代码截图、图片、PDF、Word 文档）进行反馈分析。当前 neuromem 只支持 URL 方式添加文档，不支持直接文件上传。
 
 ### 用户故事
 
@@ -87,7 +87,7 @@ client.files.upload_file(
 
 ### 背景
 
-Echo 需要查询用户最近的学习活动、错误记录、学习历程，以便进行进度追踪和复习提醒。当前 NeuroMemory 不支持按时间范围过滤记忆。
+Echo 需要查询用户最近的学习活动、错误记录、学习历程，以便进行进度追踪和复习提醒。当前 neuromem 不支持按时间范围过滤记忆。
 
 ### 用户故事
 
@@ -157,7 +157,7 @@ client.memory.get_timeline(
 
 ### 背景
 
-Echo 需要构建和查询知识图谱（学习路径、概念依赖、技能树），当前 NeuroMemory 已集成 Apache AGE，但缺少高层 API 支持。
+Echo 需要构建和查询知识图谱（学习路径、概念依赖、技能树），当前 neuromem 已集成 Apache AGE，但缺少高层 API 支持。
 
 ### 用户故事
 
@@ -279,7 +279,7 @@ client.add_memory(
 
 ### 背景
 
-Echo 需要记录和查询用户的学习进度（技能、阶段、任务完成状态），当前 NeuroMemory 没有专门的进度追踪 API。
+Echo 需要记录和查询用户的学习进度（技能、阶段、任务完成状态），当前 neuromem 没有专门的进度追踪 API。
 
 ### 用户故事
 
@@ -416,7 +416,7 @@ ON learning_progress(tenant_id, user_id, skill_id);
 - [ ] 编写测试
 
 **交付物**：
-- `sdk/neuromemory/files.py` (更新)
+- `sdk/neuromem/files.py` (更新)
 - `tests/v2/test_files.py`
 
 ---
@@ -442,7 +442,7 @@ ON learning_progress(tenant_id, user_id, skill_id);
 - [ ] 编写测试
 
 **交付物**：
-- `sdk/neuromemory/memory.py` (更新)
+- `sdk/neuromem/memory.py` (更新)
 - `tests/v2/test_memory_time.py`
 
 ---
@@ -476,7 +476,7 @@ ON learning_progress(tenant_id, user_id, skill_id);
 - [ ] 文档和示例
 
 **交付物**：
-- `sdk/neuromemory/graph.py` (完善)
+- `sdk/neuromem/graph.py` (完善)
 - `tests/v2/test_graph.py`
 
 ---
@@ -510,14 +510,14 @@ ON learning_progress(tenant_id, user_id, skill_id);
 - [ ] 编写测试
 
 **交付物**：
-- `sdk/neuromemory/progress.py`
+- `sdk/neuromem/progress.py`
 - `tests/v2/test_progress.py`
 
 ---
 
 ## 总结
 
-本文档列出了 Echo 项目对 NeuroMemory 的 5 个改进需求，并制定了详细的实施计划。
+本文档列出了 Echo 项目对 neuromem 的 5 个改进需求，并制定了详细的实施计划。
 
 **建议实施顺序**：
 1. ✅ 特性 4 (已完成)
@@ -528,4 +528,4 @@ ON learning_progress(tenant_id, user_id, skill_id);
 
 **总预估工时**：6-9 周
 
-这些特性的实现将使 NeuroMemory 从单纯的记忆存储系统升级为支持复杂应用场景的完整平台。
+这些特性的实现将使 neuromem 从单纯的记忆存储系统升级为支持复杂应用场景的完整平台。

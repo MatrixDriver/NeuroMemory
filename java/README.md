@@ -1,4 +1,4 @@
-# NeuroMemory Java Server
+# neuromem Java Server
 
 High-performance Memory-as-a-Service API server built with Spring Boot WebFlux.
 
@@ -20,8 +20,8 @@ High-performance Memory-as-a-Service API server built with Spring Boot WebFlux.
 ## Project Structure
 
 ```
-src/main/java/com/neuromemory/
-├── NeuroMemoryApplication.java    # Main application entry point
+src/main/java/com/neuromem/
+├── neuromemApplication.java    # Main application entry point
 ├── config/                         # Configuration classes
 │   ├── DatabaseConfig.java
 │   └── SecurityConfig.java
@@ -63,7 +63,7 @@ mvn spring-boot:run
 Or run the JAR:
 
 ```bash
-java -jar target/neuromemory-server-2.0.0.jar
+java -jar target/neuromem-server-2.0.0.jar
 ```
 
 ### Configuration
@@ -73,9 +73,9 @@ Set environment variables or edit `src/main/resources/application.yml`:
 ```bash
 export DATABASE_HOST=localhost
 export DATABASE_PORT=5432
-export DATABASE_NAME=neuromemory
-export DATABASE_USER=neuromemory
-export DATABASE_PASSWORD=neuromemory
+export DATABASE_NAME=neuromem
+export DATABASE_USER=neuromem
+export DATABASE_PASSWORD=neuromem
 export SILICONFLOW_API_KEY=your-api-key
 export SERVER_PORT=8765
 ```
@@ -103,4 +103,4 @@ The project uses Spring Boot DevTools for hot reload during development.
 
 ## Compatibility
 
-The Java server is fully compatible with the existing Python SDK (`sdk/neuromemory/`). No changes needed on the client side.
+The Java server is fully compatible with the existing Python SDK (`sdk/neuromem/`). No changes needed on the client side.

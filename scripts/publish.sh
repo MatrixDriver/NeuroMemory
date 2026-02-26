@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 NeuroMemory PyPI 发布脚本"
+echo "🚀 neuromem PyPI 发布脚本"
 echo "=============================="
 
 # 检查是否有未提交的更改
@@ -42,7 +42,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "📤 上传到 TestPyPI..."
     python -m twine upload --repository testpypi dist/* || { echo "❌ 上传 TestPyPI 失败"; exit 1; }
     echo "✅ TestPyPI 上传成功！"
-    echo "🔗 查看: https://test.pypi.org/project/neuromemory/$VERSION/"
+    echo "🔗 查看: https://test.pypi.org/project/neuromem/$VERSION/"
     echo ""
     read -p "继续上传到正式 PyPI？(y/N) " -n 1 -r
     echo
@@ -57,7 +57,7 @@ python -m twine upload dist/* || { echo "❌ 上传失败"; exit 1; }
 
 echo ""
 echo "✅ 发布成功！"
-echo "🔗 查看: https://pypi.org/project/neuromemory/$VERSION/"
+echo "🔗 查看: https://pypi.org/project/neuromem/$VERSION/"
 echo ""
 echo "📦 用户现在可以通过以下方式安装："
-echo "   pip install neuromemory==$VERSION"
+echo "   pip install neuromem==$VERSION"

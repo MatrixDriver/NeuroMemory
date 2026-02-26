@@ -1,4 +1,4 @@
-# Docker Compose for NeuroMemory Evaluation
+# Docker Compose for neuromem Evaluation
 # 专用于评测的独立 PostgreSQL 容器，使用端口 5433 避免与开发环境冲突
 
 services:
@@ -6,18 +6,18 @@ services:
     build:
       context: ./docker/postgres-age-vector
       dockerfile: Dockerfile
-    image: neuromemory-postgres:16-age-vector
-    container_name: neuromemory-eval-db
+    image: neuromem-postgres:16-age-vector
+    container_name: neuromem-eval-db
     environment:
-      POSTGRES_USER: neuromemory
-      POSTGRES_PASSWORD: neuromemory
-      POSTGRES_DB: neuromemory_eval
+      POSTGRES_USER: neuromem
+      POSTGRES_PASSWORD: neuromem
+      POSTGRES_DB: neuromem_eval
     ports:
       - "5433:5432"  # 使用 5433 端口避免冲突
     volumes:
       - pgdata_eval:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U neuromemory"]
+      test: ["CMD-SHELL", "pg_isready -U neuromem"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -25,4 +25,4 @@ services:
 
 volumes:
   pgdata_eval:
-    name: neuromemory_eval_pgdata
+    name: neuromem_eval_pgdata

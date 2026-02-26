@@ -144,7 +144,7 @@ python3 -c "
 from sqlalchemy import create_engine, text
 import os
 
-db_url = os.environ.get('DATABASE_URL', 'postgresql://neuromemory:neuromemory@localhost:5433/neuromemory_eval')
+db_url = os.environ.get('DATABASE_URL', 'postgresql://neuromem:neuromem@localhost:5433/neuromem_eval')
 engine = create_engine(db_url)
 
 with engine.connect() as conn:

@@ -1,6 +1,6 @@
 ---
 name: session-memory-management
-overview: 实现 NeuroMemory Session 记忆管理系统，包括内部自动 Session 管理、双层记忆模型（短期内存 + 长期 Qdrant+Neo4j）、指代消解机制和 Session 整合功能。
+overview: 实现 neuromem Session 记忆管理系统，包括内部自动 Session 管理、双层记忆模型（短期内存 + 长期 Qdrant+Neo4j）、指代消解机制和 Session 整合功能。
 todos:
   - id: session-infra
     content: "阶段 1: 创建 Session 基础设施（session_manager.py, config.py 更新, 数据结构定义）"
@@ -28,11 +28,11 @@ isProject: false
 
 # 功能：Session 记忆管理系统
 
-基于 [docs/SESSION_MEMORY_DESIGN.md](../SESSION_MEMORY_DESIGN.md) 设计文档，实现 NeuroMemory 的 Session 记忆管理功能。
+基于 [docs/SESSION_MEMORY_DESIGN.md](../SESSION_MEMORY_DESIGN.md) 设计文档，实现 neuromem 的 Session 记忆管理功能。
 
 ## 功能描述
 
-实现内部自动 Session 管理系统，为 NeuroMemory 提供双层记忆架构：
+实现内部自动 Session 管理系统，为 neuromem 提供双层记忆架构：
 - **短期记忆**：Session 内的用户输入原始文本，存储在内存中，用于指代消解
 - **长期记忆**：跨 Session 的知识，存储在 Qdrant + Neo4j 中，用于语义检索和图谱查询
 
@@ -44,7 +44,7 @@ isProject: false
 
 ## 用户故事
 
-作为 NeuroMemory 的用户
+作为 neuromem 的用户
 我想要系统自动管理我的对话 Session
 以便我无需关心底层细节，只需调用 `process_memory(input, user_id)` 即可
 

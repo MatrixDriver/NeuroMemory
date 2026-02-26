@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
-from neuromemory.providers.openai_llm import OpenAILLM
+from neuromem.providers.openai_llm import OpenAILLM
 
 from evaluation.prompts.judge import LOCOMO_JUDGE_PROMPT, LONGMEMEVAL_JUDGE_PROMPT
 

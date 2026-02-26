@@ -5,8 +5,8 @@ These tests verify graph operations using relational tables.
 
 import pytest
 
-from neuromemory.models.graph import EdgeType, NodeType
-from neuromemory.services.graph import GraphService
+from neuromem.models.graph import EdgeType, NodeType
+from neuromem.services.graph import GraphService
 
 TEST_USER_ID = "test-user-123"
 

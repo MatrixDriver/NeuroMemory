@@ -1,8 +1,8 @@
-# NeuroMemory 高层 API 实施路线图
+# neuromem 高层 API 实施路线图
 
 ## 🎯 目标
 
-将 NeuroMemory 从"底层记忆 API"升级为"智能记忆管理平台"，让用户：
+将 neuromem 从"底层记忆 API"升级为"智能记忆管理平台"，让用户：
 - 无需手动提取和分类记忆
 - 只需提交对话，系统自动处理
 - 获得跨类型的智能检索能力
@@ -30,7 +30,7 @@
 
 **Python SDK：**
 - [x] `conversations.py` 模块（ConversationService）
-- [x] ConversationsFacade 集成到 NeuroMemory 主类
+- [x] ConversationsFacade 集成到 neuromem 主类
 - [x] 单元测试（test_conversations.py）
 
 ---
@@ -42,7 +42,7 @@
   - 支持多语言提取（中文/英文，自动检测或 KV 偏好）
   - 提取类型：Facts, Preferences, Episodes, Triples（图关系）
   - 自动标注：重要性评分、情感标注（valence/arousal）
-  - 实现：`neuromemory/services/memory_extraction.py`
+  - 实现：`neuromem/services/memory_extraction.py`
 
 - [x] **自动提取机制（v0.2.0）**
   - `auto_extract=True`（默认）：每次 `add_message()` 自动提取
@@ -106,7 +106,7 @@ class Embedding:
 class OBSService:
     def upload_file(self, file_path: str, user_id: str) -> str:
         """上传文件到 OBS，返回 URL"""
-        bucket = f"neuromemory-{tenant_id}"
+        bucket = f"neuromem-{tenant_id}"
         key = f"{user_id}/{uuid4()}/{filename}"
         # 上传到 OBS
         return obs_url
@@ -226,7 +226,7 @@ class URLProcessor:
 
 #### 3.0 基准测试（LoCoMo + LongMemEval）(1-2 周)
 
-使用学术界标准基准测试评估 NeuroMemory 的记忆召回质量，与 mem0、Zep 等框架横向对比。
+使用学术界标准基准测试评估 neuromem 的记忆召回质量，与 mem0、Zep 等框架横向对比。
 
 **LoCoMo**（ACL 2024，Long Conversation Memory）：
 - 论文：[arXiv:2402.17753](https://arxiv.org/abs/2402.17753)
@@ -252,8 +252,8 @@ evaluation/
     locomo10.json            # LoCoMo 数据集
     longmemeval/             # LongMemEval 数据集
   src/
-    neuromemory_add.py       # 记忆注入：对话 → add_message → extract_memories
-    neuromemory_search.py    # 问答检索：recall → LLM 生成回答
+    neuromem_add.py       # 记忆注入：对话 → add_message → extract_memories
+    neuromem_search.py    # 问答检索：recall → LLM 生成回答
   metrics/
     f1.py                    # Token F1
     bleu.py                  # BLEU-1

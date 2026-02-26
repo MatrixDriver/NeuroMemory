@@ -2,7 +2,7 @@
 
 ## 概述
 
-NeuroMemory 采用混合记忆架构，根据记忆类型选择最适合的存储和检索方式。这一设计参考了认知科学中的记忆分类理论，以及 Zep (arXiv:2501.13956)、Mem0g (arXiv:2504.19413) 等系统的实践经验。
+neuromem 采用混合记忆架构，根据记忆类型选择最适合的存储和检索方式。这一设计参考了认知科学中的记忆分类理论，以及 Zep (arXiv:2501.13956)、Mem0g (arXiv:2504.19413) 等系统的实践经验。
 
 ## 记忆类型与存储策略
 
@@ -170,7 +170,7 @@ nm = NeuroMemory(
 
 ## 竞品对比
 
-| 特性 | NeuroMemory | Mem0 | Zep | Cognee |
+| 特性 | neuromem | Mem0 | Zep | Cognee |
 |------|------------|------|-----|--------|
 | 向量记忆 | pgvector | Qdrant | pgvector | 多种 |
 | 图记忆 | PostgreSQL 关系表 | Neo4j | Neo4j | NetworkX/Neo4j |
@@ -180,7 +180,7 @@ nm = NeuroMemory(
 | 部署方式 | Python 框架 | 托管 API | 托管 API | Python 框架 |
 | 数据库 | 仅 PostgreSQL | 多种 | PostgreSQL + Neo4j | 多种 |
 
-NeuroMemory 的优势在于：
+neuromem 的优势在于：
 - **单一数据库**：PostgreSQL 同时提供关系、向量、图能力，无需部署多个数据库
 - **框架模式**：直接嵌入 agent 程序，无需部署和维护独立服务
 - **KV 画像**：用户画像（含偏好）存入 Profile，精确查找无需语义搜索

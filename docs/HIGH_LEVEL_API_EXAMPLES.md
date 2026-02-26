@@ -1,12 +1,12 @@
-# NeuroMemory 高层 API 使用示例
+# neuromem 高层 API 使用示例
 
 ## 对比：底层 vs 高层 API
 
 ### 底层 API（现有）
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 
-client = NeuroMemoryClient(api_key="nm_xxx")
+client = neuromemClient(api_key="nm_xxx")
 
 # 需要用户手动分类和提取
 client.add_memory(
@@ -24,9 +24,9 @@ client.preferences.set(
 
 ### 高层 API（新增）
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 
-client = NeuroMemoryClient(api_key="nm_xxx")
+client = neuromemClient(api_key="nm_xxx")
 
 # 直接提交对话，自动处理一切
 client.conversations.add_message(
@@ -47,12 +47,12 @@ client.conversations.add_message(
 ## 完整示例 1: 智能聊天机器人
 
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 from anthropic import Anthropic
 
 class SmartChatbot:
     def __init__(self, nm_api_key: str, claude_api_key: str):
-        self.memory = NeuroMemoryClient(api_key=nm_api_key)
+        self.memory = neuromemClient(api_key=nm_api_key)
         self.claude = Anthropic(api_key=claude_api_key)
 
         # 启用自动记忆提取（每 10 条消息提取一次）
@@ -129,11 +129,11 @@ print(bot.chat("user1", "推荐一个适合我的编辑器主题"))
 ## 完整示例 2: 知识库助手
 
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 
 class KnowledgeAssistant:
     def __init__(self, api_key: str):
-        self.memory = NeuroMemoryClient(api_key=api_key)
+        self.memory = neuromemClient(api_key=api_key)
 
     def add_document(self, user_id: str, file_path: str, category: str = "knowledge"):
         """添加文档到知识库"""
@@ -216,13 +216,13 @@ print(answer)
 ## 完整示例 3: 个人助理 Agent
 
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 from datetime import datetime
 
 class PersonalAssistant:
     def __init__(self, user_id: str, api_key: str):
         self.user_id = user_id
-        self.memory = NeuroMemoryClient(api_key=api_key)
+        self.memory = neuromemClient(api_key=api_key)
 
     def morning_routine(self):
         """早晨例行：回顾昨天的记忆"""
@@ -322,11 +322,11 @@ assistant.get_profile()
 ## 完整示例 4: Multi-Agent 协作系统
 
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 
 class AgentTeam:
     def __init__(self, api_key: str):
-        self.memory = NeuroMemoryClient(api_key=api_key)
+        self.memory = neuromemClient(api_key=api_key)
         self.agents = {}
 
     def add_agent(self, agent_id: str, role: str, capabilities: list):
@@ -424,11 +424,11 @@ for agent_id, info in results.items():
 ## 完整示例 5: 文档问答系统
 
 ```python
-from neuromemory import NeuroMemoryClient
+from neuromem import neuromemClient
 
 class DocQA:
     def __init__(self, api_key: str):
-        self.memory = NeuroMemoryClient(api_key=api_key)
+        self.memory = neuromemClient(api_key=api_key)
 
     def ingest_folder(self, user_id: str, folder_path: str):
         """批量导入文件夹中的文档"""

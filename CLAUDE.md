@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-NeuroMemory (v0.6.3) 是一个 **Python 记忆管理框架**，为 AI agent 开发者提供记忆存储、检索和推理能力。开发者直接 `from neuromemory import NeuroMemory` 在自己程序中使用，无需部署服务器。已发布到 PyPI。
+neuromem (v0.7.0) 是一个 **Python 记忆管理框架**，为 AI agent 开发者提供记忆存储、检索和推理能力。开发者直接 `from neuromem import NeuroMemory` 在自己程序中使用，无需部署服务器。已发布到 PyPI。
 
 **核心架构**：
-- **Python 框架** (`neuromemory/`)：直接在 agent 程序中使用的库
+- **Python 框架** (`neuromem/`)：直接在 agent 程序中使用的库
 - **可插拔 Provider**：Embedding (SiliconFlow/OpenAI/SentenceTransformer)、LLM (OpenAI/DeepSeek)、Storage (S3/MinIO)
 - **PostgreSQL + pgvector + pg_search**：统一存储后端（结构化数据 + 向量检索 + BM25 全文搜索）
 - **图存储**：基于关系表（GraphNode/GraphEdge），无 Apache AGE 依赖
@@ -29,9 +29,9 @@ NeuroMemory (v0.6.3) 是一个 **Python 记忆管理框架**，为 AI agent 开�
 ## 项目结构
 
 ```
-neuromemory/
-  __init__.py              # 公共导出 (NeuroMemory, providers, etc.)
-  _core.py                 # NeuroMemory 主类 + Facade 类 (1200+ 行)
+neuromem/
+  __init__.py              # 公共导出 (neuromem, providers, etc.)
+  _core.py                 # neuromem 主类 + Facade 类 (1200+ 行)
   db.py                    # Database 类 (engine, session, init)
   models/
     __init__.py            # _embedding_dims 模块变量
@@ -66,7 +66,7 @@ neuromemory/
     s3.py                  # S3Storage (MinIO/AWS/OBS)
 
 tests/                     # 20 个测试文件
-  conftest.py              # MockEmbeddingProvider, NeuroMemory fixture
+  conftest.py              # MockEmbeddingProvider, neuromem fixture
   test_memory_crud.py      # 记忆 CRUD
   test_search.py           # 向量检索
   test_bm25_sanitize.py    # BM25 输入清洗
@@ -135,10 +135,10 @@ bash scripts/publish.sh
 ## 核心 API
 
 ```python
-from neuromemory import NeuroMemory, SiliconFlowEmbedding, OpenAILLM, S3Storage
+from neuromem import NeuroMemory, SiliconFlowEmbedding, OpenAILLM, S3Storage
 
 async with NeuroMemory(
-    database_url="postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory",
+    database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem",
     embedding=SiliconFlowEmbedding(api_key="..."),
     llm=OpenAILLM(api_key="...", model="deepseek-chat"),  # 必需，用于自动提取和反思
     storage=S3Storage(endpoint="http://localhost:9000"),    # 可选
@@ -212,7 +212,7 @@ reflect()
 ## 环境变量
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://neuromemory:neuromemory@localhost:5432/neuromemory
+DATABASE_URL=postgresql+asyncpg://neuromem:neuromem@localhost:5432/neuromem
 SILICONFLOW_API_KEY=...          # Embedding API
 EMBEDDING_PROVIDER=siliconflow   # siliconflow | openai | sentence_transformer
 EMBEDDING_DIMS=1024              # 默认 1024 (BAAI/bge-m3)
@@ -220,7 +220,7 @@ EMBEDDING_DIMS=1024              # 默认 1024 (BAAI/bge-m3)
 
 ## 服务访问
 
-- PostgreSQL: localhost:5432 (用户名: `neuromemory`, 密码: `neuromemory`)
+- PostgreSQL: localhost:5432 (用户名: `neuromem`, 密码: `neuromem`)
 - MinIO: localhost:9000 (Console: localhost:9001)
 
 ## 测试
@@ -245,7 +245,7 @@ Marker：
 
 ## 项目定位
 
-NeuroMemory 是一个专注的 Python 库，不提供以下内容：
+neuromem 是一个专注的 Python 库，不提供以下内容：
 - Web 管理界面（记忆可视化应由 agent 应用提供）
 - HTTP/API 服务器（直接在 Python 代码中使用）
 - 独立部署的服务（嵌入到你的 agent 程序中）
