@@ -201,11 +201,11 @@ async def handle_memories_command(nm: NeuroMemory, query: str):
                   f"{r.get('object', '?')}: {r.get('content', '')}")
 
 
-async def handle_reflect_command(nm: NeuroMemory):
+async def handle_digest_command(nm: NeuroMemory):
     """触发反思，生成高层次洞察。"""
     print("  正在反思最近的记忆...")
     try:
-        result = await nm.reflect(user_id=USER_ID, limit=50)
+        result = await nm.digest(user_id=USER_ID, limit=50)
         count = result.get("insights_generated", 0)
         facts = result.get("facts_added", 0)
         prefs = result.get("preferences_updated", 0)
@@ -264,7 +264,7 @@ async def handle_prefs_command(nm: NeuroMemory, args: str):
 HELP_TEXT = """
 可用命令：
   /memories <query>  - 搜索记忆（三因子评分：相关性 × 时效性 × 重要性）
-  /reflect           - 触发反思，从近期记忆生成高层次洞察
+  /digest            - 触发反思，从近期记忆生成高层次洞察
   /history           - 查看当前会话对话历史
   /prefs [key] [val] - 查看/设置偏好
   /help              - 显示帮助
@@ -324,8 +324,8 @@ async def main():
                     break
                 elif cmd == "memories":
                     await handle_memories_command(nm, args.strip())
-                elif cmd == "reflect":
-                    await handle_reflect_command(nm)
+                elif cmd == "digest":
+                    await handle_digest_command(nm)
                 elif cmd == "history":
                     await handle_history_command(nm)
                 elif cmd == "prefs":
@@ -344,10 +344,10 @@ async def main():
             reply = await generate_reply(llm, user_input, memories, history)
 
             # 3. 保存对话消息（框架自动按策略触发记忆提取）
-            await nm.conversations.add_message(
+            await nm.conversations.ingest(
                 user_id=USER_ID, role="user", content=user_input, session_id=SESSION_ID,
             )
-            await nm.conversations.add_message(
+            await nm.conversations.ingest(
                 user_id=USER_ID, role="assistant", content=reply, session_id=SESSION_ID,
             )
 

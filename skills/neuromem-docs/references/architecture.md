@@ -17,7 +17,7 @@
 ├──────────────────────────────────────────────┤
 │  Facade Layer (neuromem/_core.py)          │
 │  neuromem main class                       │
-│  ├── nm.add_message() / nm.recall()           │
+│  ├── nm.ingest() / nm.recall()                 │
 │  ├── nm.kv          (KVFacade)                │
 │  ├── nm.conversations (ConversationsFacade)   │
 │  ├── nm.files       (FilesFacade)             │
@@ -57,16 +57,16 @@ All models isolated by `user_id`. No `tenant_id`.
 
 ## Core Data Flow
 
-### add_message() flow
+### ingest() flow
 
 ```
-nm.add_message(role="user")
+nm.ingest(role="user")
   ├── Store to conversations table
   ├── Background: generate embedding (asyncio.create_task)
   ├── auto_extract=True → Background: LLM extract facts/episodes/relations
   │    ├── Store to embeddings table (vectorized)
   │    └── graph_enabled=True → Store to graph_nodes/edges
-  └── Every reflection_interval messages → Background: reflect()
+  └── Every reflection_interval messages → Background: digest()
 ```
 
 ### recall() flow
@@ -85,10 +85,10 @@ recall(query)
   └── Return: vector_results, graph_results, graph_context, user_profile, merged
 ```
 
-### reflect() flow
+### digest() flow
 
 ```
-reflect()
+digest()
   ├── Analyze memories added since last watermark
   ├── LLM generates behavior patterns + phase summaries
   ├── Update EmotionProfile

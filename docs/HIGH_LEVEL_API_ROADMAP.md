@@ -22,7 +22,7 @@
   - 索引优化：按 user_id + session_id
 
 - [x] 实现会话 API（Python 框架）
-  - `conversations.add_message()` - 添加单条消息
+  - `conversations.ingest()` - 添加单条消息
   - `conversations.add_messages_batch()` - 批量添加
   - `conversations.get_session_messages()` - 获取会话历史
   - `conversations.list_sessions()` - 列出所有会话
@@ -45,19 +45,19 @@
   - 实现：`neuromem/services/memory_extraction.py`
 
 - [x] **自动提取机制（v0.2.0）**
-  - `auto_extract=True`（默认）：每次 `add_message()` 自动提取
+  - `auto_extract=True`（默认）：每次 `ingest()` 自动提取
   - 同步提取，立即可检索
   - 无需手动调用 `extract_memories()`
 
 - [x] 提取策略配置
   - **实时提取**（推荐）：`auto_extract=True`
-  - **手动提取**：`auto_extract=False` + 手动 `reflect()`
+  - **手动提取**：`auto_extract=False` + 手动 `digest()`
   - ~~任务队列~~ - v0.2.0 采用同步提取，简化架构
 
 **Python API：**
-- [x] `conversations.add_message()` - 自动提取（默认）
+- [x] `conversations.ingest()` - 自动提取（默认）
 - [x] `extract_memories()` - 手动触发（内部使用）
-- [x] `reflect()` - 生成洞察 + 更新画像
+- [x] `digest()` - 生成洞察 + 更新画像
 
 ---
 
@@ -233,7 +233,7 @@ class URLProcessor:
 - 数据集：10 组多轮多 session 对话（400-680 轮/组），1986 个 QA 对
 - 5 类问题：多跳推理(282)、时间推理(321)、开放域(96)、单跳(841)、对抗性(446)
 - 评测流程：
-  1. **记忆注入**：按 session 逐轮喂入对话，调用 `add_message()` + `extract_memories()`
+  1. **记忆注入**：按 session 逐轮喂入对话，调用 `ingest()` + `extract_memories()`
   2. **问答检索**：对每个 QA，调用 `recall()` 召回相关记忆，LLM 生成回答
   3. **评分**：Token F1 + BLEU-1 + LLM Judge（GPT-4o 二元判定）
 - 参考实现：[mem0/evaluation](https://github.com/mem0ai/mem0/tree/main/evaluation)
@@ -252,7 +252,7 @@ evaluation/
     locomo10.json            # LoCoMo 数据集
     longmemeval/             # LongMemEval 数据集
   src/
-    neuromem_add.py       # 记忆注入：对话 → add_message → extract_memories
+    neuromem_add.py       # 记忆注入：对话 → ingest → extract_memories
     neuromem_search.py    # 问答检索：recall → LLM 生成回答
   metrics/
     f1.py                    # Token F1

@@ -220,11 +220,11 @@ class ConversationsFacade:
         self._llm = _llm
         self._graph_enabled = _graph_enabled
 
-    async def add_message(self, user_id: str, role: str, content: str, session_id: str | None = None, metadata: dict | None = None):
+    async def ingest(self, user_id: str, role: str, content: str, session_id: str | None = None, metadata: dict | None = None):
         from neuromem.services.conversation import ConversationService
         async with self._db.session() as session:
             svc = ConversationService(session)
-            msg = await svc.add_message(user_id, role, content, session_id, metadata)
+            msg = await svc.ingest(user_id, role, content, session_id, metadata)
 
         # P1: Generate conversation embedding for recall (v0.2.0)
         # 🚀 优化：只对 user 消息计算 embedding，避免重复和浪费
@@ -502,13 +502,13 @@ class NeuroMemory:
         llm: LLM provider (required, for memory extraction and reflection)
         storage: Optional object storage (for files)
         extraction: Optional extraction strategy (for interval-based extraction)
-        auto_extract: If True, automatically extract memories on add_message (default: True, like mem0)
+        auto_extract: If True, automatically extract memories on ingest (default: True, like mem0)
         graph_enabled: Enable graph memory storage
         pool_size: Database connection pool size
         echo: Enable SQLAlchemy SQL logging
-        reflection_interval: In auto_extract mode, trigger background reflect every N extractions
-            (0 = disabled). Requires llm. E.g. reflection_interval=10 runs reflect after every
-            10 messages. reflect() runs fully in the background and never blocks add_message.
+        reflection_interval: In auto_extract mode, trigger background digest every N extractions
+            (0 = disabled). Requires llm. E.g. reflection_interval=10 runs digest after every
+            10 messages. digest() runs fully in the background and never blocks ingest.
 
     Usage:
         # Auto-extract mode (default, like mem0)
@@ -519,7 +519,7 @@ class NeuroMemory:
             auto_extract=True,  # Default
         ) as nm:
             # Memories are extracted immediately
-            await nm.conversations.add_message(user_id="alice", role="user", content="I work at Google")
+            await nm.conversations.ingest(user_id="alice", role="user", content="I work at Google")
             # → facts/preferences/episodes automatically extracted and stored
 
         # Strategy-based extraction (interval-based)
@@ -529,7 +529,7 @@ class NeuroMemory:
             extraction=ExtractionStrategy(message_interval=10),
         ) as nm:
             # Memories extracted every 10 messages
-            await nm.conversations.add_message(...)
+            await nm.conversations.ingest(...)
     """
 
     def __init__(
@@ -550,9 +550,9 @@ class NeuroMemory:
     ):
         """
         Args:
-            reflection_interval: Trigger background reflect() every N user messages per user.
-                Default 20: runs reflect in the background after every 20 user messages.
-                0 = disabled. Never blocks add_message(). Requires llm.
+            reflection_interval: Trigger background digest() every N user messages per user.
+                Default 20: runs digest in the background after every 20 user messages.
+                0 = disabled. Never blocks ingest(). Requires llm.
             on_extraction: Optional callback invoked after each successful memory extraction.
                 Receives a dict with keys: user_id, session_id, duration, facts_extracted,
                 episodes_extracted, triples_extracted, messages_processed.
@@ -585,8 +585,8 @@ class NeuroMemory:
         self._msg_counts: dict[tuple[str, str], int] = {}
         self._idle_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self._active_sessions: set[tuple[str, str]] = set()
-        self._reflect_counts: dict[str, int] = {}      # user_id -> count for reflection_interval
-        self._bg_tasks: list[asyncio.Task] = []        # background reflect tasks (awaited on close)
+        self._digest_counts: dict[str, int] = {}      # user_id -> count for reflection_interval
+        self._bg_tasks: list[asyncio.Task] = []        # background digest tasks (awaited on close)
 
         # Embedding cache for query deduplication (reduces API calls)
         self._embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
@@ -597,7 +597,7 @@ class NeuroMemory:
         on_msg = self._on_message_added if _has_extraction else None
         on_close = self._on_session_closed if _has_extraction else None
         on_extraction_done = (
-            self._maybe_trigger_reflect
+            self._maybe_trigger_digest
             if reflection_interval > 0 and llm
             else None
         )
@@ -619,7 +619,7 @@ class NeuroMemory:
         if storage:
             self.files = FilesFacade(self._db, self._embedding, storage)
 
-    async def add_message(
+    async def ingest(
         self,
         user_id: str,
         role: str,
@@ -627,8 +627,8 @@ class NeuroMemory:
         session_id: str | None = None,
         metadata: dict | None = None,
     ):
-        """Add a conversation message (shortcut for conversations.add_message)."""
-        return await self.conversations.add_message(
+        """Add a conversation message (shortcut for conversations.ingest)."""
+        return await self.conversations.ingest(
             user_id, role, content, session_id, metadata,
         )
 
@@ -643,7 +643,7 @@ class NeuroMemory:
         self._reflection_interval = value
         # Update _on_extraction_done callback on conversations facade
         self.conversations._on_extraction_done = (
-            self._maybe_trigger_reflect if value > 0 and self._llm else None
+            self._maybe_trigger_digest if value > 0 and self._llm else None
         )
 
     @property
@@ -708,10 +708,10 @@ class NeuroMemory:
         self._active_sessions.clear()
         self._msg_counts.clear()
 
-        # Await all pending background reflect tasks before closing DB
+        # Await all pending background digest tasks before closing DB
         pending = [t for t in self._bg_tasks if not t.done()]
         if pending:
-            logger.debug("Waiting for %d background reflect task(s) to complete", len(pending))
+            logger.debug("Waiting for %d background digest task(s) to complete", len(pending))
             await asyncio.gather(*pending, return_exceptions=True)
         self._bg_tasks.clear()
 
@@ -808,16 +808,16 @@ class NeuroMemory:
         except asyncio.CancelledError:
             pass
 
-    async def _maybe_trigger_reflect(self, user_id: str) -> None:
-        """Called after each user message extraction; triggers background reflect every N messages."""
-        self._reflect_counts[user_id] = self._reflect_counts.get(user_id, 0) + 1
-        if self._reflect_counts[user_id] >= self._reflection_interval:
-            self._reflect_counts[user_id] = 0
+    async def _maybe_trigger_digest(self, user_id: str) -> None:
+        """Called after each user message extraction; triggers background digest every N messages."""
+        self._digest_counts[user_id] = self._digest_counts.get(user_id, 0) + 1
+        if self._digest_counts[user_id] >= self._reflection_interval:
+            self._digest_counts[user_id] = 0
             logger.info(
-                "Auto-reflect triggered for user=%s (interval=%d)",
+                "Auto-digest triggered for user=%s (interval=%d)",
                 user_id, self._reflection_interval,
             )
-            await self.reflect(user_id, background=True)
+            await self.digest(user_id, background=True)
 
     async def _do_extraction(self, user_id: str, session_id: str) -> None:
         """Extract memories from unprocessed messages in a session."""
@@ -858,7 +858,7 @@ class NeuroMemory:
 
             # Trigger reflection (unified: both auto_extract and ExtractionStrategy paths)
             if self._reflection_interval > 0 and self._llm:
-                await self._maybe_trigger_reflect(user_id)
+                await self._maybe_trigger_digest(user_id)
 
         except Exception as e:
             logger.error("Auto-extraction failed: user=%s session=%s error=%s",
@@ -1447,13 +1447,13 @@ class NeuroMemory:
         except Exception as e:
             logger.warning("Memory conflict check failed: %s", e)
 
-    async def reflect(
+    async def digest(
         self,
         user_id: str,
         batch_size: int = 50,
         background: bool = False,
     ) -> dict | None:
-        """Generate insights and update emotion profile from un-reflected memories.
+        """Generate insights and update emotion profile from un-digested memories.
 
         Uses a watermark (``last_reflected_at`` on EmotionProfile) to only
         process memories that haven't been analyzed yet.  Internally paginates
@@ -1462,7 +1462,7 @@ class NeuroMemory:
         First call: processes all memories.  Subsequent calls: only new ones.
 
         Args:
-            user_id: The user to reflect about.
+            user_id: The user to digest about.
             batch_size: Number of memories per LLM call.
             background: If True, run in background via asyncio.create_task()
                         and return immediately with None.
@@ -1471,22 +1471,22 @@ class NeuroMemory:
             Result dict when background=False; None when background=True.
         """
         if background:
-            async def _safe_reflect():
+            async def _safe_digest():
                 try:
-                    await self._reflect_impl(user_id, batch_size)
+                    await self._digest_impl(user_id, batch_size)
                 except Exception as e:
-                    logger.error("Background reflect failed: user=%s error=%s", user_id, e)
-            task = asyncio.create_task(_safe_reflect())
+                    logger.error("Background digest failed: user=%s error=%s", user_id, e)
+            task = asyncio.create_task(_safe_digest())
             self._bg_tasks.append(task)
             return None
-        return await self._reflect_impl(user_id, batch_size)
+        return await self._digest_impl(user_id, batch_size)
 
-    async def _reflect_impl(
+    async def _digest_impl(
         self,
         user_id: str,
         batch_size: int = 50,
     ) -> dict:
-        """Internal implementation of reflect()."""
+        """Internal implementation of digest()."""
         from neuromem.services.reflection import ReflectionService
         from sqlalchemy import text as sql_text
 
@@ -1577,7 +1577,7 @@ class NeuroMemory:
 
             async with self._db.session() as session:
                 svc = ReflectionService(session, self._embedding, self._llm)
-                batch_result = await svc.reflect(
+                batch_result = await svc.digest(
                     user_id, batch, existing_insights or None,
                 )
 

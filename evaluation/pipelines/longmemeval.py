@@ -116,13 +116,13 @@ async def _ingest(cfg: EvalConfig, questions: list[LongMemEvalQuestion]) -> None
                     if sess.timestamp:
                         await set_timestamps(nm, user_id, session_id, sess.timestamp)
 
-                # Reflect: extract memories + generate insights
-                # Note: If reflection_interval > 0 in cfg, this might be redundant 
+                # Digest: extract memories + generate insights
+                # Note: If reflection_interval > 0 in cfg, this might be redundant
                 # but for evaluation we want to ensure everything is processed.
                 batch_size = cfg.extraction_batch_size
                 round_idx = 0
                 while True:
-                    result = await _retry_on_rate_limit(nm.reflect, user_id, limit=batch_size)
+                    result = await _retry_on_rate_limit(nm.digest, user_id, limit=batch_size)
                     processed = result.get("conversations_processed", 0)
                     if processed == 0:
                         break

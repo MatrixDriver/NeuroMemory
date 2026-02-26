@@ -19,7 +19,7 @@ class ConversationService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def add_message(
+    async def ingest(
         self,
         user_id: str,
         role: str,

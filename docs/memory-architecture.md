@@ -130,7 +130,7 @@ score = relevance × recency × importance
 参考 Generative Agents 的反思设计 — 从近期记忆中提炼高层次洞察。
 
 ```python
-result = await nm.reflect(user_id="u1", limit=50)
+result = await nm.digest(user_id="u1", limit=50)
 # result = {
 #     "reflections_generated": 3,
 #     "reflections": [

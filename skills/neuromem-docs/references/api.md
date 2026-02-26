@@ -52,12 +52,12 @@ nm.on_embedding_call = my_embedding_callback
 
 ## Core API
 
-### add_message()
+### ingest()
 
 Store a conversation message. With `auto_extract=True` (default), automatically extracts memories.
 
 ```python
-msg = await nm.add_message(
+msg = await nm.ingest(
     user_id: str,              # User ID
     role: str,                 # "user" or "assistant"
     content: str,              # Message content
@@ -66,13 +66,13 @@ msg = await nm.add_message(
 ) -> ConversationMessage       # Has: id, session_id, role, content, created_at
 ```
 
-**Shortcut**: `nm.add_message()` is equivalent to `nm.conversations.add_message()`.
+**Shortcut**: `nm.ingest()` is equivalent to `nm.conversations.ingest()`.
 
 **Typical agent loop**:
 
 ```python
 # 1. Store user message (auto-extracts memories)
-await nm.add_message(user_id="alice", role="user", content="I work at Google")
+await nm.ingest(user_id="alice", role="user", content="I work at Google")
 
 # 2. Recall relevant memories
 result = await nm.recall(user_id="alice", query="work", limit=5)
@@ -81,7 +81,7 @@ result = await nm.recall(user_id="alice", query="work", limit=5)
 reply = your_llm.generate(context=result["merged"], ...)
 
 # 4. Store assistant reply
-await nm.add_message(user_id="alice", role="assistant", content=reply)
+await nm.ingest(user_id="alice", role="assistant", content=reply)
 ```
 
 ### recall()
@@ -144,12 +144,12 @@ importance  = metadata.importance / 10  # 0.1-1.0, default 0.5
 graph_boost = min(1.0 + coverage, 2.0)  # both ends +0.5, single end +0.2
 ```
 
-### reflect()
+### digest()
 
 Generate insights and update emotion profile from recent memories.
 
 ```python
-result = await nm.reflect(
+result = await nm.digest(
     user_id: str,
     batch_size: int = 50,      # Number of recent memories to analyze per LLM call
     background: bool = False,  # If True, runs as asyncio.create_task and returns None

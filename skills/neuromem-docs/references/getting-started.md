@@ -76,7 +76,7 @@ async def main():
         llm=OpenAILLM(api_key="your-llm-key", model="deepseek-chat"),
     ) as nm:
         # Store message -> auto-extract memories
-        await nm.add_message(
+        await nm.ingest(
             user_id="alice", role="user",
             content="I work at ABC Company as a software engineer",
         )

@@ -29,7 +29,7 @@ from neuromem import neuromemClient
 client = neuromemClient(api_key="nm_xxx")
 
 # 直接提交对话，自动处理一切
-client.conversations.add_message(
+client.conversations.ingest(
     user_id="user1",
     role="user",
     content="我喜欢蓝色"
@@ -248,7 +248,7 @@ class PersonalAssistant:
     def process_conversation(self, message: str) -> str:
         """处理用户输入"""
         # 存储对话
-        self.memory.conversations.add_message(
+        self.memory.conversations.ingest(
             user_id=self.user_id,
             role="user",
             content=message
@@ -353,7 +353,7 @@ class AgentTeam:
     def share_knowledge(self, from_agent: str, to_agent: str, knowledge: str):
         """Agent 之间共享知识"""
         # 存到发送方
-        self.memory.conversations.add_message(
+        self.memory.conversations.ingest(
             user_id=f"agent_{from_agent}",
             role="system",
             content=f"[分享给 {to_agent}] {knowledge}"

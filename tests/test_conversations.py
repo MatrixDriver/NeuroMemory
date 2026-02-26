@@ -8,7 +8,7 @@ from neuromem.services.conversation import ConversationService
 @pytest.mark.asyncio
 async def test_add_single_message(db_session):
     svc = ConversationService(db_session)
-    msg = await svc.add_message(
+    msg = await svc.ingest(
         user_id="test_user",
         role="user",
         content="I work at Google",
@@ -119,7 +119,7 @@ async def test_unextracted_messages(db_session):
 @pytest.mark.asyncio
 async def test_conversations_via_facade(nm):
     """Test conversations through the NeuroMemory facade."""
-    msg = await nm.conversations.add_message(
+    msg = await nm.conversations.ingest(
         user_id="facade_user",
         role="user",
         content="Test message via facade",

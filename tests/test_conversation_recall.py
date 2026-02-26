@@ -14,7 +14,7 @@ from neuromem import NeuroMemory
 
 
 @pytest.mark.asyncio
-async def test_conversation_embedding_generated_on_add_message(mock_embedding, mock_llm):
+async def test_conversation_embedding_generated_on_ingest(mock_embedding, mock_llm):
     """Test that conversation embeddings are generated when adding messages."""
     nm = NeuroMemory(
         database_url="postgresql+asyncpg://neuromem:neuromem@localhost:5436/neuromem",
@@ -27,7 +27,7 @@ async def test_conversation_embedding_generated_on_add_message(mock_embedding, m
     user_id = "conv_recall_user_1"
 
     # Add message
-    msg = await nm.conversations.add_message(
+    msg = await nm.conversations.ingest(
         user_id=user_id,
         role="user",
         content="我 2024 年 1 月 15 日入职 Google，工号是 12345",
@@ -68,7 +68,7 @@ async def test_recall_includes_conversation_results(mock_embedding, mock_llm):
     user_id = "conv_recall_user_2"
 
     # Add conversation with specific date
-    await nm.conversations.add_message(
+    await nm.conversations.ingest(
         user_id=user_id,
         role="user",
         content="2024 年 3 月 10 日我参加了 Google I/O 大会，见到了 Sundar Pichai",
@@ -129,7 +129,7 @@ async def test_conversation_preserves_temporal_details(mock_embedding):
     user_id = "conv_recall_user_3"
 
     # Add conversation with specific date and details
-    await nm.conversations.add_message(
+    await nm.conversations.ingest(
         user_id=user_id,
         role="user",
         content="2024 年 3 月 10 日下午 2 点我参加了 Google I/O 大会",
@@ -172,7 +172,7 @@ async def test_merged_results_deduplicate_conversations_and_memories(mock_embedd
     user_id = "conv_recall_user_4"
 
     # Add conversation
-    await nm.conversations.add_message(
+    await nm.conversations.ingest(
         user_id=user_id,
         role="user",
         content="我在 Google 工作",
@@ -220,13 +220,13 @@ async def test_conversation_recall_with_role_and_session(mock_embedding, mock_ll
 
     # Add multi-turn conversation
     session_id = "test_session_123"
-    await nm.conversations.add_message(
+    await nm.conversations.ingest(
         user_id=user_id,
         role="user",
         content="我想了解 Python 的异步编程",
         session_id=session_id,
     )
-    await nm.conversations.add_message(
+    await nm.conversations.ingest(
         user_id=user_id,
         role="assistant",
         content="Python 异步编程使用 async/await 语法",

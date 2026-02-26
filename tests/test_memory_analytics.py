@@ -158,7 +158,7 @@ class TestEntityProfile:
     async def test_entity_profile_includes_conversations(self, nm):
         """entity_profile() should find conversations mentioning the entity."""
         user_id = "entity_conv_u1"
-        await nm.conversations.add_message(
+        await nm.conversations.ingest(
             user_id=user_id, role="user",
             content="I met Alice at the conference",
         )
@@ -171,7 +171,7 @@ class TestEntityProfile:
         """entity_profile() should build a chronological timeline."""
         user_id = "entity_timeline_u1"
         await nm._add_memory(user_id=user_id, content="Alice joined in 2020")
-        await nm.conversations.add_message(
+        await nm.conversations.ingest(
             user_id=user_id, role="user", content="Alice got promoted",
         )
 

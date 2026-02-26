@@ -61,7 +61,7 @@ python example/chat_agent.py
 | 命令 | 说明 |
 |------|------|
 | `/memories <query>` | 搜索记忆（三因子评分：相关性 × 时效性 × 重要性） |
-| `/reflect` | 触发反思，从近期记忆生成高层次洞察 |
+| `/digest` | 触发反思，从近期记忆生成高层次洞察 |
 | `/history` | 查看当前会话对话历史 |
 | `/prefs [key] [value]` | 查看/设置偏好 |
 | `/help` | 显示帮助 |

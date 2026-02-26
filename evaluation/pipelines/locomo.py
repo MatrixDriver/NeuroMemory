@@ -128,7 +128,7 @@ async def _ingest_conversation(
             role_a = "user" if msg.speaker == conv.speaker_a else "assistant"
             content = f"{msg.speaker}: {msg.text}"
             await _retry_on_rate_limit(
-                nm.conversations.add_message,
+                nm.conversations.ingest,
                 user_id=user_a, role=role_a, content=content,
                 session_id=sid_a, metadata=msg_meta,
             )
@@ -138,7 +138,7 @@ async def _ingest_conversation(
             role_b = "user" if msg.speaker == conv.speaker_b else "assistant"
             content = f"{msg.speaker}: {msg.text}"
             await _retry_on_rate_limit(
-                nm.conversations.add_message,
+                nm.conversations.ingest,
                 user_id=user_b, role=role_b, content=content,
                 session_id=sid_b, metadata=msg_meta,
             )
@@ -146,7 +146,7 @@ async def _ingest_conversation(
         await set_timestamps(nm, user_a, sid_a, ts)
         await set_timestamps(nm, user_b, sid_b, ts)
 
-    # Retry any failed extractions before reflecting
+    # Retry any failed extractions before digesting
     for uid in [user_a, user_b]:
         retry_stats = await nm.retry_failed_extractions(user_id=uid)
         if retry_stats["retried"] > 0:
@@ -155,9 +155,9 @@ async def _ingest_conversation(
                 uid, retry_stats["retried"], retry_stats["succeeded"], retry_stats["failed"],
             )
 
-    # Reflect: extract memories + generate insights
-    # If reflection_interval > 0, reflect runs automatically in background via library.
-    # Otherwise fall back to explicit synchronous reflect (unless skip_reflect).
+    # Digest: extract memories + generate insights
+    # If reflection_interval > 0, digest runs automatically in background via library.
+    # Otherwise fall back to explicit synchronous digest (unless skip_reflect).
     if not cfg.skip_reflect and cfg.reflection_interval == 0:
         for uid in [user_a, user_b]:
             await _reflect_user(cfg, nm, uid)
@@ -166,19 +166,19 @@ async def _ingest_conversation(
 
 
 async def _reflect_user(cfg: EvalConfig, nm, user_id: str) -> None:
-    """Call reflect() to generate insights from all memories."""
+    """Call digest() to generate insights from all memories."""
     try:
         result = await _retry_on_rate_limit(
-            nm.reflect, user_id, batch_size=cfg.extraction_batch_size,
+            nm.digest, user_id, batch_size=cfg.extraction_batch_size,
         )
         logger.info(
-            "Reflect[%s]: analyzed=%d insights=%d",
+            "Digest[%s]: analyzed=%d insights=%d",
             user_id,
             result.get("analyzed", 0),
             result.get("insights_generated", 0),
         )
     except Exception as e:
-        logger.error("Reflect failed for %s: %s", user_id, e)
+        logger.error("Digest failed for %s: %s", user_id, e)
 
 
 # ---------------------------------------------------------------------------

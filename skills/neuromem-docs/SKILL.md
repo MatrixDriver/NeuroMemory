@@ -13,9 +13,9 @@ neuromem revolves around three operations:
 
 | Operation | Method | Purpose |
 |-----------|--------|---------|
-| **Store** | `add_message()` | Store conversation messages + auto-extract memories (facts, episodes, relations, user profile) |
+| **Store** | `ingest()` | Store conversation messages + auto-extract memories (facts, episodes, relations, user profile) |
 | **Recall** | `recall()` | Hybrid retrieval: vector + BM25 + graph fusion scoring |
-| **Reflect** | `reflect()` | Generate insights + update emotion profile |
+| **Digest** | `digest()` | Generate insights + update emotion profile |
 
 ## Quick Reference
 
@@ -30,15 +30,15 @@ async with NeuroMemory(
     llm=OpenAILLM(api_key="...", model="deepseek-chat"),
     auto_extract=True,       # default: auto-extract memories from messages
     graph_enabled=False,     # enable knowledge graph storage
-    reflection_interval=20,  # auto-reflect every N user messages (0=disable)
+    reflection_interval=20,  # auto-digest every N user messages (0=disable)
 ) as nm:
     ...
 ```
 
-### add_message()
+### ingest()
 
 ```python
-msg = await nm.add_message(
+msg = await nm.ingest(
     user_id="alice",
     role="user",          # "user" or "assistant"
     content="I work at Google as a backend engineer",
@@ -66,10 +66,10 @@ for mem in result["merged"]:
     print(f"[{mem['source']}] {mem['content']} (score: {mem['score']:.2f})")
 ```
 
-### reflect()
+### digest()
 
 ```python
-result = await nm.reflect(user_id="alice", batch_size=50, background=False)
+result = await nm.digest(user_id="alice", batch_size=50, background=False)
 # Returns: { "insights_generated": 2, "insights": [...], "emotion_profile": {...} }
 # background=True → runs as asyncio.create_task, returns None
 ```
@@ -82,7 +82,7 @@ result = await nm.reflect(user_id="alice", batch_size=50, background=False)
 | **Episode** | Embedding | `recall()` | "Had interview yesterday, felt nervous" |
 | **Relation** | Graph (relational tables) | `graph.get_neighbors()` | `(alice)-[WORKS_AT]->(google)` |
 | **Insight** | Embedding | `recall()` | "User tends to work at night" |
-| **Emotion Profile** | Table | `reflect()` auto-updates | "Prone to anxiety, excited about tech" |
+| **Emotion Profile** | Table | `digest()` auto-updates | "Prone to anxiety, excited about tech" |
 | **Preference** | KV (profile namespace) | `kv.get()` | `["likes coffee", "prefers dark mode"]` |
 | **General** | Embedding | `recall()` | General-purpose memory |
 
@@ -91,7 +91,7 @@ result = await nm.reflect(user_id="alice", batch_size=50, background=False)
 | Facade | Access | Purpose |
 |--------|--------|---------|
 | `nm.kv` | KV storage | `set()`, `get()`, `list()`, `delete()`, `batch_set()` |
-| `nm.conversations` | Conversation management | `add_message()`, `get_session_messages()`, `list_sessions()` |
+| `nm.conversations` | Conversation management | `ingest()`, `get_session_messages()`, `list_sessions()` |
 | `nm.files` | File management (needs S3Storage) | `upload()`, `list()`, `search()`, `delete()` |
 | `nm.graph` | Knowledge graph (needs `graph_enabled=True`) | `create_node()`, `create_edge()`, `get_neighbors()`, `find_path()` |
 

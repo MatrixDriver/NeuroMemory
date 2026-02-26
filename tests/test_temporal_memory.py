@@ -81,7 +81,7 @@ async def test_episode_timestamp_preservation(mock_embedding):
     user_id = "temporal_user_1"
 
     # Add conversation with temporal information
-    await nm.conversations.add_message(
+    await nm.conversations.ingest(
         user_id=user_id,
         role="user",
         content="我 2024 年 1 月入职 Google，上周三参加了团队建设，明天下午 3 点有面试",
@@ -132,7 +132,7 @@ async def test_episode_people_and_location_extraction(mock_embedding):
 
     user_id = "temporal_user_2"
 
-    await nm.conversations.add_message(
+    await nm.conversations.ingest(
         user_id=user_id,
         role="user",
         content="上周三我和小王、小李在公园参加了团队建设活动",
@@ -254,7 +254,7 @@ async def test_relative_time_expressions_in_episodes(mock_embedding):
     user_id = "temporal_user_4"
 
     # Conversation with various relative time expressions
-    await nm.conversations.add_message(
+    await nm.conversations.ingest(
         user_id=user_id,
         role="user",
         content="明天下午 3 点有面试",

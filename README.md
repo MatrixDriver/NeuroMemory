@@ -4,8 +4,8 @@
 
 基于 PostgreSQL 构建的 Python 记忆库，为 AI agent 提供开箱即用的多层记忆。利用 PostgreSQL 生态 pgvector 向量检索、pg_search 全文检索、图检索、KV 检索等能力实现混合记忆检索。
 
-- `add_message()` 自动提取四种记忆：**Fact**（持久事实）、**Episode**（带时间戳的情景记忆）、**Graph**（实体关系图谱）、**UserProfile**（用户画像）
-- `reflect()` 自动周期性反思，从多轮对话中自动提取 **Insight**（用户洞察，如行为模式、情感画像）
+- `ingest()` 自动提取四种记忆：**Fact**（持久事实）、**Episode**（带时间戳的情景记忆）、**Graph**（实体关系图谱）、**UserProfile**（用户画像）
+- `digest()` 自动周期性反思，从多轮对话中自动提取 **Insight**（用户洞察，如行为模式、情感画像）
 - `recall()` 将多层记忆融合排序后返回，零额外代码组装进 prompt
 
 ---
@@ -36,7 +36,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| **[API 参考](https://github.com/MatrixDriver/neuromem/blob/master/docs/API.md)** | 完整的 Python API 文档（add_message, recall, reflect 等） |
+| **[API 参考](https://github.com/MatrixDriver/neuromem/blob/master/docs/API.md)** | 完整的 Python API 文档（ingest, recall, digest 等） |
 | **[快速开始](https://github.com/MatrixDriver/neuromem/blob/master/docs/GETTING_STARTED.md)** | 10 分钟上手指南 |
 | **[架构设计](https://github.com/MatrixDriver/neuromem/blob/master/docs/ARCHITECTURE.md)** | 系统架构、Provider 模式、数据模型、情感架构 |
 | **[使用指南](https://github.com/MatrixDriver/neuromem/blob/master/docs/SDK_GUIDE.md)** | API 用法、代码示例、Prompt 组装最佳实践 |
@@ -124,7 +124,7 @@ async def main():
         auto_extract=True,  # 默认启用，像 mem0 那样实时提取记忆
     ) as nm:
         # 1. 存储对话消息 → 自动提取记忆（facts/episodes/relations）
-        await nm.add_message(
+        await nm.ingest(
             user_id="alice", role="user",
             content="I work at ABC Company as a software engineer"
         )
@@ -136,7 +136,7 @@ async def main():
             print(f"[{r['score']:.2f}] {r['content']}")
 
         # 3. 生成洞察和情感画像（可选，定期调用）
-        insights = await nm.reflect(user_id="alice")
+        insights = await nm.digest(user_id="alice")
         print(f"生成了 {insights['insights_generated']} 条洞察")
 
 asyncio.run(main())
@@ -147,27 +147,27 @@ asyncio.run(main())
 neuromem 的核心使用围绕三个操作：
 
 **插入记忆**（自动模式，默认）：
-- 对话驱动：`add_message()` 存储对话 **并自动提取记忆**（推荐，像 mem0）
+- 对话驱动：`ingest()` 存储对话 **并自动提取记忆**（推荐，像 mem0）
 
 **召回记忆（recall）**：
 - `await nm.recall(user_id, query)` — cosine 相似度为主信号，时效性和重要性为加成，找出最匹配的记忆
 - 在对话中使用：让 agent 能"想起"相关的历史信息来回应用户
 
-**生成洞察（reflect）**（可选，定期调用）：
-- `await nm.reflect(user_id)` — 高层记忆分析：
+**生成洞察（digest）**（可选，定期调用）：
+- `await nm.digest(user_id)` — 高层记忆分析：
   1. **提炼洞察**：从已提取的记忆生成高层理解（行为模式、阶段总结）
   2. **更新画像**：整合情感数据，更新用户情感画像
 - 让记忆从"事实"升华为"洞察"
 
-> `add_message()` 默认 `auto_extract=True`，每次调用自动提取记忆。`reflect()` 专注于生成 Insight 和更新情感画像，不处理基础记忆提取。
+> `ingest()` 默认 `auto_extract=True`，每次调用自动提取记忆。`digest()` 专注于生成 Insight 和更新情感画像，不处理基础记忆提取。
 
 **逻辑关系**：
 ```
-对话进行中 → 存储消息 (add_message) → 自动提取记忆
+对话进行中 → 存储消息 (ingest) → 自动提取记忆
      ↓
 agent 需要上下文 → 召回记忆 (recall)
      ↓
-定期分析 → 生成洞察 (reflect) → 洞察 + 情感画像
+定期分析 → 生成洞察 (digest) → 洞察 + 情感画像
 ```
 
 ---
@@ -184,7 +184,7 @@ neuromem 提供 7 种记忆类型，每种有不同的存储和获取方式：
 | <nobr>**情景 Episode**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | "昨天面试很紧张" |
 | <nobr>**关系 Relation**</nobr> | Graph Store | PostgreSQL 关系表 | `nm.graph.get_neighbors(user_id, type, id)` | `(user)-[works_at]->(Google)` |
 | <nobr>**洞察 Insight**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | "用户倾向于晚上工作" |
-| <nobr>**情感画像**</nobr> | Table | PostgreSQL | `reflect()` 自动更新 | "容易焦虑，对技术兴奋" |
+| <nobr>**情感画像**</nobr> | Table | PostgreSQL | `digest()` 自动更新 | "容易焦虑，对技术兴奋" |
 | <nobr>**偏好 Preference**</nobr> | KV (Profile) | PostgreSQL | `nm.kv.get(user_id, "profile", "preferences")` | `["喜欢喝咖啡", "偏好深色模式"]` |
 | <nobr>**通用 General**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | 通用记忆 |
 
@@ -225,8 +225,8 @@ neuromem 的所有 API 都强制要求 `user_id` 参数，框架层面保证每�
 
 ### LLM 驱动的记忆提取与反思
 
-- **提取**：`add_message()` 自动从对话中识别事实、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10），偏好存入用户画像
-- **反思** (`reflect`)：定期从近期记忆提炼高层洞察（行为模式、阶段总结），更新情感画像
+- **提取**：`ingest()` 自动从对话中识别事实、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10），偏好存入用户画像
+- **反思** (`digest`)：定期从近期记忆提炼高层洞察（行为模式、阶段总结），更新情感画像
 - **访问追踪**：自动记录 access_count 和 last_accessed_at，符合 ACT-R 记忆模型
 
 理论基础：Generative Agents (Park 2023) 的 Reflection 机制 + LeDoux 情感标记 + Ebbinghaus 遗忘曲线 + ACT-R 记忆模型。
@@ -255,7 +255,7 @@ neuromem 的所有 API 都强制要求 `user_id` 参数，框架层面保证每�
 - [x] 访问追踪（access_count / last_accessed_at）
 - [x] 反思机制（从记忆中生成高层洞察）
 - [x] 后台任务系统（ExtractionStrategy 自动触发）
-- [x] auto_extract 模式后台自动 reflect（`reflection_interval` 参数）
+- [x] auto_extract 模式后台自动 digest（`reflection_interval` 参数）
 
 ### Phase 3（进行中）
 

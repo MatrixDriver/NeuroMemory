@@ -101,7 +101,7 @@ async def main():
         llm=OpenAILLM(api_key="your-llm-key", model="deepseek-chat"),
     ) as nm:
         # 添加对话消息（自动提取记忆）
-        await nm.add_message(
+        await nm.ingest(
             user_id="alice",
             role="user",
             content="I work at ABC Company as a software engineer",
@@ -129,7 +129,7 @@ async with NeuroMemory(
     embedding=SiliconFlowEmbedding(api_key="your-key"),
     llm=OpenAILLM(api_key="your-llm-key", model="deepseek-chat"),
 ) as nm:
-    await nm.add_message(user_id="alice", role="user", content="I love Python")
+    await nm.ingest(user_id="alice", role="user", content="I love Python")
     result = await nm.recall(user_id="alice", query="programming")
     # 退出 with 块时自动关闭连接
 ```
@@ -144,7 +144,7 @@ async with NeuroMemory(
     embedding=OpenAIEmbedding(api_key="your-openai-key"),
     llm=OpenAILLM(api_key="your-llm-key", model="deepseek-chat"),
 ) as nm:
-    await nm.add_message(user_id="alice", role="user", content="Hello world")
+    await nm.ingest(user_id="alice", role="user", content="Hello world")
 ```
 
 ---
@@ -182,7 +182,7 @@ await nm.kv.delete("alice", "config", "language")
 
 ```python
 # 添加单条消息
-msg = await nm.add_message(
+msg = await nm.ingest(
     user_id="alice", role="user", content="Hello!"
 )
 print(f"Session: {msg.session_id}")
@@ -278,7 +278,7 @@ path = await nm.graph.find_path(
 
 ### 4.5 记忆提取（需要 LLM）
 
-配置 `llm` 后，`add_message()` 默认自动提取记忆（`auto_extract=True`）：
+配置 `llm` 后，`ingest()` 默认自动提取记忆（`auto_extract=True`）：
 
 ```python
 from neuromem import OpenAILLM
@@ -287,10 +287,10 @@ async with NeuroMemory(
     database_url="...",
     embedding=SiliconFlowEmbedding(api_key="..."),
     llm=OpenAILLM(api_key="...", model="deepseek-chat"),
-    reflection_interval=20,  # 每 20 条消息后台自动 reflect，生成洞察（默认值）
+    reflection_interval=20,  # 每 20 条消息后台自动 digest，生成洞察（默认值）
 ) as nm:
-    # add_message 自动提取记忆
-    await nm.add_message(
+    # ingest 自动提取记忆
+    await nm.ingest(
         user_id="alice", role="user",
         content="I just started working at Google as a ML engineer"
     )

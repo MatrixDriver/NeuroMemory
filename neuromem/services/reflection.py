@@ -35,7 +35,7 @@ class ReflectionService:
         self._embedding = embedding
         self._llm = llm
 
-    async def reflect(
+    async def digest(
         self,
         user_id: str,
         recent_memories: list[dict],

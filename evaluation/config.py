@@ -85,11 +85,11 @@ class EvalConfig:
     decay_rate_days: int = field(
         default_factory=lambda: int(os.environ.get("DECAY_RATE_DAYS", "365"))
     )
-    # Skip reflect phase during ingest (for ablation studies)
+    # Skip digest phase during ingest (for ablation studies)
     skip_reflect: bool = field(
         default_factory=lambda: os.environ.get("SKIP_REFLECT", "0") == "1"
     )
-    # Background reflect: trigger reflect() every N user messages per user (0 = disabled)
+    # Background digest: trigger digest() every N user messages per user (0 = disabled)
     reflection_interval: int = field(
         default_factory=lambda: int(os.environ.get("REFLECTION_INTERVAL", "20"))
     )

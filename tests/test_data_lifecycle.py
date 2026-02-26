@@ -35,7 +35,7 @@ class TestDeleteUserData:
 
         # Add various data types
         await nm_graph._add_memory(user_id=user_id, content="test memory", memory_type="fact")
-        await nm_graph.conversations.add_message(user_id=user_id, role="user", content="hello")
+        await nm_graph.conversations.ingest(user_id=user_id, role="user", content="hello")
         await nm_graph.kv.set(user_id, "profile", "name", "Test User")
         await nm_graph.graph.create_node(NodeType.PERSON, "test_person", user_id=user_id)
 
@@ -88,7 +88,7 @@ class TestExportUserData:
         user_id = "export_u1"
 
         await nm._add_memory(user_id=user_id, content="export test memory", memory_type="fact")
-        await nm.conversations.add_message(user_id=user_id, role="user", content="export hello")
+        await nm.conversations.ingest(user_id=user_id, role="user", content="export hello")
         await nm.kv.set(user_id, "profile", "lang", "en")
 
         result = await nm.export_user_data(user_id)

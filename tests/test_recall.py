@@ -731,7 +731,7 @@ class TestRecallEdgeCases:
 
 
 # ===========================================================================
-# G. Full pipeline: add_message → extract_memories → recall
+# G. Full pipeline: ingest → extract_memories → recall
 # ===========================================================================
 
 class TestRecallFullPipeline:
@@ -747,11 +747,11 @@ class TestRecallFullPipeline:
         user_id = "pipeline_u1"
 
         # Step 1: Add conversation messages
-        await nm_with_llm.conversations.add_message(
+        await nm_with_llm.conversations.ingest(
             user_id=user_id, role="user",
             content="我在 Google 工作，住在北京",
         )
-        await nm_with_llm.conversations.add_message(
+        await nm_with_llm.conversations.ingest(
             user_id=user_id, role="assistant",
             content="了解了！",
         )
@@ -772,7 +772,7 @@ class TestRecallFullPipeline:
         """Preferences extracted by LLM should be stored in profile KV and queryable."""
         user_id = "pipeline_u2"
 
-        await nm_with_llm.conversations.add_message(
+        await nm_with_llm.conversations.ingest(
             user_id=user_id, role="user",
             content="我喜欢用 Python 编程",
         )
@@ -790,7 +790,7 @@ class TestRecallFullPipeline:
         """Extracted facts should carry importance metadata into recall scoring."""
         user_id = "pipeline_u3"
 
-        await nm_with_llm.conversations.add_message(
+        await nm_with_llm.conversations.ingest(
             user_id=user_id, role="user",
             content="我在 Google 工作",
         )
@@ -805,14 +805,14 @@ class TestRecallFullPipeline:
 
     @pytest.mark.asyncio
     async def test_reflect_extracts_and_marks_messages(self, nm_with_llm):
-        """v0.2.0: add_message auto-extracts, reflect() generates insights."""
+        """v0.2.0: ingest auto-extracts, digest() generates insights."""
         user_id = "pipeline_u4"
 
-        # v0.2.0: add_message auto-extracts memories (auto_extract=True default)
-        await nm_with_llm.conversations.add_message(
+        # v0.2.0: ingest auto-extracts memories (auto_extract=True default)
+        await nm_with_llm.conversations.ingest(
             user_id=user_id, role="user", content="我在 Google 工作",
         )
-        await nm_with_llm.conversations.add_message(
+        await nm_with_llm.conversations.ingest(
             user_id=user_id, role="assistant", content="了解了！",
         )
 
@@ -824,8 +824,8 @@ class TestRecallFullPipeline:
         recall_result = await nm_with_llm.recall(user_id=user_id, query="Google")
         assert len(recall_result["merged"]) > 0
 
-        # v0.2.0: reflect() only generates insights (no extraction)
-        result = await nm_with_llm.reflect(user_id=user_id, batch_size=50)
+        # v0.2.0: digest() only generates insights (no extraction)
+        result = await nm_with_llm.digest(user_id=user_id, batch_size=50)
         assert "insights_generated" in result
         assert "insights" in result
         assert "emotion_profile" in result
@@ -838,14 +838,14 @@ class TestRecallFullPipeline:
         user_id = "pipeline_u5"
 
         # Conversation round 1
-        await nm_with_llm.conversations.add_message(
+        await nm_with_llm.conversations.ingest(
             user_id=user_id, role="user", content="我在 Google 工作",
         )
         msgs1 = await nm_with_llm.conversations.get_unextracted_messages(user_id)
         await nm_with_llm._extract_memories(user_id, msgs1)
 
         # Conversation round 2 (same mock LLM response, but that's OK for structure testing)
-        await nm_with_llm.conversations.add_message(
+        await nm_with_llm.conversations.ingest(
             user_id=user_id, role="user", content="住在北京海淀区",
         )
         msgs2 = await nm_with_llm.conversations.get_unextracted_messages(user_id)
@@ -878,7 +878,7 @@ class TestRecallFullPipeline:
         await instance.init()
         try:
             user_id = "callback_u1"
-            await instance.conversations.add_message(
+            await instance.conversations.ingest(
                 user_id=user_id, role="user", content="我在 Google 工作",
             )
             messages = await instance.conversations.get_unextracted_messages(user_id)
@@ -925,7 +925,7 @@ class TestRecallFullPipeline:
         await instance.init()
         try:
             user_id = "callback_u2"
-            await instance.conversations.add_message(
+            await instance.conversations.ingest(
                 user_id=user_id, role="user", content="住在北京",
             )
             messages = await instance.conversations.get_unextracted_messages(user_id)

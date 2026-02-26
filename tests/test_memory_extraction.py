@@ -506,8 +506,8 @@ async def test_chinese_prompt_generation():
 
 
 @pytest.mark.asyncio
-async def test_auto_extract_on_add_message(mock_embedding):
-    """Test that auto_extract=True automatically extracts memories on add_message."""
+async def test_auto_extract_on_ingest(mock_embedding):
+    """Test that auto_extract=True automatically extracts memories on ingest."""
     from neuromem import NeuroMemory
     from sqlalchemy import text
 
@@ -531,7 +531,7 @@ async def test_auto_extract_on_add_message(mock_embedding):
     await nm.init()
 
     # Add a single message
-    msg = await nm.conversations.add_message(
+    msg = await nm.conversations.ingest(
         user_id="auto_user",
         role="user",
         content="I work at Google as a software engineer",
@@ -556,7 +556,7 @@ async def test_auto_extract_on_add_message(mock_embedding):
 
 @pytest.mark.asyncio
 async def test_auto_extract_disabled(db_session, mock_embedding):
-    """Test that auto_extract=False does not extract on add_message."""
+    """Test that auto_extract=False does not extract on ingest."""
     from neuromem._core import ConversationsFacade
     from neuromem.db import Database
     from sqlalchemy import text
@@ -574,7 +574,7 @@ async def test_auto_extract_disabled(db_session, mock_embedding):
     )
 
     # Add a message
-    await facade.add_message(
+    await facade.ingest(
         user_id="manual_user",
         role="user",
         content="I work at Google",

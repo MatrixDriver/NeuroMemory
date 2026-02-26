@@ -510,7 +510,7 @@ neuromem 实现了三层情感架构，从瞬时情感到长期画像全覆盖�
 **各层职责**：
 
 - **微观**：捕捉瞬时情感，丰富记忆细节。每条记忆的 `metadata.emotion` 包含 `valence`（情感效价 -1~1）、`arousal`（唤醒度 0~1）、`label`（情感标签），由 LLM 提取时自动标注
-- **中观**：追踪近期状态，agent 可以关心"你最近还好吗"。`emotion_profiles.latest_state` 由 `reflect()` 自动更新
+- **中观**：追踪近期状态，agent 可以关心"你最近还好吗"。`emotion_profiles.latest_state` 由 `digest()` 自动更新
 - **宏观**：理解长期特质，形成真正的用户画像。`emotion_profiles` 中的 `dominant_emotions`、`valence_avg` 等字段反映长期情感倾向
 
 ### 9.2 情感与记忆检索的联动

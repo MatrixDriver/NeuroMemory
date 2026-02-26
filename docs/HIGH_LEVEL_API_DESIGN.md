@@ -20,7 +20,7 @@ from neuromem import neuromemClient
 client = neuromemClient(api_key="nm_xxx")
 
 # 方式1: 逐条添加消息
-client.conversations.add_message(
+client.conversations.ingest(
     user_id="user123",
     session_id="session_001",  # 会话 ID（可选，自动生成）
     role="user",
@@ -28,7 +28,7 @@ client.conversations.add_message(
     metadata={"timestamp": "2024-01-15T10:00:00"}
 )
 
-client.conversations.add_message(
+client.conversations.ingest(
     user_id="user123",
     session_id="session_001",
     role="assistant",
@@ -389,7 +389,7 @@ client.preferences.set(user_id="u1", key="color", value="蓝色")
 ### 高层 API（新增）
 ```python
 # 自动处理
-client.conversations.add_message(
+client.conversations.ingest(
     user_id="u1",
     role="user",
     content="我喜欢蓝色"

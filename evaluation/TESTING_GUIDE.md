@@ -176,7 +176,7 @@ python evaluation/scripts/validate_test_data.py query
 
 **解决方案**：
 1. 检查 ingest 阶段日志，查看是否有错误
-2. 确认新代码的 reflect() 方法是否正常工作
+2. 确认新代码的 digest() 方法是否正常工作
 3. 重新运行完整测试
 
 #### 问题 3：数据库残留数据

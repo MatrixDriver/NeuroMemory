@@ -67,7 +67,7 @@ async with NeuroMemory(
     embedding=SiliconFlowEmbedding(api_key="..."),
     llm=OpenAILLM(api_key="...", model="deepseek-chat"),
 ) as nm:
-    await nm.add_message(user_id="alice", role="user", content="Hello")
+    await nm.ingest(user_id="alice", role="user", content="Hello")
     # 自动调用 init() 和 close()
 ```
 
@@ -110,7 +110,7 @@ nm = NeuroMemory(
 | pool_size | int | 否 | 连接池大小（默认 10） |
 | auto_extract | bool | 否 | 自动提取记忆（默认 True） |
 | graph_enabled | bool | 否 | 启用图数据库（默认 False） |
-| reflection_interval | int | 否 | 每 N 次提取后自动 reflect（默认 20，0 = 禁用） |
+| reflection_interval | int | 否 | 每 N 次提取后自动 digest（默认 20，0 = 禁用） |
 | on_extraction | Callable | 否 | 提取完成回调 |
 
 ---
@@ -119,11 +119,11 @@ nm = NeuroMemory(
 
 ### 3.1 通过对话写入记忆
 
-记忆通过 `add_message()` 自动提取，无需手动添加：
+记忆通过 `ingest()` 自动提取，无需手动添加：
 
 ```python
 # 存储对话消息，自动提取记忆（facts/episodes/relations）
-await nm.add_message(
+await nm.ingest(
     user_id="alice",
     role="user",
     content="I work at ABC Company as a software engineer",
@@ -137,7 +137,7 @@ await nm.add_message(
 |------|------|------|
 | `fact` | 事实性知识 | "Python 是一种编程语言" |
 | `episodic` | 事件记录 | "昨天参加了项目会议" |
-| `insight` | 洞察（reflect 生成） | "用户倾向于晚上工作" |
+| `insight` | 洞察（digest 生成） | "用户倾向于晚上工作" |
 | `general` | 通用 | 其他 |
 
 > **注**：用户偏好（如"喜欢喝咖啡"）由 LLM 自动提取后存入 profile（KV 存储），不作为独立记忆类型。
@@ -214,7 +214,7 @@ await nm.kv.batch_set("alice", "config", {
 
 ```python
 # 单条消息（自动生成 session_id）
-msg = await nm.add_message(
+msg = await nm.ingest(
     user_id="alice",
     role="user",
     content="Hello!",
@@ -222,7 +222,7 @@ msg = await nm.add_message(
 print(msg.session_id)  # session_xxxx
 
 # 指定 session
-msg = await nm.add_message(
+msg = await nm.ingest(
     user_id="alice",
     role="assistant",
     content="Hi! How can I help?",
@@ -429,7 +429,7 @@ path = await nm.graph.find_path(
 
 ## 8. 记忆提取
 
-需要配置 `LLMProvider`。`add_message()` 默认 `auto_extract=True`，每条消息自动提取记忆。
+需要配置 `LLMProvider`。`ingest()` 默认 `auto_extract=True`，每条消息自动提取记忆。
 
 ### 8.1 基础用法
 
@@ -440,28 +440,28 @@ nm = NeuroMemory(
     database_url="...",
     embedding=SiliconFlowEmbedding(api_key="..."),
     llm=OpenAILLM(api_key="...", model="deepseek-chat"),
-    reflection_interval=20,  # 每 20 条消息后台自动 reflect（默认）
+    reflection_interval=20,  # 每 20 条消息后台自动 digest（默认）
 )
 
-# add_message 自动提取记忆
-await nm.add_message(
+# ingest 自动提取记忆
+await nm.ingest(
     user_id="alice", role="user",
     content="I just started working at Google as a ML engineer"
 )
 # → 自动提取: fact "在 Google 担任 ML 工程师", profile.interests 更新
 
-# reflect 生成洞察（默认自动触发，也可手动调用）
-result = await nm.reflect(user_id="alice")
+# digest 生成洞察（默认自动触发，也可手动调用）
+result = await nm.digest(user_id="alice")
 ```
 
-### 8.2 提取结果（add_message 返回后记忆立即可用）
+### 8.2 提取结果（ingest 返回后记忆立即可用）
 
 ```python
 # recall 可立即检索到刚提取的记忆
 result = await nm.recall(user_id="alice", query="Where does Alice work?")
 # result["merged"] 包含: fact "在 Google 担任 ML 工程师"
 
-# reflect 返回
+# digest 返回
 {
     "insights_generated": 1,      # 生成洞察数
     "insights": [{"content": "...", "category": "pattern"}],
@@ -666,7 +666,7 @@ result["graph_results"]        # 图谱原始三元组
 {"content": "在 Google 工作",                                       "memory_type": "fact",     "score": 0.82}
 # 情节记忆（episodic）：时间戳 = 事件发生的时间
 {"content": "2025-03-01: 压力很大，担心项目延期. sentiment: anxious", "memory_type": "episodic", "score": 0.75}
-# 洞察记忆（insight）：reflect() 自动生成，无时间前缀
+# 洞察记忆（insight）：digest() 自动生成，无时间前缀
 {"content": "工作压力大时倾向于回避社交，独自消化",                   "memory_type": "insight",  "score": 0.68}
 
 # 完整字段

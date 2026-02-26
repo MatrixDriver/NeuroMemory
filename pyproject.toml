@@ -1,6 +1,6 @@
 [project]
 name = "neuromem"
-version = "0.7.1"
+version = "0.8.0"
 description = "Memory management framework for AI agents"
 readme = "README.md"
 requires-python = ">=3.12"

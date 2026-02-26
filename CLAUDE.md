@@ -144,10 +144,10 @@ async with NeuroMemory(
     storage=S3Storage(endpoint="http://localhost:9000"),    # 可选
     auto_extract=True,       # 默认开启，每条 user 消息自动提取记忆
     graph_enabled=False,     # 是否启用图存储
-    reflection_interval=20,  # 每 20 条 user 消息后台自动 reflect
+    reflection_interval=20,  # 每 20 条 user 消息后台自动 digest
 ) as nm:
     # 对话 → 自动提取 facts/episodes/relations
-    await nm.add_message(user_id="u1", role="user", content="I work at Google")
+    await nm.ingest(user_id="u1", role="user", content="I work at Google")
 
     # 三因子召回（向量 + 图谱 + 时序，并行执行）
     result = await nm.recall(user_id="u1", query="workplace", include_conversations=False)
@@ -161,7 +161,7 @@ async with NeuroMemory(
     await nm.kv.set("u1", "config", "language", "zh-CN")
 
     # 手动触发反思（生成洞察 + 情感画像）
-    await nm.reflect(user_id="u1")
+    await nm.digest(user_id="u1")
 
     # 图操作 (需要 graph_enabled=True)
     await nm.graph.create_node(node_type=NodeType.PERSON, node_id="u1")
@@ -170,13 +170,13 @@ async with NeuroMemory(
 ## 核心工作流
 
 ```
-nm.add_message(role="user")
+nm.ingest(role="user")
   ├─ 存储到 conversations 表
   ├─ 后台生成 embedding (asyncio.create_task)
   ├─ auto_extract=True → 后台 LLM 提取 facts/episodes/relations
   │    ├─ 存储到 embeddings 表（向量化）
   │    └─ graph_enabled=True → 存储到 graph_nodes/edges 表
-  └─ 每 reflection_interval 条消息 → 后台 reflect()
+  └─ 每 reflection_interval 条消息 → 后台 digest()
 
 recall(query)
   ├─ 并行获取 (asyncio.gather):
@@ -189,7 +189,7 @@ recall(query)
   │    └─ merged 按 score 降序排序
   └─ 返回结构化结果
 
-reflect()
+digest()
   ├─ 分析水位线之后新增的 memories
   ├─ LLM 生成行为模式和阶段总结
   ├─ 更新 EmotionProfile

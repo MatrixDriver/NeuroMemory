@@ -62,7 +62,7 @@ async def test_reflect_generates_insights(db_session, mock_embedding):
     )
 
     reflection_svc = ReflectionService(db_session, mock_embedding, mock_llm)
-    result = await reflection_svc.reflect("reflect_user", recent_memories)
+    result = await reflection_svc.digest("reflect_user", recent_memories)
 
     assert "insights" in result
     assert "emotion_profile" in result
@@ -76,7 +76,7 @@ async def test_reflect_with_no_memories(db_session, mock_embedding):
     """Test reflection with empty memories returns empty result."""
     mock_llm = MockLLMProvider()
     reflection_svc = ReflectionService(db_session, mock_embedding, mock_llm)
-    result = await reflection_svc.reflect("empty_user", [])
+    result = await reflection_svc.digest("empty_user", [])
     assert result["insights"] == []
     assert result["emotion_profile"] is None
 
@@ -103,7 +103,7 @@ async def test_reflect_stores_as_insight_type(db_session, mock_embedding):
 
     memories = [{"content": "I love Python", "memory_type": "fact", "metadata": {}}]
     reflection_svc = ReflectionService(db_session, mock_embedding, mock_llm)
-    result = await reflection_svc.reflect("store_user", memories)
+    result = await reflection_svc.digest("store_user", memories)
 
     assert len(result["insights"]) == 1
 
@@ -155,7 +155,7 @@ async def test_reflect_updates_emotion_profile(db_session, mock_embedding):
     )
 
     reflection_svc = ReflectionService(db_session, mock_embedding, mock_llm)
-    result = await reflection_svc.reflect("emotion_user", recent_memories)
+    result = await reflection_svc.digest("emotion_user", recent_memories)
 
     assert result["emotion_profile"] is not None
     assert result["emotion_profile"]["latest_state"] == "近期工作压力大，情绪低落"
@@ -186,7 +186,7 @@ async def test_reflect_with_no_emotions_skips_profile_update(db_session, mock_em
     )
 
     reflection_svc = ReflectionService(db_session, mock_embedding, mock_llm)
-    result = await reflection_svc.reflect("no_emotion_user", recent_memories)
+    result = await reflection_svc.digest("no_emotion_user", recent_memories)
 
     assert result["insights"] is not None
     assert result["emotion_profile"] is None  # No emotion data, no profile update
@@ -201,17 +201,17 @@ async def test_parse_insight_result_handles_invalid_json(db_session, mock_embedd
     )
 
     reflection_svc = ReflectionService(db_session, mock_embedding, mock_llm)
-    result = await reflection_svc.reflect("invalid_user", [{"content": "test", "memory_type": "fact", "metadata": {}}])
+    result = await reflection_svc.digest("invalid_user", [{"content": "test", "memory_type": "fact", "metadata": {}}])
 
     assert result["insights"] == []  # Empty due to parse failure
 
 
 @pytest.mark.asyncio
 async def test_reflect_facade_method(db_session, mock_embedding):
-    """Test NeuroMemory.reflect() v0.2.0 - generates insights from existing memories.
+    """Test NeuroMemory.digest() v0.2.0 - generates insights from existing memories.
 
-    v0.2.0 behavior: reflect() only generates insights and updates emotion profile.
-    Basic memory extraction is handled by add_message() when auto_extract=True.
+    v0.2.0 behavior: digest() only generates insights and updates emotion profile.
+    Basic memory extraction is handled by ingest() when auto_extract=True.
     """
     from neuromem import NeuroMemory
 
@@ -242,8 +242,8 @@ async def test_reflect_facade_method(db_session, mock_embedding):
         metadata={"emotion": {"valence": -0.6, "arousal": 0.7}},
     )
 
-    # v0.2.0: reflect() only generates insights and updates emotion profile
-    result = await nm.reflect("facade_user", batch_size=10)
+    # v0.2.0: digest() only generates insights and updates emotion profile
+    result = await nm.digest("facade_user", batch_size=10)
 
     # Check insight generation (no extraction counters in v0.2.0)
     assert "insights_generated" in result

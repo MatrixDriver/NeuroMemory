@@ -1,4 +1,4 @@
-"""Tests for reflect() watermark-based incremental processing and background mode."""
+"""Tests for digest() watermark-based incremental processing and background mode."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def mock_llm():
 
 @pytest.mark.asyncio
 async def test_reflect_watermark_initial(mock_embedding, mock_llm):
-    """First reflect() processes all memories and sets watermark."""
+    """First digest() processes all memories and sets watermark."""
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
@@ -56,7 +56,7 @@ async def test_reflect_watermark_initial(mock_embedding, mock_llm):
         await nm._add_memory(user, "Fact two", memory_type="fact")
         await nm._add_memory(user, "Episode one", memory_type="episodic")
 
-        result = await nm.reflect(user, batch_size=50)
+        result = await nm.digest(user, batch_size=50)
 
         assert result["memories_analyzed"] == 3
         assert result["insights_generated"] >= 1
@@ -75,7 +75,7 @@ async def test_reflect_watermark_initial(mock_embedding, mock_llm):
 
 @pytest.mark.asyncio
 async def test_reflect_watermark_incremental(mock_embedding, mock_llm):
-    """Second reflect() only processes new memories after watermark."""
+    """Second digest() only processes new memories after watermark."""
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
@@ -86,9 +86,9 @@ async def test_reflect_watermark_incremental(mock_embedding, mock_llm):
 
     try:
         user = "watermark_test_2"
-        # Add initial memories and reflect
+        # Add initial memories and digest
         await nm._add_memory(user, "Old fact", memory_type="fact")
-        result1 = await nm.reflect(user, batch_size=50)
+        result1 = await nm.digest(user, batch_size=50)
         assert result1["memories_analyzed"] == 1
 
         # Add new memories
@@ -97,8 +97,8 @@ async def test_reflect_watermark_incremental(mock_embedding, mock_llm):
         # Reset mock counter
         mock_llm.call_count = 0
 
-        # Second reflect should only process the new memory
-        result2 = await nm.reflect(user, batch_size=50)
+        # Second digest should only process the new memory
+        result2 = await nm.digest(user, batch_size=50)
         assert result2["memories_analyzed"] == 1
     finally:
         await nm.close()
@@ -106,7 +106,7 @@ async def test_reflect_watermark_incremental(mock_embedding, mock_llm):
 
 @pytest.mark.asyncio
 async def test_reflect_watermark_no_new_memories(mock_embedding, mock_llm):
-    """Reflect() with no new memories returns early."""
+    """digest() with no new memories returns early."""
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
@@ -118,13 +118,13 @@ async def test_reflect_watermark_no_new_memories(mock_embedding, mock_llm):
     try:
         user = "watermark_test_3"
         await nm._add_memory(user, "Some fact", memory_type="fact")
-        await nm.reflect(user, batch_size=50)
+        await nm.digest(user, batch_size=50)
 
         # Reset counter
         mock_llm.call_count = 0
 
         # No new memories → should return immediately
-        result = await nm.reflect(user, batch_size=50)
+        result = await nm.digest(user, batch_size=50)
         assert result["memories_analyzed"] == 0
         assert result["insights_generated"] == 0
         assert mock_llm.call_count == 0
@@ -134,7 +134,7 @@ async def test_reflect_watermark_no_new_memories(mock_embedding, mock_llm):
 
 @pytest.mark.asyncio
 async def test_reflect_batch_pagination(mock_embedding, mock_llm):
-    """Reflect() paginates through memories in batches."""
+    """digest() paginates through memories in batches."""
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
@@ -149,7 +149,7 @@ async def test_reflect_batch_pagination(mock_embedding, mock_llm):
         for i in range(5):
             await nm._add_memory(user, f"Memory number {i}", memory_type="fact")
 
-        result = await nm.reflect(user, batch_size=2)
+        result = await nm.digest(user, batch_size=2)
         assert result["memories_analyzed"] == 5
         # Should have called LLM for insights 3 times (batches) + emotion calls
         assert mock_llm.call_count >= 3
@@ -159,7 +159,7 @@ async def test_reflect_batch_pagination(mock_embedding, mock_llm):
 
 @pytest.mark.asyncio
 async def test_reflect_background(mock_embedding, mock_llm):
-    """Reflect(background=True) returns immediately with None."""
+    """digest(background=True) returns immediately with None."""
     nm = NeuroMemory(
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
@@ -172,7 +172,7 @@ async def test_reflect_background(mock_embedding, mock_llm):
         user = "watermark_test_5"
         await nm._add_memory(user, "Some fact", memory_type="fact")
 
-        result = await nm.reflect(user, batch_size=50, background=True)
+        result = await nm.digest(user, batch_size=50, background=True)
         assert result is None
 
         # Give background task time to complete
