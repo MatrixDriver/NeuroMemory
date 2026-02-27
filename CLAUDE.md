@@ -4,17 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-neuromem (v0.8.0) 是一个 **Python 记忆管理框架**，为 AI agent 开发者提供记忆存储、检索和推理能力。开发者直接 `from neuromem import NeuroMemory` 在自己程序中使用，无需部署服务器。已发布到 PyPI。
+neuromem (v0.8.0) 是一个 **AI 记忆管理框架**，为 AI agent 开发者提供记忆存储、检索和推理能力。已发布到 PyPI。
 
-**核心架构**：
-- **Python 框架** (`neuromem/`)：直接在 agent 程序中使用的库
-- **可插拔 Provider**：Embedding (SiliconFlow/OpenAI/SentenceTransformer)、LLM (OpenAI/DeepSeek)、Storage (S3/MinIO)
+**三种访问方式**：
+- **Python SDK**：`from neuromem import NeuroMemory`，直接嵌入 agent 程序（本仓库）
+- **Cloud REST API**：`https://api.neuromem.cloud/api/v1/{ingest,recall,digest}`，任意语言 HTTP 调用
+- **MCP**：`https://api.neuromem.cloud/mcp/`，兼容 Claude Code/Desktop、Cursor、ChatGPT
+
+**仓库结构**：
+- **Python SDK** (`neuromem/`)：核心记忆框架库，可插拔 Provider（Embedding/LLM/Storage）
+- **Java Cloud Server** (`java/`)：Spring Boot WebFlux 响应式 REST API 服务端，Bearer Token 认证，多租户隔离
 - **PostgreSQL + pgvector + pg_search**：统一存储后端（结构化数据 + 向量检索 + BM25 全文搜索）
 - **图存储**：基于关系表（GraphNode/GraphEdge），无 Apache AGE 依赖
 
-**数据隔离**：按 user_id 隔离，所有查询必须包含 user_id 过滤。
-
-**项目定位**：neuromem 是纯 Python 库，不提供 Web UI、HTTP 服务器或独立部署服务。
+**数据隔离**：Python SDK 按 user_id 隔离；Java Server 按 tenant_id + user_id 双层隔离。
 
 ## 常用命令
 
