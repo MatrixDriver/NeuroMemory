@@ -11,17 +11,29 @@ neuromem (v0.8.0) 是一个 **AI 记忆管理框架**，为 AI agent 开发者�
 - **Cloud REST API**：`https://api.neuromem.cloud/api/v1/{ingest,recall,digest}`，任意语言 HTTP 调用
 - **MCP**：`https://api.neuromem.cloud/mcp/`，兼容 Claude Code/Desktop、Cursor、ChatGPT
 
-**调用链路**：`MCP 客户端` → `neuromem MCP Server` → `Cloud REST API` → `PostgreSQL`
+**调用链路**：Cloud REST API 和 MCP 均直接调用本仓库的 Python SDK 作为记忆引擎：
+```
+MCP 客户端 → FastMCP tools (ingest/recall/digest)  ┐
+REST 客户端 → FastAPI endpoints                     ├→ neuromem Python SDK → PostgreSQL
+Web 控制台 → Next.js → Internal API → FastAPI       ┘
+```
 
-neuromem.cloud 完整服务（智能体管理、Web 控制台、MCP 桥接、ingest/recall/digest API）不在本仓库中。本仓库 `java/` 仅为 Cloud Server 的早期脚手架（基础 Tenant/Search/Preference 端点），与线上服务功能差距较大。
+**neuromem.cloud 实现**（独立仓库 `neuromem-cloud`）：
+- **后端**：FastAPI + FastMCP 2.x（Streamable HTTP），依赖 `neuromem >= 0.8.0`
+- **前端**：Next.js 16 + React 19 + Tailwind CSS + shadcn/ui
+- **认证**：NextAuth.js（GitHub/Google OAuth）+ API Key（Bearer `nm_sk_*`）
+- **多租户**：每个租户独立 PostgreSQL schema（`tenant_{slug}`）
+- **智能体**：Agent 实体绑定自定义 ingest/recall/digest 指令，API Key 关联到 Agent
+
+本仓库 `java/` 为 Cloud Server 的早期 Spring Boot 原型，已被 neuromem-cloud 的 FastAPI 实现取代。
 
 **仓库结构**：
 - **Python SDK** (`neuromem/`)：核心记忆框架库，可插拔 Provider（Embedding/LLM/Storage）
-- **Java Cloud Server 脚手架** (`java/`)：Spring Boot WebFlux 早期原型，仅含基础端点
 - **PostgreSQL + pgvector + pg_search**：统一存储后端（结构化数据 + 向量检索 + BM25 全文搜索）
 - **图存储**：基于关系表（GraphNode/GraphEdge），无 Apache AGE 依赖
+- **Java 早期原型** (`java/`)：已废弃，被 neuromem-cloud 取代
 
-**数据隔离**：Python SDK 按 user_id 隔离；Cloud Server 按 tenant_id + user_id 双层隔离。
+**数据隔离**：Python SDK 按 user_id 隔离；Cloud Server 按 tenant_slug schema + user_id 双层隔离。
 
 ## 常用命令
 
