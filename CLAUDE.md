@@ -31,7 +31,6 @@ Web 控制台 → Next.js → Internal API → FastAPI       ┘
 - **Python SDK** (`neuromem/`)：核心记忆框架库，可插拔 Provider（Embedding/LLM/Storage）
 - **PostgreSQL + pgvector + pg_search**：统一存储后端（结构化数据 + 向量检索 + BM25 全文搜索）
 - **图存储**：基于关系表（GraphNode/GraphEdge），无 Apache AGE 依赖
-- **Java 早期原型** (`java/`)：已废弃，被 neuromem-cloud 取代
 
 **数据隔离**：Python SDK 按 user_id 隔离；Cloud Server 按 tenant_slug schema + user_id 双层隔离。
 
