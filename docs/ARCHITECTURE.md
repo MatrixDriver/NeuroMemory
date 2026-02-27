@@ -1,6 +1,6 @@
 # neuromem 架构文档
 
-> **最后更新**: 2026-02-24
+> **最后更新**: 2026-02-27
 
 ---
 
@@ -12,9 +12,10 @@
 4. [数据模型](#4-数据模型)
 5. [Provider 系统](#5-provider-系统)
 6. [服务层](#6-服务层)
-7. [部署架构](#7-部署架构)
-8. [架构差异化：单一 PostgreSQL vs 多库拼装](#8-架构差异化单一-postgresql-vs-多库拼装)
-9. [情感架构](#9-情感架构)
+7. [外部 API 调用链路](#7-外部-api-调用链路)
+8. [部署架构](#8-部署架构)
+9. [架构差异化：单一 PostgreSQL vs 多库拼装](#9-架构差异化单一-postgresql-vs-多库拼装)
+10. [情感架构](#10-情感架构)
 
 ---
 
@@ -31,6 +32,10 @@ neuromem 是一个 **Python 框架**（非 Client-Server），AI agent 开发者
 5. **门面模式**: 简洁的顶层 API，复杂逻辑在服务层
 
 ### 1.2 系统架构图
+
+![NeuroMem 架构图](assets/NeuroMem架构图.png)
+
+以下为 SDK 内部分层结构的文本示意：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -411,9 +416,112 @@ recall(query)
 
 ---
 
-## 7. 部署架构
+## 7. 外部 API 调用链路
 
-### 7.1 开发环境
+neuromem 的三个核心操作（`ingest`、`recall`、`digest`）在不同阶段调用外部 AI API。本节明确标注每个步骤是否产生 API 调用及其类型，帮助开发者理解 token 消耗和性能瓶颈。
+
+### 7.1 调用类型说明
+
+| 标记 | 含义 | 计费影响 |
+|------|------|----------|
+| `🔤 LLM` | 调用 LLMProvider.chat()，消耗 input + output token | 较高（涉及长 prompt） |
+| `📐 Embedding` | 调用 EmbeddingProvider.embed/embed_batch()，消耗 input token | 较低（仅文本编码） |
+| `💾 DB` | PostgreSQL 读写操作 | 无 API 费用 |
+| `—` | 纯内存计算 | 无 |
+
+### 7.2 ingest() 调用链路
+
+```
+ingest(user_id, role, content)
+  │
+  ├─ 💾 DB: 存储原始对话消息到 conversations 表
+  │
+  ├─ 📐 Embedding: 为该消息生成向量 (异步后台)
+  │     └─ EmbeddingProvider.embed(content)
+  │     └─ 💾 DB: 存储到 conversation_embeddings
+  │
+  └─ [auto_extract=True 时] 自动提取记忆:
+      │
+      ├─ 🔤 LLM: 调用 MemoryExtractionService._classify_messages()
+      │     └─ LLMProvider.chat(分类提取 prompt + 对话内容)
+      │     └─ 返回: facts[], episodes[], triples[], profile_updates[]
+      │
+      ├─ 📐 Embedding: 批量嵌入提取出的 facts
+      │     └─ EmbeddingProvider.embed_batch([fact.content, ...])
+      │     └─ 💾 DB: 存储到 embeddings (memory_type='fact')
+      │
+      ├─ 📐 Embedding: 批量嵌入提取出的 episodes
+      │     └─ EmbeddingProvider.embed_batch([episode.content, ...])
+      │     └─ 💾 DB: 存储到 embeddings (memory_type='episodic')
+      │
+      ├─ 💾 DB: 存储 triples 到 graph_nodes/graph_edges
+      │
+      └─ 💾 DB: 更新 user profile (KV 存储)
+```
+
+**单次 ingest 的 API 调用量**：1 次 LLM + (1 + N) 次 Embedding（N = 提取出的记忆条数）
+
+### 7.3 recall() 调用链路
+
+```
+recall(user_id, query)
+  │
+  ├─ 📐 Embedding: 将查询文本转为向量
+  │     └─ EmbeddingProvider.embed(query)
+  │
+  ├─ asyncio.gather 并行执行 (全部为 DB 操作，无额外 API 调用):
+  │   ├─ 💾 DB: 向量相似度 + BM25 混合检索 → vector_results
+  │   ├─ 💾 DB: 读取 user_profile (KV)
+  │   ├─ 💾 DB: 对话向量检索 → conversation_results
+  │   └─ 💾 DB: 图实体查询 → graph_results
+  │
+  └─ — 纯计算: 多源融合排序 → merged
+```
+
+**单次 recall 的 API 调用量**：1 次 Embedding，**不调用 LLM**
+
+### 7.4 digest() 调用链路
+
+```
+digest(user_id)
+  │
+  ├─ 💾 DB: 读取近期记忆 (默认 limit=50)
+  ├─ 💾 DB: 读取已有洞察 (用于去重)
+  │
+  ├─ 🔤 LLM: 调用 ReflectionService._generate_insights()
+  │     └─ LLMProvider.chat(洞察生成 prompt + 近期记忆列表)
+  │     └─ 返回: insights[] (pattern/summary 类型)
+  │
+  ├─ 📐 Embedding: 为每条洞察生成向量
+  │     └─ EmbeddingProvider.embed(insight.content) × N
+  │     └─ 💾 DB: 存储到 embeddings (memory_type='insight')
+  │
+  └─ 🔤 LLM: 调用 ReflectionService._update_emotion_profile()
+        └─ LLMProvider.chat(情感总结 prompt + 近期记忆情感标注)
+        └─ 💾 DB: 更新 emotion_profiles 表
+```
+
+**单次 digest 的 API 调用量**：2 次 LLM + N 次 Embedding（N = 生成的洞察条数）
+
+### 7.5 API 调用汇总
+
+| 操作 | Embedding 调用 | LLM 调用 | 触发频率 |
+|------|---------------|----------|----------|
+| `ingest()` | 1 + N 次 | 1 次 | 每次写入消息 |
+| `recall()` | 1 次 | **0 次** | 每次查询 |
+| `digest()` | N 次 | 2 次 | 用户主动调用 |
+| `files.upload()` | 1 次 | 0 次 | 文件上传时 |
+
+> **成本优化提示**：
+> - 设置 `auto_extract=False` 可跳过 ingest 时的 LLM 调用（需手动管理记忆提取）
+> - `recall()` 支持传入预计算的 `query_embedding` 参数，避免重复 embedding 调用
+> - 使用 `SentenceTransformerEmbedding`（本地模型）可将 Embedding API 费用降为零
+
+---
+
+## 8. 部署架构
+
+### 8.1 开发环境
 
 ```bash
 docker compose -f docker-compose.yml up -d
@@ -423,7 +531,7 @@ docker compose -f docker-compose.yml up -d
 - PostgreSQL（含 pgvector + pg_search）: `localhost:5432`
 - MinIO（可选）: `localhost:9000`（Console: `localhost:9001`）
 
-### 7.2 生产环境
+### 8.2 生产环境
 
 ```
 ┌───────────────────────────────┐
@@ -450,9 +558,9 @@ neuromem 作为库嵌入你的应用，不需要独立部署。只需确保：
 
 ---
 
-## 8. 架构差异化：单一 PostgreSQL vs 多库拼装
+## 9. 架构差异化：单一 PostgreSQL vs 多库拼装
 
-### 8.1 竞品架构对比
+### 9.1 竞品架构对比
 
 | 框架 | 向量存储 | 图存储 | KV/缓存 | 结构化数据 | 部署组件数 |
 |------|---------|--------|---------|-----------|-----------|
@@ -461,7 +569,7 @@ neuromem 作为库嵌入你的应用，不需要独立部署。只需确保：
 | MemOS | Qdrant | Neo4j | Redis | PostgreSQL | 4 |
 | graphiti | 向量数据库 | Neo4j | — | PostgreSQL | 3+ |
 
-### 8.2 单一 PostgreSQL 架构的技术优势
+### 9.2 单一 PostgreSQL 架构的技术优势
 
 **事务一致性**：所有数据操作（向量、图谱、对话、KV）在同一个数据库事务内完成。`delete_user_data()` 跨 8 张表原子删除，`export_user_data()` 在一个快照内导出——多库架构中需要分布式事务或 saga 模式才能实现类似保证。
 
@@ -475,7 +583,7 @@ neuromem 作为库嵌入你的应用，不需要独立部署。只需确保：
 - 扩展：垂直扩展 PostgreSQL 即可提升所有子系统性能
 - 迁移：一个 `create_all()` 完成所有表创建，无需协调多个数据库的 schema
 
-### 8.3 部署架构
+### 9.3 部署架构
 
 ```
 开发环境:
@@ -495,9 +603,9 @@ MemOS:   PostgreSQL + Redis Cloud + Qdrant + Neo4j → 4 个服务的运维负�
 
 ---
 
-## 9. 情感架构
+## 10. 情感架构
 
-### 9.1 三层情感设计
+### 10.1 三层情感设计
 
 neuromem 实现了三层情感架构，从瞬时情感到长期画像全覆盖：
 
@@ -513,7 +621,7 @@ neuromem 实现了三层情感架构，从瞬时情感到长期画像全覆盖�
 - **中观**：追踪近期状态，agent 可以关心"你最近还好吗"。`emotion_profiles.latest_state` 由 `digest()` 自动更新
 - **宏观**：理解长期特质，形成真正的用户画像。`emotion_profiles` 中的 `dominant_emotions`、`valence_avg` 等字段反映长期情感倾向
 
-### 9.2 情感与记忆检索的联动
+### 10.2 情感与记忆检索的联动
 
 情感标注不只是元数据——它直接参与 `recall()` 的评分计算：
 
@@ -523,7 +631,7 @@ recency = e^(-t / (decay_rate × (1 + arousal × 0.5)))
 
 高情感唤醒（arousal）的记忆衰减更慢，模拟人类对强烈情感事件的持久记忆（闪光灯记忆效应）。
 
-### 9.3 隐私合规
+### 10.3 隐私合规
 
 > **EU AI Act Article 5** 禁止自动推断用户人格（Big Five）或价值观。neuromem 不自动推断此类信息。情感画像仅记录用户在对话中表达的情感状态，不做人格推断。人格和价值观应由开发者通过 system prompt 设定 agent 角色。
 

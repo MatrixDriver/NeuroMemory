@@ -8,6 +8,10 @@
 - `digest()` 自动周期性反思，从多轮对话中自动提取 **Insight**（用户洞察，如行为模式、情感画像）
 - `recall()` 将多层记忆融合排序后返回，零额外代码组装进 prompt
 
+## 架构概览
+
+![NeuroMem 架构图](docs/assets/NeuroMem架构图.png)
+
 ---
 
 ## LoCoMo 基准测试成绩
