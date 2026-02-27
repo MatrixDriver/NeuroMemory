@@ -70,9 +70,11 @@ NeuroMemory (Facade, _core.py)
 
 ### Facade 模式
 
-`_core.py` 包含两个类：
-- **Facade**（内部）：持有 Database 实例，每次操作开启独立 session，调用 Service 层
-- **NeuroMemory**（公共 API）：继承/封装 Facade，提供 `ingest()`, `recall()`, `digest()` 三个核心方法 + `kv`, `graph` 等子接口
+`_core.py` 中 `NeuroMemory` 是唯一的主 Facade 类，持有 Database 实例，每次操作开启独立 session，调用 Service 层。提供 `ingest()`, `recall()`, `digest()` 三个核心方法，并通过子 Facade 暴露子接口：
+- `self.kv` → `KVFacade`：键值存储操作
+- `self.conversations` → `ConversationsFacade`：会话管理 + 自动提取
+- `self.graph` → `GraphFacade`：图谱 CRUD
+- `self.files` → `FilesFacade`：文件上传/管理（需传入 storage 参数）
 
 ### 核心工作流
 
@@ -91,7 +93,7 @@ recall(query)
   │    ├── 图谱召回 (GraphMemoryService)
   │    └── 时序过滤 (TemporalService)
   ├── 合并阶段:
-  │    ├── 图三元组覆盖度 boost (双端+0.5, 单端+0.2, 上限2.0)
+  │    ├── 图三元组覆盖度 boost (双端+0.10, 单端+0.04, 上限0.20)
   │    ├── 图三元组 → merged (source="graph")
   │    └── merged 按 score 降序排序
   └── 返回结构化结果

@@ -1,9 +1,9 @@
 services:
   db:
     build:
-      context: ./docker/postgres-age-vector
+      context: ./docker/postgres
       dockerfile: Dockerfile
-    image: neuromem-postgres:16-age-vector
+    image: neuromem-postgres:18-vector
     environment:
       POSTGRES_USER: neuromem
       POSTGRES_PASSWORD: neuromem

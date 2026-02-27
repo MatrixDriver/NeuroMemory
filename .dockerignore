@@ -38,8 +38,7 @@ docs/
 .gitattributes
 
 # 数据目录（开发环境）
-neo4j_data/
-qdrant_data/
+pgdata/
 
 # 临时文件
 *.log

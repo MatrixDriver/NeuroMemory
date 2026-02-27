@@ -5,12 +5,11 @@ __pycache__/
 *.egg-info/
 
 # 环境配置
-.env
+.env*
+!.env.example
 CREDENTIALS.local.md
 
 # 数据库持久化
-neo4j_data/
-qdrant_data/
 pgdata/
 
 # IDE
