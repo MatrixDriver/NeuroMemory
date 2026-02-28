@@ -84,6 +84,9 @@ class ConversationSession(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
+    last_reflected_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         Index("idx_session_user", "user_id"),

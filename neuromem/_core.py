@@ -1627,6 +1627,137 @@ class NeuroMemory:
             "emotion_profile": emotion_profile,
         }
 
+    # -- Reflection APIs --
+
+    async def should_reflect(self, user_id: str) -> bool:
+        """Check whether the user meets reflection trigger conditions.
+
+        Three trigger conditions (any one returns True):
+        - Importance accumulated >= 30
+        - Time since last reflection >= 24h
+        - First reflection (last_reflected_at is NULL)
+        """
+        from neuromem.services.reflection import ReflectionService
+
+        async with self._db.session() as session:
+            svc = ReflectionService(session, self._embedding, self._llm)
+            should, _, _ = await svc.should_reflect(user_id)
+            return should
+
+    async def reflect(
+        self,
+        user_id: str,
+        force: bool = False,
+        session_ended: bool = False,
+    ) -> dict:
+        """Execute user trait reflection.
+
+        Args:
+            user_id: User ID.
+            force: Skip trigger condition check if True.
+            session_ended: Mark as session-end trigger if True.
+
+        Returns:
+            {
+                "triggered": bool,
+                "trigger_type": str | None,
+                "memories_scanned": int,
+                "traits_created": int,
+                "traits_updated": int,
+                "traits_dissolved": int,
+                "cycle_id": str | None,
+            }
+        """
+        from neuromem.services.reflection import ReflectionService
+
+        async with self._db.session() as session:
+            svc = ReflectionService(session, self._embedding, self._llm)
+            return await svc.reflect(user_id, force=force, session_ended=session_ended)
+
+    async def get_user_traits(
+        self,
+        user_id: str,
+        min_stage: str = "emerging",
+        subtype: str | None = None,
+        context: str | None = None,
+    ) -> list[dict]:
+        """Get a user's active traits.
+
+        Args:
+            user_id: User ID.
+            min_stage: Minimum stage filter (default "emerging").
+            subtype: Filter by subtype (behavior/preference/core).
+            context: Filter by context (work/personal/social/learning/general).
+
+        Returns:
+            List of trait dicts sorted by stage desc + confidence desc.
+        """
+        from sqlalchemy import text as sql_text
+
+        stage_order = {
+            "trend": 5, "candidate": 4, "emerging": 3,
+            "established": 2, "core": 1,
+        }
+        min_stage_val = stage_order.get(min_stage, 3)
+        allowed_stages = [s for s, v in stage_order.items() if v <= min_stage_val and s != "dissolved"]
+
+        if not allowed_stages:
+            return []
+
+        async with self._db.session() as session:
+            # Build dynamic SQL
+            stage_placeholders = ", ".join(f":stage_{i}" for i in range(len(allowed_stages)))
+            params: dict = {"uid": user_id}
+            for i, s in enumerate(allowed_stages):
+                params[f"stage_{i}"] = s
+
+            where = f"user_id = :uid AND memory_type = 'trait' AND trait_stage IN ({stage_placeholders})"
+
+            if subtype:
+                where += " AND trait_subtype = :subtype"
+                params["subtype"] = subtype
+
+            if context:
+                where += " AND trait_context = :context"
+                params["context"] = context
+
+            sql = sql_text(f"""
+                SELECT id, content, trait_subtype, trait_stage, trait_confidence,
+                       trait_context, trait_reinforcement_count, trait_contradiction_count,
+                       trait_first_observed, trait_last_reinforced, created_at
+                FROM memories
+                WHERE {where}
+                ORDER BY
+                    CASE trait_stage
+                        WHEN 'core' THEN 1
+                        WHEN 'established' THEN 2
+                        WHEN 'emerging' THEN 3
+                        WHEN 'candidate' THEN 4
+                        WHEN 'trend' THEN 5
+                    END,
+                    trait_confidence DESC NULLS LAST
+            """)
+
+            result = await session.execute(sql, params)
+            rows = result.fetchall()
+
+            return [
+                {
+                    "id": str(row.id),
+                    "content": row.content,
+                    "trait_subtype": row.trait_subtype,
+                    "trait_stage": row.trait_stage,
+                    "trait_confidence": row.trait_confidence,
+                    "trait_context": row.trait_context,
+                    "trait_reinforcement_count": row.trait_reinforcement_count,
+                    "trait_contradiction_count": row.trait_contradiction_count,
+                    "trait_first_observed": row.trait_first_observed,
+                    "trait_last_reinforced": row.trait_last_reinforced,
+                    "created_at": row.created_at,
+                }
+                for row in rows
+            ]
+
     # -- Time-travel APIs --
 
     async def rollback_memories(self, user_id: str, to_time: datetime) -> dict:

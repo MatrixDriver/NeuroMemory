@@ -311,6 +311,9 @@ class SearchService:
         else:
             filters += " AND valid_until IS NULL"
 
+        # Exclude inactive trait stages from search results
+        filters += " AND NOT (memory_type = 'trait' AND trait_stage IN ('trend', 'candidate', 'dissolved'))"
+
         candidate_limit = limit * 2 if self._pg_search else limit * 4
 
         if self._pg_search:
@@ -344,7 +347,7 @@ class SearchService:
             f"""
             WITH vector_ranked AS (
                 SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
-                       access_count, last_accessed_at,
+                       access_count, last_accessed_at, trait_stage,
                        1 - (embedding <=> '{vector_str}') AS vector_score,
                        ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}') AS vector_rank
                 FROM memories
@@ -363,7 +366,7 @@ class SearchService:
                 LEFT JOIN bm25_ranked b ON v.id = b.id
             )
             SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
-                   access_count, last_accessed_at,
+                   access_count, last_accessed_at, trait_stage,
                    vector_score AS relevance,
                    bm25_score,
                    rrf_score,
@@ -374,7 +377,7 @@ class SearchService:
                    ) AS recency,
                    -- importance_bonus: 0~0.15
                    0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5) AS importance,
-                   -- final score: base_relevance × (1 + recency_bonus + importance_bonus)
+                   -- final score: base_relevance × (1 + recency_bonus + importance_bonus + trait_boost)
                    LEAST(vector_score + CASE WHEN bm25_score > 0 THEN 0.05 ELSE 0 END, 1.0)
                    * (1.0
                       + 0.15 * EXP(
@@ -382,6 +385,16 @@ class SearchService:
                           / (:decay_rate * (1 + COALESCE((metadata->'emotion'->>'arousal')::float, 0) * 0.5))
                       )
                       + 0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5)
+                      + CASE
+                          WHEN memory_type = 'trait' THEN
+                              CASE trait_stage
+                                  WHEN 'core'        THEN 0.25
+                                  WHEN 'established' THEN 0.15
+                                  WHEN 'emerging'    THEN 0.05
+                                  ELSE 0
+                              END
+                          ELSE 0
+                        END
                    ) AS score
             FROM hybrid
             ORDER BY score DESC

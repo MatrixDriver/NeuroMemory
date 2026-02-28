@@ -20,7 +20,7 @@ class MemoryHistory(Base):
     )
     memory_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     memory_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    event: Mapped[str] = mapped_column(String(20), nullable=False)
+    event: Mapped[str] = mapped_column(String(30), nullable=False)
     old_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     new_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     old_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
