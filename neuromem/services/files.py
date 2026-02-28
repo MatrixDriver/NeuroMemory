@@ -169,11 +169,11 @@ class FileService:
             f"""
             SELECT d.id, d.filename, d.file_type, d.category, d.tags,
                    d.file_size, d.extracted_text, d.created_at,
-                   1 - (e.embedding <=> '{vector_str}'::vector) AS similarity
+                   1 - (e.embedding <=> '{vector_str}') AS similarity
             FROM documents d
-            JOIN embeddings e ON d.embedding_id = e.id
+            JOIN memories e ON d.embedding_id = e.id
             WHERE {filters}
-            ORDER BY e.embedding <=> '{vector_str}'::vector
+            ORDER BY e.embedding <=> '{vector_str}'
             LIMIT :limit
             """
         )

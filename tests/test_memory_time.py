@@ -133,13 +133,16 @@ class TestMemoryTimeline:
     async def test_get_daily_memory_stats(
         self, memory_service, sample_memories
     ):
-        today = date.today()
-        start_date = today - timedelta(days=6)
+        # Use UTC date to match sample_memories which use datetime.now(timezone.utc)
+        utc_today = datetime.now(timezone.utc).date()
+        start_date = utc_today - timedelta(days=6)
+        # Include tomorrow to ensure boundary memories are captured
+        end_date = utc_today + timedelta(days=1)
 
         stats = await memory_service.get_daily_memory_stats(
             user_id="test_user",
             start_date=start_date,
-            end_date=today,
+            end_date=end_date,
         )
 
         assert len(stats) == 7

@@ -107,14 +107,15 @@ async def test_reflect_stores_as_insight_type(db_session, mock_embedding):
 
     assert len(result["insights"]) == 1
 
-    # Verify stored in DB with memory_type='insight'
+    # Verify stored in DB with memory_type='trait' (V2: insight -> trait with trend stage)
     rows = await db_session.execute(
-        text("SELECT content, memory_type, metadata FROM embeddings WHERE user_id = :uid AND memory_type = 'insight'"),
+        text("SELECT content, memory_type, trait_stage, metadata FROM memories WHERE user_id = :uid AND memory_type = 'trait'"),
         {"uid": "store_user"},
     )
     stored = rows.fetchall()
     assert len(stored) == 1
-    assert stored[0].memory_type == "insight"
+    assert stored[0].memory_type == "trait"
+    assert stored[0].trait_stage == "trend"
     assert stored[0].metadata["category"] == "pattern"
     assert stored[0].metadata["importance"] == 8
 

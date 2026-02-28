@@ -202,7 +202,7 @@ async def test_recall_surfaces_extracted_timestamp(mock_embedding):
         # Manually set extracted_timestamp (use timezone-aware timestamp)
         async with nm._db.session() as session:
             await session.execute(
-                text("UPDATE embeddings SET extracted_timestamp = '2023-05-07 00:00:00+00' WHERE id = :id"),
+                text("UPDATE memories SET extracted_timestamp = '2023-05-07 00:00:00+00' WHERE id = :id"),
                 {"id": str(record.id)},
             )
             await session.commit()

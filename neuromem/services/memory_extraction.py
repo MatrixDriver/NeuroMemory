@@ -12,7 +12,7 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from neuromem.models.conversation import Conversation
-from neuromem.models.memory import Embedding
+from neuromem.models.memory import Memory
 from neuromem.providers.embedding import EmbeddingProvider
 from neuromem.providers.llm import LLMProvider
 from neuromem.services.kv import KVService
@@ -679,19 +679,34 @@ Return format (JSON only, no other content):
         if not vectors:
             return 0
 
+        import hashlib
+
         count = 0
         for fact, embedding_vector in zip(valid_facts, vectors):
             try:
                 content = fact["content"]
+                content_hash = hashlib.md5(content.encode()).hexdigest()
 
-                # Dedup: skip if a near-identical active fact already exists (cosine > 0.95)
+                # Hash-based dedup check (fast path)
+                hash_dup = await self.db.execute(
+                    sql_text(
+                        "SELECT 1 FROM memories WHERE user_id = :uid AND memory_type = 'fact'"
+                        " AND content_hash = :hash LIMIT 1"
+                    ),
+                    {"uid": user_id, "hash": content_hash},
+                )
+                if hash_dup.fetchone():
+                    logger.debug("Skipping duplicate fact (hash match): %s", content[:80])
+                    continue
+
+                # Vector-based dedup (safety net for semantically identical content)
                 vector_str = f"[{','.join(str(float(v)) for v in embedding_vector)}]"
                 dup = await self.db.execute(
                     sql_text(f"""
-                        SELECT 1 FROM embeddings
+                        SELECT 1 FROM memories
                         WHERE user_id = :uid AND memory_type = 'fact'
                           AND valid_until IS NULL
-                          AND 1 - (embedding <=> '{vector_str}'::vector) > 0.95
+                          AND 1 - (embedding <=> '{vector_str}') > 0.95
                         LIMIT 1
                     """),
                     {"uid": user_id},
@@ -729,14 +744,17 @@ Return format (JSON only, no other content):
                     ref_time,
                 )
 
-                embedding_obj = Embedding(
+                now = datetime.now(timezone.utc)
+                embedding_obj = Memory(
                     user_id=user_id,
                     content=content,
                     embedding=embedding_vector,
                     memory_type="fact",
                     metadata_=meta,
                     extracted_timestamp=resolved_ts,
-                    valid_from=datetime.now(timezone.utc),
+                    valid_from=now,
+                    content_hash=content_hash,
+                    valid_at=now,
                 )
                 self.db.add(embedding_obj)
                 count += 1
@@ -770,19 +788,24 @@ Return format (JSON only, no other content):
         if not vectors:
             return 0
 
+        import hashlib
+
         count = 0
         for episode, embedding_vector in zip(valid_episodes, vectors):
             try:
                 content = episode["content"]
+                content_hash = hashlib.md5(content.encode()).hexdigest()
 
-                # Dedup: skip if a near-identical active episode already exists (cosine > 0.95)
+                # Episodic memories skip hash dedup — same event in different conversations is valid
+
+                # Vector-based dedup (safety net for semantically identical content)
                 vector_str = f"[{','.join(str(float(v)) for v in embedding_vector)}]"
                 dup = await self.db.execute(
                     sql_text(f"""
-                        SELECT 1 FROM embeddings
+                        SELECT 1 FROM memories
                         WHERE user_id = :uid AND memory_type = 'episodic'
                           AND valid_until IS NULL
-                          AND 1 - (embedding <=> '{vector_str}'::vector) > 0.95
+                          AND 1 - (embedding <=> '{vector_str}') > 0.95
                         LIMIT 1
                     """),
                     {"uid": user_id},
@@ -831,14 +854,18 @@ Return format (JSON only, no other content):
                 entities = episode.get("entities")
                 if entities and isinstance(entities, dict):
                     meta["entities"] = entities
-                embedding_obj = Embedding(
+
+                now = datetime.now(timezone.utc)
+                embedding_obj = Memory(
                     user_id=user_id,
                     content=content,
                     embedding=embedding_vector,
                     memory_type="episodic",
                     metadata_=meta,
                     extracted_timestamp=resolved_ts,
-                    valid_from=datetime.now(timezone.utc),
+                    valid_from=now,
+                    content_hash=content_hash,
+                    valid_at=now,
                 )
                 self.db.add(embedding_obj)
                 count += 1

@@ -12,10 +12,10 @@ async def test_add_memory(db_session, mock_embedding):
     record = await svc.add_memory(
         user_id="u1",
         content="I work at ABC Company as a Python developer",
-        memory_type="general",
+        memory_type="fact",
     )
     assert record.content == "I work at ABC Company as a Python developer"
-    assert record.memory_type == "general"
+    assert record.memory_type == "fact"
     assert record.id is not None
 
 
@@ -152,7 +152,7 @@ async def test_access_tracking_on_search(db_session, mock_embedding):
 
     # Check access_count was updated
     result = await db_session.execute(
-        text("SELECT access_count, last_accessed_at FROM embeddings WHERE id = :id"),
+        text("SELECT access_count, last_accessed_at FROM memories WHERE id = :id"),
         {"id": str(record.id)},
     )
     row = result.fetchone()
@@ -175,7 +175,7 @@ async def test_access_tracking_on_scored_search(db_session, mock_embedding):
     await svc.scored_search(user_id="track_user2", query="Track scored")
 
     result = await db_session.execute(
-        text("SELECT access_count FROM embeddings WHERE id = :id"),
+        text("SELECT access_count FROM memories WHERE id = :id"),
         {"id": str(record.id)},
     )
     row = result.fetchone()

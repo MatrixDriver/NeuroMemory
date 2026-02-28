@@ -12,12 +12,21 @@ from neuromem.models.document import Document
 from neuromem.models.emotion_profile import EmotionProfile
 from neuromem.models.graph import EdgeType, GraphEdge, GraphNode, NodeType
 from neuromem.models.kv import KeyValue
-from neuromem.models.memory import Embedding
+from neuromem.models.memory import Memory, Embedding
+from neuromem.models.trait_evidence import TraitEvidence
+from neuromem.models.memory_history import MemoryHistory
+from neuromem.models.reflection_cycle import ReflectionCycle
+from neuromem.models.memory_source import MemorySource
 
 __all__ = [
     "Base",
     "TimestampMixin",
+    "Memory",
     "Embedding",
+    "TraitEvidence",
+    "MemoryHistory",
+    "ReflectionCycle",
+    "MemorySource",
     "KeyValue",
     "Conversation",
     "ConversationSession",

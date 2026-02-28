@@ -8,7 +8,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from neuromem.models.memory import Embedding
+from neuromem.models.memory import Memory
 from neuromem.providers.embedding import EmbeddingProvider
 
 logger = logging.getLogger(__name__)
@@ -45,22 +45,42 @@ class SearchService:
         self,
         user_id: str,
         content: str,
-        memory_type: str = "general",
+        memory_type: str = "fact",
         metadata: dict | None = None,
         valid_from: datetime | None = None,
-    ) -> Embedding:
+    ) -> Memory | None:
         """Add a memory with its embedding vector."""
+        if memory_type == "general":
+            memory_type = "fact"
+        elif memory_type == "insight":
+            memory_type = "trait"
+
+        import hashlib
         from datetime import timezone
 
         vector = await self._embedding.embed(content)
+        content_hash = hashlib.md5(content.encode()).hexdigest()
 
-        record = Embedding(
+        # Hash-based dedup check (skip episodic — same event in different conversations is valid)
+        if memory_type != "episodic":
+            dup_check = await self.db.execute(
+                text("SELECT 1 FROM memories WHERE user_id = :uid AND memory_type = :mtype AND content_hash = :hash LIMIT 1"),
+                {"uid": user_id, "mtype": memory_type, "hash": content_hash},
+            )
+            if dup_check.fetchone():
+                logger.debug("Skipping duplicate memory (hash match): %s", content[:80])
+                return None
+
+        now = datetime.now(timezone.utc)
+        record = Memory(
             user_id=user_id,
             content=content,
             embedding=vector,
             memory_type=memory_type,
             metadata_=metadata,
-            valid_from=valid_from or datetime.now(timezone.utc),
+            valid_from=valid_from or now,
+            content_hash=content_hash,
+            valid_at=valid_from or now,
         )
         self.db.add(record)
         await self.db.flush()
@@ -141,7 +161,7 @@ class SearchService:
                 SELECT id,
                        paradedb.score(id) AS bm25_score,
                        ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
-                FROM embeddings
+                FROM memories
                 WHERE {filters}
                   AND id @@@ paradedb.parse(:query_text)
                 ORDER BY bm25_score DESC
@@ -155,7 +175,7 @@ class SearchService:
                        ROW_NUMBER() OVER (
                            ORDER BY ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) DESC
                        ) AS bm25_rank
-                FROM embeddings
+                FROM memories
                 WHERE {filters}
                   AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
                 ORDER BY bm25_score DESC
@@ -166,11 +186,11 @@ class SearchService:
             f"""
             WITH vector_ranked AS (
                 SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
-                       1 - (embedding <=> '{vector_str}'::vector) AS vector_score,
-                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}'::vector) AS vector_rank
-                FROM embeddings
+                       1 - (embedding <=> '{vector_str}') AS vector_score,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}') AS vector_rank
+                FROM memories
                 WHERE {filters}
-                ORDER BY embedding <=> '{vector_str}'::vector
+                ORDER BY embedding <=> '{vector_str}'
                 LIMIT {candidate_limit}
             ),
             {bm25_cte}
@@ -299,7 +319,7 @@ class SearchService:
                 SELECT id,
                        paradedb.score(id) AS bm25_score,
                        ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
-                FROM embeddings
+                FROM memories
                 WHERE {filters}
                   AND id @@@ paradedb.parse(:query_text)
                 ORDER BY bm25_score DESC
@@ -313,7 +333,7 @@ class SearchService:
                        ROW_NUMBER() OVER (
                            ORDER BY ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) DESC
                        ) AS bm25_rank
-                FROM embeddings
+                FROM memories
                 WHERE {filters}
                   AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
                 ORDER BY bm25_score DESC
@@ -325,11 +345,11 @@ class SearchService:
             WITH vector_ranked AS (
                 SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
                        access_count, last_accessed_at,
-                       1 - (embedding <=> '{vector_str}'::vector) AS vector_score,
-                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}'::vector) AS vector_rank
-                FROM embeddings
+                       1 - (embedding <=> '{vector_str}') AS vector_score,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}') AS vector_rank
+                FROM memories
                 WHERE {filters}
-                ORDER BY embedding <=> '{vector_str}'::vector
+                ORDER BY embedding <=> '{vector_str}'
                 LIMIT {candidate_limit}
             ),
             {bm25_cte}
@@ -405,7 +425,7 @@ class SearchService:
             params = {f"id_{i}": id_ for i, id_ in enumerate(ids)}
             params["user_id"] = user_id
             sql = text(f"""
-                UPDATE embeddings
+                UPDATE memories
                 SET access_count = access_count + 1,
                     last_accessed_at = NOW()
                 WHERE id IN ({placeholders})

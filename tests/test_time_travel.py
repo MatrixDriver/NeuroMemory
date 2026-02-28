@@ -58,7 +58,7 @@ class TestMemoryVersioning:
         # Check old memory was versioned
         async with nm._db.session() as session:
             row = (await session.execute(
-                text("SELECT valid_until, superseded_by FROM embeddings WHERE id = :id"),
+                text("SELECT valid_until, superseded_by FROM memories WHERE id = :id"),
                 {"id": old.id},
             )).first()
             # Note: conflict detection depends on cosine similarity > 0.85
@@ -88,7 +88,7 @@ class TestMemoryVersioning:
         async with nm._db.session() as session:
             count = (await session.execute(
                 text(
-                    "SELECT COUNT(*) FROM embeddings "
+                    "SELECT COUNT(*) FROM memories "
                     "WHERE user_id = :uid AND valid_until IS NULL"
                 ),
                 {"uid": user_id},
@@ -108,7 +108,7 @@ class TestMemoryVersioning:
         async with nm._db.session() as session:
             row = (await session.execute(
                 text(
-                    "SELECT valid_from FROM embeddings WHERE user_id = :uid"
+                    "SELECT valid_from FROM memories WHERE user_id = :uid"
                 ),
                 {"uid": user_id},
             )).first()
@@ -134,7 +134,7 @@ class TestRecallAsOf:
         async with nm._db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET valid_from = :vf "
+                    "UPDATE memories SET valid_from = :vf "
                     "WHERE user_id = :uid"
                 ),
                 {"uid": user_id, "vf": t1 - timedelta(days=10)},
@@ -152,7 +152,7 @@ class TestRecallAsOf:
         async with nm._db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE embeddings "
+                    "UPDATE memories "
                     "SET valid_until = :now "
                     "WHERE user_id = :uid AND content = 'old fact'"
                 ),
@@ -182,7 +182,7 @@ class TestRecallAsOf:
         async with nm._db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET valid_until = NOW() "
+                    "UPDATE memories SET valid_until = NOW() "
                     "WHERE id = :id"
                 ),
                 {"id": old.id},
@@ -206,7 +206,7 @@ class TestRecallAsOf:
         async with nm._db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET valid_from = NULL "
+                    "UPDATE memories SET valid_from = NULL "
                     "WHERE user_id = :uid"
                 ),
                 {"uid": user_id},
@@ -241,7 +241,7 @@ class TestRollback:
         async with nm._db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET valid_from = NOW() - INTERVAL '1 hour' "
+                    "UPDATE memories SET valid_from = NOW() - INTERVAL '1 hour' "
                     "WHERE user_id = :uid"
                 ),
                 {"uid": user_id},
@@ -276,7 +276,7 @@ class TestRollback:
         async with nm._db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET valid_from = NOW() - INTERVAL '2 hours' "
+                    "UPDATE memories SET valid_from = NOW() - INTERVAL '2 hours' "
                     "WHERE id = :id"
                 ),
                 {"id": old.id},
@@ -292,7 +292,7 @@ class TestRollback:
         async with nm._db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET valid_until = NOW(), superseded_by = :new_id "
+                    "UPDATE memories SET valid_until = NOW(), superseded_by = :new_id "
                     "WHERE id = :old_id"
                 ),
                 {"new_id": new.id, "old_id": old.id},

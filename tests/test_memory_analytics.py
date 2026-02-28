@@ -86,7 +86,7 @@ class TestColdMemories:
         async with nm._db.session() as session:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET created_at = NOW() - INTERVAL '100 days', "
+                    "UPDATE memories SET created_at = NOW() - INTERVAL '100 days', "
                     "last_accessed_at = NULL "
                     "WHERE user_id = :uid"
                 ),

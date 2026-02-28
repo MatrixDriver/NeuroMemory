@@ -44,6 +44,7 @@ async def nm_with_llm(mock_embedding):
         database_url=TEST_DATABASE_URL,
         embedding=mock_embedding,
         llm=llm,
+        auto_extract=False,
     )
     await instance.init()
     yield instance
@@ -54,7 +55,7 @@ async def nm_with_llm(mock_embedding):
 # Helpers
 # ---------------------------------------------------------------------------
 
-async def _add_memory(svc, session, user_id, content, memory_type="general",
+async def _add_memory(svc, session, user_id, content, memory_type="fact",
                       metadata=None, age_days=0):
     """Add memory and optionally back-date it."""
     record = await svc.add_memory(
@@ -64,7 +65,7 @@ async def _add_memory(svc, session, user_id, content, memory_type="general",
     if age_days > 0:
         await session.execute(
             text("""
-                UPDATE embeddings
+                UPDATE memories
                 SET created_at = NOW() - INTERVAL ':days days'
                 WHERE id = :id
             """.replace(":days", str(int(age_days)))),
@@ -80,7 +81,7 @@ async def _setup_and_search(svc, session, user_id, memories, query, **kwargs):
         rec = await _add_memory(
             svc, session, user_id,
             content=m["content"],
-            memory_type=m.get("memory_type", "general"),
+            memory_type=m.get("memory_type", "fact"),
             metadata=m.get("metadata"),
             age_days=m.get("age_days", 0),
         )
@@ -140,10 +141,10 @@ class TestRecallRecency:
 
     @pytest.mark.asyncio
     async def test_fresh_beats_old_same_content(self, db_session, mock_embedding):
-        """With identical content, a fresh memory should score higher than an old one."""
+        """With similar content, a fresh memory should score higher than an old one."""
         svc = SearchService(db_session, mock_embedding)
-        old = await _add_memory(svc, db_session, "recency_u4", "same content", age_days=60)
-        fresh = await _add_memory(svc, db_session, "recency_u4", "same content", age_days=0)
+        old = await _add_memory(svc, db_session, "recency_u4", "same content version old", age_days=60)
+        fresh = await _add_memory(svc, db_session, "recency_u4", "same content version new", age_days=0)
         await db_session.commit()
 
         results = await svc.scored_search(user_id="recency_u4", query="same content")
@@ -174,16 +175,16 @@ class TestRecallRecency:
 
     @pytest.mark.asyncio
     async def test_multiple_ages_rank_by_recency(self, db_session, mock_embedding):
-        """Memories at different ages should rank newest first (same content/importance)."""
+        """Memories at different ages should rank newest first (same importance)."""
         svc = SearchService(db_session, mock_embedding)
         for days in [90, 7, 30, 1]:
             await _add_memory(
-                svc, db_session, "recency_u6", "identical content",
+                svc, db_session, "recency_u6", f"content from {days} days ago",
                 metadata={"importance": 5}, age_days=days,
             )
         await db_session.commit()
 
-        results = await svc.scored_search(user_id="recency_u6", query="identical content")
+        results = await svc.scored_search(user_id="recency_u6", query="content from days ago")
         recencies = [r["recency"] for r in results]
         # Should be sorted descending (freshest first)
         assert recencies == sorted(recencies, reverse=True)
@@ -346,18 +347,18 @@ class TestRecallCombinedScoring:
         svc = SearchService(db_session, mock_embedding)
         # Old but very important
         old_important = await _add_memory(
-            svc, db_session, "combo_u3", "same query text",
+            svc, db_session, "combo_u3", "important query text version A",
             metadata={"importance": 10}, age_days=7,
         )
         # Fresh but trivial
         fresh_trivial = await _add_memory(
-            svc, db_session, "combo_u3", "same query text",
+            svc, db_session, "combo_u3", "important query text version B",
             metadata={"importance": 1}, age_days=0,
         )
         await db_session.commit()
 
         results = await svc.scored_search(
-            user_id="combo_u3", query="same query text",
+            user_id="combo_u3", query="important query text",
             decay_rate=86400 * 30,
         )
         # importance 10 (1.0) vs 1 (0.1), recency ~0.79 vs ~1.0
@@ -425,7 +426,7 @@ class TestRecallScenarios:
             ("fact", "在字节跳动担任算法工程师"),
             ("fact", "住在上海浦东"),
             ("episodic", "昨天面试了阿里巴巴"),
-            ("general", "喜欢用 VS Code 写代码"),
+            ("fact", "喜欢用 VS Code 写代码"),
             ("fact", "本科毕业于清华大学"),
         ]
         for mtype, content in memories:
@@ -722,7 +723,7 @@ class TestRecallEdgeCases:
             await svc.scored_search(user_id="edge_u6", query="access tracking test")
 
         result = await db_session.execute(
-            text("SELECT access_count, last_accessed_at FROM embeddings WHERE id = :id"),
+            text("SELECT access_count, last_accessed_at FROM memories WHERE id = :id"),
             {"id": str(record.id)},
         )
         row = result.fetchone()
@@ -744,7 +745,8 @@ class TestRecallFullPipeline:
     @pytest.mark.asyncio
     async def test_extracted_facts_are_recallable(self, nm_with_llm):
         """Facts extracted by LLM from conversation should appear in recall results."""
-        user_id = "pipeline_u1"
+        import uuid
+        user_id = f"pipeline_{uuid.uuid4().hex[:8]}"
 
         # Step 1: Add conversation messages
         await nm_with_llm.conversations.ingest(
@@ -804,33 +806,57 @@ class TestRecallFullPipeline:
                 assert r["importance"] >= 0.075
 
     @pytest.mark.asyncio
-    async def test_reflect_extracts_and_marks_messages(self, nm_with_llm):
+    async def test_reflect_extracts_and_marks_messages(self, mock_embedding):
         """v0.2.0: ingest auto-extracts, digest() generates insights."""
-        user_id = "pipeline_u4"
-
-        # v0.2.0: ingest auto-extracts memories (auto_extract=True default)
-        await nm_with_llm.conversations.ingest(
-            user_id=user_id, role="user", content="我在 Google 工作",
-        )
-        await nm_with_llm.conversations.ingest(
-            user_id=user_id, role="assistant", content="了解了！",
-        )
-
-        # Wait for background auto-extraction to complete
         import asyncio
-        await asyncio.sleep(0.3)
+        import uuid
 
-        # Memories should already be extracted and recallable
-        recall_result = await nm_with_llm.recall(user_id=user_id, query="Google")
-        assert len(recall_result["merged"]) > 0
+        llm = MockLLMProvider(response="""```json
+{
+  "facts": [
+    {"content": "在 Google 工作", "category": "work", "confidence": 0.98, "importance": 8}
+  ],
+  "episodes": [],
+  "triples": [],
+  "profile_updates": {}
+}
+```""")
+        # This test needs auto_extract=True to verify ingest auto-extraction
+        instance = NeuroMemory(
+            database_url=TEST_DATABASE_URL,
+            embedding=mock_embedding,
+            llm=llm,
+            auto_extract=True,
+        )
+        await instance.init()
 
-        # v0.2.0: digest() only generates insights (no extraction)
-        result = await nm_with_llm.digest(user_id=user_id, batch_size=50)
-        assert "insights_generated" in result
-        assert "insights" in result
-        assert "emotion_profile" in result
-        # v0.2.0: No longer returns extraction counters
-        assert "conversations_processed" not in result
+        try:
+            user_id = f"pipeline_{uuid.uuid4().hex[:8]}"
+
+            # v0.2.0: ingest auto-extracts memories (auto_extract=True)
+            await instance.conversations.ingest(
+                user_id=user_id, role="user", content="我在 Google 工作",
+            )
+            await instance.conversations.ingest(
+                user_id=user_id, role="assistant", content="了解了！",
+            )
+
+            # Wait for background auto-extraction to complete
+            await asyncio.sleep(0.5)
+
+            # Memories should already be extracted and recallable
+            recall_result = await instance.recall(user_id=user_id, query="Google")
+            assert len(recall_result["merged"]) > 0
+
+            # v0.2.0: digest() only generates insights (no extraction)
+            result = await instance.digest(user_id=user_id, batch_size=50)
+            assert "insights_generated" in result
+            assert "insights" in result
+            assert "emotion_profile" in result
+            # v0.2.0: No longer returns extraction counters
+            assert "conversations_processed" not in result
+        finally:
+            await instance.close()
 
     @pytest.mark.asyncio
     async def test_pipeline_multiple_conversations_accumulate(self, nm_with_llm):
@@ -858,6 +884,7 @@ class TestRecallFullPipeline:
     @pytest.mark.asyncio
     async def test_on_extraction_callback(self, mock_embedding):
         """on_extraction callback should be invoked with correct stats after extraction."""
+        import uuid
         llm = MockLLMProvider(response="""```json
 {
   "facts": [
@@ -874,10 +901,11 @@ class TestRecallFullPipeline:
             embedding=mock_embedding,
             llm=llm,
             on_extraction=lambda stats: callback_data.append(stats),
+            auto_extract=False,
         )
         await instance.init()
         try:
-            user_id = "callback_u1"
+            user_id = f"callback_{uuid.uuid4().hex[:8]}"
             await instance.conversations.ingest(
                 user_id=user_id, role="user", content="我在 Google 工作",
             )
@@ -901,6 +929,7 @@ class TestRecallFullPipeline:
     @pytest.mark.asyncio
     async def test_on_extraction_async_callback(self, mock_embedding):
         """on_extraction should support async callbacks."""
+        import uuid
         llm = MockLLMProvider(response="""```json
 {
   "facts": [
@@ -921,10 +950,11 @@ class TestRecallFullPipeline:
             embedding=mock_embedding,
             llm=llm,
             on_extraction=async_callback,
+            auto_extract=False,
         )
         await instance.init()
         try:
-            user_id = "callback_u2"
+            user_id = f"callback_{uuid.uuid4().hex[:8]}"
             await instance.conversations.ingest(
                 user_id=user_id, role="user", content="住在北京",
             )

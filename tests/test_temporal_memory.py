@@ -95,7 +95,7 @@ async def test_episode_timestamp_preservation(mock_embedding):
     from sqlalchemy import text
     async with nm._db.session() as session:
         result = await session.execute(
-            text("SELECT DISTINCT content, metadata FROM embeddings WHERE user_id = :uid AND memory_type = 'episodic' ORDER BY content"),
+            text("SELECT DISTINCT content, metadata FROM memories WHERE user_id = :uid AND memory_type = 'episodic' ORDER BY content"),
             {"uid": user_id},
         )
         episodes = result.fetchall()
@@ -145,7 +145,7 @@ async def test_episode_people_and_location_extraction(mock_embedding):
     from sqlalchemy import text
     async with nm._db.session() as session:
         result = await session.execute(
-            text("SELECT metadata FROM embeddings WHERE user_id = :uid AND content = :content"),
+            text("SELECT metadata FROM memories WHERE user_id = :uid AND content = :content"),
             {"uid": user_id, "content": "上周三参加了团队建设活动"},
         )
         rows = result.fetchall()
@@ -206,11 +206,11 @@ async def test_long_term_memory_recall_without_excessive_decay(mock_embedding):
         one_day_ago = datetime.now(timezone.utc) - timedelta(days=1)
 
         await session.execute(
-            text("UPDATE embeddings SET created_at = :ts WHERE id = :id"),
+            text("UPDATE memories SET created_at = :ts WHERE id = :id"),
             {"ts": six_months_ago, "id": old_memory_id},
         )
         await session.execute(
-            text("UPDATE embeddings SET created_at = :ts WHERE id = :id"),
+            text("UPDATE memories SET created_at = :ts WHERE id = :id"),
             {"ts": one_day_ago, "id": recent_memory_id},
         )
         await session.commit()
@@ -267,7 +267,7 @@ async def test_relative_time_expressions_in_episodes(mock_embedding):
     from sqlalchemy import text
     async with nm._db.session() as session:
         result = await session.execute(
-            text("SELECT content, metadata FROM embeddings WHERE user_id = :uid AND content LIKE '%面试%'"),
+            text("SELECT content, metadata FROM memories WHERE user_id = :uid AND content LIKE '%面试%'"),
             {"uid": user_id},
         )
         row = result.fetchone()
@@ -373,7 +373,7 @@ async def test_multi_month_conversation_recall(mock_embedding):
         for mem_id, days_ago in memory_ids:
             ts = datetime.now(timezone.utc) - timedelta(days=days_ago)
             await session.execute(
-                text("UPDATE embeddings SET created_at = :ts WHERE id = :id"),
+                text("UPDATE memories SET created_at = :ts WHERE id = :id"),
                 {"ts": ts, "id": mem_id},
             )
         await session.commit()

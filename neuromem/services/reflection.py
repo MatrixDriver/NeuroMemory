@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from neuromem.models.emotion_profile import EmotionProfile
-from neuromem.models.memory import Embedding
+from neuromem.models.memory import Memory
 from neuromem.providers.embedding import EmbeddingProvider
 from neuromem.providers.llm import LLMProvider
 
@@ -108,11 +108,12 @@ class ReflectionService:
                 continue
             try:
                 vector = await self._embedding.embed(content)
-                embedding_obj = Embedding(
+                embedding_obj = Memory(
                     user_id=user_id,
                     content=content,
                     embedding=vector,
-                    memory_type="insight",
+                    memory_type="trait",
+                    trait_stage="trend",
                     metadata_={
                         "category": category,
                         "source_ids": insight.get("source_ids", []),

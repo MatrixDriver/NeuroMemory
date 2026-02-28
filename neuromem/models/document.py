@@ -23,7 +23,7 @@ class Document(Base, TimestampMixin):
     object_key: Mapped[str] = mapped_column(String(1024), unique=True, nullable=False)
     extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     embedding_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("embeddings.id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("memories.id"), nullable=True
     )
     category: Mapped[str] = mapped_column(String(100), default="general")
     tags: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

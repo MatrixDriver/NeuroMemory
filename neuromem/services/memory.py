@@ -11,7 +11,7 @@ from sqlalchemy import and_, cast, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import Date
 
-from neuromem.models.memory import Embedding
+from neuromem.models.memory import Memory
 from neuromem.providers.embedding import EmbeddingProvider
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class MemoryService:
         memory_type: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> tuple[int, list[Embedding]]:
+    ) -> tuple[int, list[Memory]]:
         """Query memories within a time range."""
         if end_time is None:
             end_time = datetime.now(timezone.utc)
@@ -41,21 +41,21 @@ class MemoryService:
             raise ValueError("start_time must be before end_time")
 
         conditions = [
-            Embedding.user_id == user_id,
-            Embedding.created_at >= start_time,
-            Embedding.created_at < end_time,
+            Memory.user_id == user_id,
+            Memory.created_at >= start_time,
+            Memory.created_at < end_time,
         ]
 
         if memory_type:
-            conditions.append(Embedding.memory_type == memory_type)
+            conditions.append(Memory.memory_type == memory_type)
 
-        count_stmt = select(func.count()).select_from(Embedding).where(and_(*conditions))
+        count_stmt = select(func.count()).select_from(Memory).where(and_(*conditions))
         total = await self.db.scalar(count_stmt) or 0
 
         stmt = (
-            select(Embedding)
+            select(Memory)
             .where(and_(*conditions))
-            .order_by(desc(Embedding.created_at))
+            .order_by(desc(Memory.created_at))
             .limit(limit)
             .offset(offset)
         )
@@ -71,22 +71,22 @@ class MemoryService:
         days: int = 7,
         memory_types: Optional[list[str]] = None,
         limit: int = 50,
-    ) -> list[Embedding]:
+    ) -> list[Memory]:
         """Query memories from the last N days."""
         start_time = datetime.now(timezone.utc) - timedelta(days=days)
 
         conditions = [
-            Embedding.user_id == user_id,
-            Embedding.created_at >= start_time,
+            Memory.user_id == user_id,
+            Memory.created_at >= start_time,
         ]
 
         if memory_types:
-            conditions.append(Embedding.memory_type.in_(memory_types))
+            conditions.append(Memory.memory_type.in_(memory_types))
 
         stmt = (
-            select(Embedding)
+            select(Memory)
             .where(and_(*conditions))
-            .order_by(desc(Embedding.created_at))
+            .order_by(desc(Memory.created_at))
             .limit(limit)
         )
 
@@ -111,22 +111,22 @@ class MemoryService:
 
         daily_stats = await self.db.execute(
             select(
-                cast(Embedding.created_at, Date).label("date"),
-                func.count(Embedding.id).label("count"),
-                Embedding.memory_type,
+                cast(Memory.created_at, Date).label("date"),
+                func.count(Memory.id).label("count"),
+                Memory.memory_type,
             )
             .where(
                 and_(
-                    Embedding.user_id == user_id,
-                    Embedding.created_at >= start_dt,
-                    Embedding.created_at <= end_dt,
+                    Memory.user_id == user_id,
+                    Memory.created_at >= start_dt,
+                    Memory.created_at <= end_dt,
                 )
             )
             .group_by(
-                cast(Embedding.created_at, Date),
-                Embedding.memory_type,
+                cast(Memory.created_at, Date),
+                Memory.memory_type,
             )
-            .order_by(cast(Embedding.created_at, Date))
+            .order_by(cast(Memory.created_at, Date))
         )
 
         result = {}
@@ -157,21 +157,21 @@ class MemoryService:
         start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
         end_dt = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
 
-        trunc_func = func.date_trunc(granularity, Embedding.created_at)
+        trunc_func = func.date_trunc(granularity, Memory.created_at)
 
         conditions = [
-            Embedding.user_id == user_id,
-            Embedding.created_at >= start_dt,
-            Embedding.created_at <= end_dt,
+            Memory.user_id == user_id,
+            Memory.created_at >= start_dt,
+            Memory.created_at <= end_dt,
         ]
 
         if memory_type:
-            conditions.append(Embedding.memory_type == memory_type)
+            conditions.append(Memory.memory_type == memory_type)
 
         timeline_data = await self.db.execute(
             select(
                 trunc_func.label("period"),
-                func.count(Embedding.id).label("count"),
+                func.count(Memory.id).label("count"),
             )
             .where(and_(*conditions))
             .group_by(trunc_func)
@@ -201,26 +201,26 @@ class MemoryService:
         memory_type: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> tuple[int, list[Embedding]]:
+    ) -> tuple[int, list[Memory]]:
         """List all memories with optional filtering and pagination.
 
         Returns:
             Tuple of (total_count, list_of_memories)
         """
-        conditions = [Embedding.user_id == user_id]
+        conditions = [Memory.user_id == user_id]
 
         if memory_type:
-            conditions.append(Embedding.memory_type == memory_type)
+            conditions.append(Memory.memory_type == memory_type)
 
         # Get total count
-        count_stmt = select(func.count()).select_from(Embedding).where(and_(*conditions))
+        count_stmt = select(func.count()).select_from(Memory).where(and_(*conditions))
         total = await self.db.scalar(count_stmt) or 0
 
         # Get paginated results
         stmt = (
-            select(Embedding)
+            select(Memory)
             .where(and_(*conditions))
-            .order_by(desc(Embedding.created_at))
+            .order_by(desc(Memory.created_at))
             .limit(limit)
             .offset(offset)
         )
@@ -234,13 +234,13 @@ class MemoryService:
         self,
         memory_id: str | uuid.UUID,
         user_id: str,
-    ) -> Optional[Embedding]:
+    ) -> Optional[Memory]:
         """Get a single memory by ID with ownership check."""
         if isinstance(memory_id, str):
             memory_id = uuid.UUID(memory_id)
 
-        stmt = select(Embedding).where(
-            and_(Embedding.id == memory_id, Embedding.user_id == user_id)
+        stmt = select(Memory).where(
+            and_(Memory.id == memory_id, Memory.user_id == user_id)
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
@@ -252,7 +252,7 @@ class MemoryService:
         content: Optional[str] = None,
         memory_type: Optional[str] = None,
         metadata: Optional[dict] = None,
-    ) -> Optional[Embedding]:
+    ) -> Optional[Memory]:
         """Update a memory's content, type, or metadata.
 
         If content is changed, the embedding vector will be regenerated.
@@ -265,7 +265,7 @@ class MemoryService:
             metadata: New metadata (replaces existing)
 
         Returns:
-            Updated Embedding object or None if not found
+            Updated Memory object or None if not found
         """
         # Fetch existing memory
         memory = await self.get_memory_by_id(memory_id, user_id)
@@ -291,7 +291,7 @@ class MemoryService:
         elif content_changed and not self._embedding:
             logger.warning(
                 "Content changed but no embedding provider available. "
-                "Embedding vector not updated."
+                "Memory vector not updated."
             )
 
         await self.db.flush()
@@ -309,11 +309,11 @@ class MemoryService:
         """
         from sqlalchemy import delete
 
-        conditions = [Embedding.user_id == user_id]
+        conditions = [Memory.user_id == user_id]
         if memory_type:
-            conditions.append(Embedding.memory_type == memory_type)
+            conditions.append(Memory.memory_type == memory_type)
 
-        stmt = delete(Embedding).where(and_(*conditions))
+        stmt = delete(Memory).where(and_(*conditions))
         result = await self.db.execute(stmt)
         await self.db.flush()
         return result.rowcount

@@ -62,6 +62,10 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession]:
     import neuromem.models.conversation  # noqa: F401
     import neuromem.models.document  # noqa: F401
     import neuromem.models.graph  # noqa: F401
+    import neuromem.models.trait_evidence  # noqa: F401
+    import neuromem.models.memory_history  # noqa: F401
+    import neuromem.models.reflection_cycle  # noqa: F401
+    import neuromem.models.memory_source  # noqa: F401
 
     async with db_engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

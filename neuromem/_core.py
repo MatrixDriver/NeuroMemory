@@ -870,7 +870,7 @@ class NeuroMemory:
         self,
         user_id: str,
         content: str,
-        memory_type: str = "general",
+        memory_type: str = "fact",
         metadata: dict | None = None,
         check_conflict: bool = True,
     ):
@@ -881,6 +881,11 @@ class NeuroMemory:
                 existing facts (cosine similarity > 0.85) and version them.
                 Defaults to True.
         """
+        if memory_type == "general":
+            memory_type = "fact"
+        elif memory_type == "insight":
+            memory_type = "trait"
+
         from datetime import timezone
         from neuromem.services.search import SearchService
 
@@ -1223,11 +1228,11 @@ class NeuroMemory:
             sql = text(
                 f"""
                 SELECT id, content, role, session_id, created_at, metadata,
-                       1 - (embedding <=> '{vector_str}'::vector) AS similarity
+                       1 - (embedding <=> '{vector_str}') AS similarity
                 FROM conversations
                 WHERE user_id = :user_id
                   AND embedding IS NOT NULL
-                ORDER BY embedding <=> '{vector_str}'::vector
+                ORDER BY embedding <=> '{vector_str}'
                 LIMIT :limit
             """
             )
@@ -1406,13 +1411,13 @@ class NeuroMemory:
             result = await session.execute(
                 sql_text(f"""
                     SELECT id, content, version,
-                           1 - (embedding <=> '{vector_str}'::vector) AS similarity
-                    FROM embeddings
+                           1 - (embedding <=> '{vector_str}') AS similarity
+                    FROM memories
                     WHERE user_id = :uid
                       AND memory_type = 'fact'
                       AND valid_until IS NULL
                       AND id != :new_id
-                    ORDER BY embedding <=> '{vector_str}'::vector
+                    ORDER BY embedding <=> '{vector_str}'
                     LIMIT 3
                 """),
                 {"uid": user_id, "new_id": new_record.id},
@@ -1426,7 +1431,7 @@ class NeuroMemory:
                     # Supersede the old memory
                     await session.execute(
                         sql_text("""
-                            UPDATE embeddings
+                            UPDATE memories
                             SET valid_until = :now, superseded_by = :new_id
                             WHERE id = :old_id
                         """),
@@ -1441,7 +1446,7 @@ class NeuroMemory:
 
             if max_version > 1:
                 await session.execute(
-                    sql_text("UPDATE embeddings SET version = :ver WHERE id = :id"),
+                    sql_text("UPDATE memories SET version = :ver WHERE id = :id"),
                     {"ver": max_version, "id": new_record.id},
                 )
         except Exception as e:
@@ -1508,7 +1513,7 @@ class NeuroMemory:
                 where += " AND created_at > :wm"
                 params["wm"] = watermark
             cnt = (await session.execute(
-                sql_text(f"SELECT COUNT(*) FROM embeddings WHERE {where}"), params,
+                sql_text(f"SELECT COUNT(*) FROM memories WHERE {where}"), params,
             )).scalar() or 0
 
         if cnt == 0:
@@ -1524,8 +1529,8 @@ class NeuroMemory:
         async with self._db.session() as session:
             result = await session.execute(
                 sql_text("""
-                    SELECT content, metadata FROM embeddings
-                    WHERE user_id = :uid AND memory_type = 'insight'
+                    SELECT content, metadata FROM memories
+                    WHERE user_id = :uid AND memory_type = 'trait' AND trait_stage = 'trend'
                     ORDER BY created_at DESC LIMIT 50
                 """),
                 {"uid": user_id},
@@ -1553,7 +1558,7 @@ class NeuroMemory:
                 result = await session.execute(
                     sql_text(f"""
                         SELECT id, content, memory_type, metadata, created_at
-                        FROM embeddings WHERE {where}
+                        FROM memories WHERE {where}
                         ORDER BY created_at ASC
                         LIMIT :lim OFFSET :off
                     """),
@@ -1647,7 +1652,7 @@ class NeuroMemory:
             # Find memories created after to_time
             rows = (await session.execute(
                 sql_text("""
-                    SELECT id FROM embeddings
+                    SELECT id FROM memories
                     WHERE user_id = :uid AND valid_from > :to_time
                       AND valid_until IS NULL
                 """),
@@ -1665,7 +1670,7 @@ class NeuroMemory:
 
             result = await session.execute(
                 sql_text(f"""
-                    UPDATE embeddings SET valid_until = :now
+                    UPDATE memories SET valid_until = :now
                     WHERE id IN ({placeholders}) AND user_id = :uid
                 """),
                 {"now": now, "uid": user_id, **id_params},
@@ -1675,7 +1680,7 @@ class NeuroMemory:
             # Reactivate predecessors (memories that were superseded by rolled-back ones)
             result = await session.execute(
                 sql_text(f"""
-                    UPDATE embeddings SET valid_until = NULL, superseded_by = NULL
+                    UPDATE memories SET valid_until = NULL, superseded_by = NULL
                     WHERE user_id = :uid
                       AND superseded_by IN ({placeholders})
                 """),
@@ -1712,16 +1717,16 @@ class NeuroMemory:
     async def delete_user_data(self, user_id: str) -> dict:
         """Delete ALL data for a user in a single transaction.
 
-        Removes data from all tables (embeddings, conversations, graph, KV,
+        Removes data from all tables (memories, conversations, graph, KV,
         emotion profiles, documents) atomically.
 
         Returns:
-            {"deleted": {"embeddings": N, "conversations": N, ...}}
+            {"deleted": {"memories": N, "conversations": N, ...}}
         """
         from sqlalchemy import text as sql_text
 
         tables = [
-            ("embeddings", "user_id"),
+            ("memories", "user_id"),
             ("graph_edges", "user_id"),
             ("graph_nodes", "user_id"),
             ("conversations", "user_id"),
@@ -1766,7 +1771,7 @@ class NeuroMemory:
                 sql_text(
                     "SELECT id, content, memory_type, metadata, created_at, "
                     "access_count, last_accessed_at, extracted_timestamp "
-                    "FROM embeddings WHERE user_id = :uid ORDER BY created_at"
+                    "FROM memories WHERE user_id = :uid ORDER BY created_at"
                 ),
                 {"uid": user_id},
             )).fetchall()
@@ -1906,7 +1911,7 @@ class NeuroMemory:
         async with self._db.session() as session:
             # Total memories
             total = (await session.execute(
-                sql_text("SELECT COUNT(*) FROM embeddings WHERE user_id = :uid"),
+                sql_text("SELECT COUNT(*) FROM memories WHERE user_id = :uid"),
                 {"uid": user_id},
             )).scalar() or 0
 
@@ -1914,7 +1919,7 @@ class NeuroMemory:
             rows = (await session.execute(
                 sql_text(
                     "SELECT memory_type, COUNT(*) as cnt "
-                    "FROM embeddings WHERE user_id = :uid "
+                    "FROM memories WHERE user_id = :uid "
                     "GROUP BY memory_type ORDER BY cnt DESC"
                 ),
                 {"uid": user_id},
@@ -1925,7 +1930,7 @@ class NeuroMemory:
             rows = (await session.execute(
                 sql_text(
                     "SELECT to_char(created_at, 'IYYY-\"W\"IW') as week, COUNT(*) as cnt "
-                    "FROM embeddings WHERE user_id = :uid "
+                    "FROM memories WHERE user_id = :uid "
                     "AND created_at > NOW() - INTERVAL '12 weeks' "
                     "GROUP BY week ORDER BY week"
                 ),
@@ -1983,7 +1988,7 @@ class NeuroMemory:
                 sql_text("""
                     SELECT id, content, memory_type, metadata, created_at,
                            access_count, last_accessed_at
-                    FROM embeddings
+                    FROM memories
                     WHERE user_id = :uid
                       AND (
                         (last_accessed_at IS NOT NULL AND last_accessed_at < NOW() - INTERVAL '1 day' * :days)
@@ -2009,7 +2014,7 @@ class NeuroMemory:
     async def entity_profile(self, user_id: str, entity: str) -> dict:
         """Get all information about an entity across all memory types.
 
-        Searches embeddings (content mentions), graph edges, and conversations
+        Searches memories (content mentions), graph edges, and conversations
         to build a comprehensive entity profile.
 
         Args:
@@ -2034,7 +2039,7 @@ class NeuroMemory:
             rows = (await session.execute(
                 sql_text("""
                     SELECT id, content, memory_type, metadata, created_at
-                    FROM embeddings
+                    FROM memories
                     WHERE user_id = :uid AND LOWER(content) LIKE :pattern
                     ORDER BY created_at DESC LIMIT 20
                 """),

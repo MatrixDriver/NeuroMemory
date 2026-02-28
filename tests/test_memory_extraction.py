@@ -259,7 +259,7 @@ async def test_extract_with_emotion_and_importance(db_session, mock_embedding):
 
     # Verify metadata in DB
     rows = await db_session.execute(
-        text("SELECT metadata FROM embeddings WHERE user_id = :uid"),
+        text("SELECT metadata FROM memories WHERE user_id = :uid"),
         {"uid": "emotion_user"},
     )
     for row in rows.fetchall():
@@ -544,7 +544,7 @@ async def test_auto_extract_on_ingest(mock_embedding):
     # Verify memories were automatically extracted
     async with nm._db.session() as session:
         result = await session.execute(
-            text("SELECT content, memory_type FROM embeddings WHERE user_id = :uid"),
+            text("SELECT content, memory_type FROM memories WHERE user_id = :uid"),
             {"uid": "auto_user"},
         )
         rows = list(result.fetchall())
@@ -586,7 +586,7 @@ async def test_auto_extract_disabled(db_session, mock_embedding):
 
     # Verify NO memories were extracted
     result = await db_session.execute(
-        text("SELECT COUNT(*) FROM embeddings WHERE user_id = :uid"),
+        text("SELECT COUNT(*) FROM memories WHERE user_id = :uid"),
         {"uid": "manual_user"},
     )
     count = result.scalar()
@@ -636,7 +636,7 @@ async def test_auto_extract_batch_messages(db_session, mock_embedding):
 
     # Verify memories were extracted
     result = await db_session.execute(
-        text("SELECT COUNT(*) FROM embeddings WHERE user_id = :uid AND memory_type = 'fact'"),
+        text("SELECT COUNT(*) FROM memories WHERE user_id = :uid AND memory_type = 'fact'"),
         {"uid": "batch_user"},
     )
     count = result.scalar()

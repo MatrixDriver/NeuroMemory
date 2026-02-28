@@ -43,7 +43,7 @@ class TestDeleteUserData:
         result = await nm_graph.delete_user_data(user_id)
 
         assert "deleted" in result
-        assert result["deleted"]["embeddings"] >= 1
+        assert result["deleted"]["memories"] >= 1
         assert result["deleted"]["conversations"] >= 1
         assert result["deleted"]["key_values"] >= 1
         assert result["deleted"]["graph_nodes"] >= 1
