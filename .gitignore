@@ -22,8 +22,10 @@ pgdata/
 .claude/
 tmpclaude-*
 
-# rpiv 过程文件目录
-rpiv/
+# rpiv 临时文件
+rpiv/archive/
+rpiv/issues/
+rpiv/biubiubiu-preview.html
 
 # Evaluation data & results
 evaluation/data/*.json
