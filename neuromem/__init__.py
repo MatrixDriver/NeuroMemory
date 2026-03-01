@@ -1,6 +1,6 @@
 """neuromem - Memory management framework for AI agents."""
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 from neuromem._core import ExtractionStrategy, NeuroMemory
 from neuromem.db import Database

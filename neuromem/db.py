@@ -119,21 +119,8 @@ class Database:
             for col_sql in migration_columns:
                 await conn.execute(text(col_sql))
 
-            # Step 4b: Add CHECK constraint for memory_type (idempotent)
-            await conn.execute(text("""
-                DO $$ BEGIN
-                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_memory_type') THEN
-                    ALTER TABLE memories ADD CONSTRAINT chk_memory_type CHECK (memory_type IN ('fact', 'episodic', 'trait', 'document'));
-                  END IF;
-                END $$;
-            """))
-
-            # Step 5: conversation_sessions add column
-            await conn.execute(text(
-                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS last_reflected_at TIMESTAMPTZ"
-            ))
-
-            # Step 6: Data backfill (idempotent)
+            # Step 4b: Data backfill BEFORE constraint (idempotent)
+            # Must convert legacy types before adding CHECK constraint
             # general -> fact
             await conn.execute(text(
                 "UPDATE memories SET memory_type = 'fact' WHERE memory_type = 'general'"
@@ -147,6 +134,22 @@ class Database:
                     trait_window_end = created_at + interval '30 days'
                 WHERE memory_type = 'insight'
             """))
+
+            # Step 4c: Add CHECK constraint for memory_type (idempotent)
+            await conn.execute(text("""
+                DO $$ BEGIN
+                  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_memory_type') THEN
+                    ALTER TABLE memories ADD CONSTRAINT chk_memory_type CHECK (memory_type IN ('fact', 'episodic', 'trait', 'document'));
+                  END IF;
+                END $$;
+            """))
+
+            # Step 5: conversation_sessions add column
+            await conn.execute(text(
+                "ALTER TABLE conversation_sessions ADD COLUMN IF NOT EXISTS last_reflected_at TIMESTAMPTZ"
+            ))
+
+            # Step 6: Remaining data backfill (idempotent)
             # trait metadata -> dedicated columns
             await conn.execute(text("""
                 UPDATE memories SET
