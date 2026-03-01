@@ -560,6 +560,7 @@ class NeuroMemory:
         on_extraction: Callable[[dict], Any] | None = None,
         on_llm_call: Callable[[dict], Any] | None = None,
         on_embedding_call: Callable[[dict], Any] | None = None,
+        encryption=None,
     ):
         """
         Args:
@@ -582,6 +583,9 @@ class NeuroMemory:
         _models._embedding_dims = embedding.dims
 
         self._db = Database(database_url, pool_size=pool_size, echo=echo)
+        self._encryption = encryption
+        if encryption:
+            self._db.setup_encryption(encryption)
         self._on_llm_call = on_llm_call
         self._on_embedding_call = on_embedding_call
         # Wrap providers with instrumented proxies (callbacks read dynamically)
@@ -774,6 +778,17 @@ class NeuroMemory:
         self._embedding_cache.clear()
         logger.info("Embedding cache cleared")
 
+    def _decrypt_content(self, content: str) -> str:
+        """Decrypt content if encryption is enabled and value is encrypted."""
+        if not self._encryption:
+            return content
+        from neuromem.db import _is_encrypted
+        if not _is_encrypted(content):
+            return content
+        import json
+        envelope = json.loads(content)
+        return self._encryption.decrypt(envelope)
+
     # -- Auto-extraction internals --
 
     async def _on_session_closed(self, user_id: str, session_id: str) -> None:
@@ -904,7 +919,7 @@ class NeuroMemory:
         from neuromem.services.search import SearchService
 
         async with self._db.session() as session:
-            svc = SearchService(session, self._embedding, self._db.pg_search_available)
+            svc = SearchService(session, self._embedding, self._db.pg_search_available, encryption=self._encryption)
             record = await svc.add_memory(user_id, content, memory_type, metadata)
 
             # Conflict detection for fact-type memories
@@ -1258,7 +1273,7 @@ class NeuroMemory:
             for row in rows:
                 conversations.append({
                     "id": str(row.id),
-                    "content": row.content,
+                    "content": self._decrypt_content(row.content),
                     "role": row.role,
                     "session_id": row.session_id,
                     "created_at": row.created_at,
@@ -1303,7 +1318,7 @@ class NeuroMemory:
         # User explicitly specified memory_type → single search
         if memory_type:
             async with self._db.session() as session:
-                svc = SearchService(session, self._embedding, self._db.pg_search_available)
+                svc = SearchService(session, self._embedding, self._db.pg_search_available, encryption=self._encryption)
                 return await svc.scored_search(
                     user_id, query, limit,
                     memory_type=memory_type,
@@ -1316,7 +1331,7 @@ class NeuroMemory:
             # Two sub-searches in parallel using separate sessions
             async def _episodic():
                 async with self._db.session() as s:
-                    svc = SearchService(s, self._embedding, self._db.pg_search_available)
+                    svc = SearchService(s, self._embedding, self._db.pg_search_available, encryption=self._encryption)
                     return await svc.scored_search(
                         user_id, query, limit,
                         memory_type="episodic",
@@ -1327,7 +1342,7 @@ class NeuroMemory:
 
             async def _facts():
                 async with self._db.session() as s:
-                    svc = SearchService(s, self._embedding, self._db.pg_search_available)
+                    svc = SearchService(s, self._embedding, self._db.pg_search_available, encryption=self._encryption)
                     return await svc.scored_search(
                         user_id, query, limit,
                         exclude_types=["episodic"],
@@ -1344,7 +1359,7 @@ class NeuroMemory:
             return merged[:limit]
         else:
             async with self._db.session() as session:
-                svc = SearchService(session, self._embedding, self._db.pg_search_available)
+                svc = SearchService(session, self._embedding, self._db.pg_search_available, encryption=self._encryption)
                 return await svc.scored_search(
                     user_id, query, limit,
                     **common_kwargs,
@@ -1550,7 +1565,7 @@ class NeuroMemory:
                 {"uid": user_id},
             )
             existing_insights = [
-                {"content": r.content, "metadata": r.metadata}
+                {"content": self._decrypt_content(r.content), "metadata": r.metadata}
                 for r in result.fetchall()
             ]
 
@@ -1581,7 +1596,7 @@ class NeuroMemory:
                 for row in result.fetchall():
                     batch.append({
                         "id": str(row.id),
-                        "content": row.content,
+                        "content": self._decrypt_content(row.content),
                         "memory_type": row.memory_type,
                         "metadata": row.metadata,
                         "created_at": row.created_at,

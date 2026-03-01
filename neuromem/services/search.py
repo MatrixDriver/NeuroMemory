@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from neuromem.db import _is_encrypted
 from neuromem.models.memory import Memory
 from neuromem.providers.embedding import EmbeddingProvider
 
@@ -36,10 +38,11 @@ def _sanitize_bm25_query(query: str) -> str:
 
 
 class SearchService:
-    def __init__(self, db: AsyncSession, embedding: EmbeddingProvider, pg_search_available: bool = False):
+    def __init__(self, db: AsyncSession, embedding: EmbeddingProvider, pg_search_available: bool = False, encryption=None):
         self.db = db
         self._embedding = embedding
-        self._pg_search = pg_search_available
+        self._pg_search = pg_search_available if not encryption else False
+        self._encryption = encryption
 
     async def add_memory(
         self,
@@ -213,7 +216,7 @@ class SearchService:
         results = [
             {
                 "id": str(row.id),
-                "content": row.content,
+                "content": self._maybe_decrypt(row.content),
                 "memory_type": row.memory_type,
                 "metadata": row.metadata,
                 "created_at": row.created_at,
@@ -230,6 +233,17 @@ class SearchService:
             await self._update_access_tracking(user_id, [r["id"] for r in results])
 
         return results
+
+    def _maybe_decrypt(self, content: str) -> str:
+        """Decrypt content if encryption is enabled and value is encrypted."""
+        if not self._encryption or not _is_encrypted(content):
+            return content
+        try:
+            envelope = json.loads(content)
+            return self._encryption.decrypt(envelope)
+        except Exception as e:
+            logger.warning("Failed to decrypt search result content: %s", e)
+            return content
 
     async def scored_search(
         self,
@@ -408,7 +422,7 @@ class SearchService:
         results = [
             {
                 "id": str(row.id),
-                "content": row.content,
+                "content": self._maybe_decrypt(row.content),
                 "memory_type": row.memory_type,
                 "metadata": row.metadata,
                 "created_at": row.created_at,

@@ -1,12 +1,26 @@
 """Database management - engine, session factory, initialization."""
 
+from __future__ import annotations
+
+import json
 import logging
 from contextlib import asynccontextmanager
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 logger = logging.getLogger(__name__)
+
+
+def _is_encrypted(value) -> bool:
+    """Check if a string value is an encrypted envelope (JSON with encrypted_dek)."""
+    if not isinstance(value, str):
+        return False
+    try:
+        obj = json.loads(value)
+        return isinstance(obj, dict) and "encrypted_dek" in obj
+    except (json.JSONDecodeError, TypeError):
+        return False
 
 
 class Database:
@@ -278,6 +292,50 @@ class Database:
             except Exception as e:
                 logger.warning("Failed to create BM25 index: %s", e)
 
+
+    def setup_encryption(self, enc_service) -> None:
+        """Register SQLAlchemy event hooks for transparent content encryption.
+
+        Encrypts Memory.content and Conversation.content on flush,
+        restores plaintext on Python objects after flush,
+        and decrypts on load from DB.
+        """
+        from neuromem.models.conversation import Conversation
+        from neuromem.models.memory import Memory
+
+        encrypted_models = {Memory, Conversation}
+
+        @event.listens_for(self.session_factory, "before_flush")
+        def _before_flush(session, flush_context, instances):
+            for obj in list(session.new) + list(session.dirty):
+                if type(obj) not in encrypted_models:
+                    continue
+                content = getattr(obj, "content", None)
+                if content and isinstance(content, str) and not _is_encrypted(content):
+                    envelope = enc_service.encrypt(content)
+                    obj._plaintext_cache = content
+                    obj.content = json.dumps(envelope)
+
+        @event.listens_for(self.session_factory, "after_flush")
+        def _after_flush(session, flush_context):
+            for obj in list(session.new) + list(session.identity_map.values()):
+                if type(obj) not in encrypted_models:
+                    continue
+                cached = getattr(obj, "_plaintext_cache", None)
+                if cached is not None:
+                    obj.content = cached
+                    del obj._plaintext_cache
+
+        for model_cls in encrypted_models:
+            @event.listens_for(model_cls, "load")
+            def _on_load(target, context, model_cls=model_cls):
+                content = getattr(target, "content", None)
+                if content and isinstance(content, str) and _is_encrypted(content):
+                    try:
+                        envelope = json.loads(content)
+                        target.content = enc_service.decrypt(envelope)
+                    except Exception as e:
+                        logger.warning("Failed to decrypt %s content: %s", type(target).__name__, e)
 
     async def close(self) -> None:
         """Dispose engine and release all connections."""
