@@ -222,7 +222,7 @@ class ConversationsFacade:
         self._graph_enabled = _graph_enabled
         self._get_on_extraction = _get_on_extraction
 
-    async def ingest(self, user_id: str, role: str, content: str, session_id: str | None = None, metadata: dict | None = None):
+    async def ingest(self, user_id: str, role: str, content: str, session_id: str | None = None, metadata: dict | None = None, auto_extract: bool | None = None):
         from neuromem.services.conversation import ConversationService
         async with self._db.session() as session:
             svc = ConversationService(session)
@@ -240,7 +240,8 @@ class ConversationsFacade:
 
         # Auto-extract (new logic, like mem0)
         # 🚀 优化：只对 user 消息提取记忆，AI 回复不包含用户信息
-        if self._auto_extract and self._llm and self._embedding and role == "user":
+        should_extract = auto_extract if auto_extract is not None else self._auto_extract
+        if should_extract and self._llm and self._embedding and role == "user":
             asyncio.create_task(self._extract_single_message_async(user_id, msg.session_id, [msg]))
 
         return msg
@@ -644,10 +645,11 @@ class NeuroMemory:
         content: str,
         session_id: str | None = None,
         metadata: dict | None = None,
+        auto_extract: bool | None = None,
     ):
         """Add a conversation message (shortcut for conversations.ingest)."""
         return await self.conversations.ingest(
-            user_id, role, content, session_id, metadata,
+            user_id, role, content, session_id, metadata, auto_extract=auto_extract,
         )
 
     # -- Dynamic configuration properties --
