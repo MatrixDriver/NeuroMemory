@@ -53,7 +53,7 @@ def create_nm(cfg: EvalConfig) -> NeuroMemory:
         llm=llm,
         graph_enabled=cfg.graph_enabled,
         reflection_interval=cfg.reflection_interval,
-        pool_size=30,
+        pool_size=20,
     )
 
 
@@ -72,7 +72,7 @@ async def cleanup_user(nm: NeuroMemory, user_id: str) -> None:
         for table in [
             "conversations",
             "conversation_sessions",
-            "embeddings",
+            "memories",
             "graph_nodes",
             "graph_edges",
         ]:
@@ -94,7 +94,7 @@ async def set_timestamps(
     session_id: str,
     timestamp: datetime,
 ) -> None:
-    """Backfill created_at for conversations and embeddings to match dataset time."""
+    """Backfill created_at for conversations and memories to match dataset time."""
     async with nm._db.session() as session:
         await session.execute(
             text(
@@ -123,7 +123,7 @@ async def set_embedding_timestamps(
         if embedding_ids:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET created_at = :ts "
+                    "UPDATE memories SET created_at = :ts "
                     "WHERE user_id = :uid AND id = ANY(:ids)"
                 ),
                 {"ts": timestamp, "uid": user_id, "ids": embedding_ids},
@@ -131,7 +131,7 @@ async def set_embedding_timestamps(
         else:
             await session.execute(
                 text(
-                    "UPDATE embeddings SET created_at = :ts "
+                    "UPDATE memories SET created_at = :ts "
                     "WHERE user_id = :uid"
                 ),
                 {"ts": timestamp, "uid": user_id},

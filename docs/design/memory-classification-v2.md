@@ -1,8 +1,8 @@
 # 记忆分类体系 V2 设计文档
 
-> **状态**: 设计确认，待实施
+> **状态**: V2 核心已实施完成（2026-03-01 代码扫描确认），P1/P2 演进待实施
 > **创建日期**: 2026-02-28
-> **更新日期**: 2026-02-28（合入 P0 调研建议 + insight 降级为 trait trend 阶段）
+> **更新日期**: 2026-03-01（代码扫描确认 V2 核心全部实现，更新实施状态）
 > **参与者**: Jacky + Claude
 > **关联**: `docs/memory-architecture.md`（现有架构）
 > **调研报告**: `docs/design/research/01~05`（5 份独立调研，覆盖认知心理学/学术研究/MemGPT/商业系统/Personal AI）
@@ -658,16 +658,20 @@ final_score = base_score * (1 + recency + importance + trait_boost[stage])
 
 ## 8. 未来演进方向
 
-### 8.1 近期（V2 实施）
+### 8.1 近期（V2 实施）— ✅ 已全部完成（2026-03-01 确认）
 
-- 实现 trait memory_type 和三层子类
-- `[P0-已合入]` 情境标注前置（behavior 层即附带情境标签）
-- `[P0-已合入]` 证据质量四级分级（A/B/C/D）
-- `[P0-已合入]` 反思混合触发机制（重要度累积 + 定时 + 会话结束）
-- `[P0-已合入]` 衰减间隔效应（λ 随强化次数递减）
-- reflection 引擎增加 trait 生成和升级逻辑
-- 矛盾检测和专项反思机制
-- recall 中的 trait 权重和阶段过滤
+- ✅ trait memory_type 和三层子类（`models/memory.py`, `services/trait_engine.py`）
+- ✅ `[P0]` 情境标注前置（`trait_context` 字段，reflection LLM 推断）
+- ✅ `[P0]` 证据质量四级分级（`models/trait_evidence.py`, `_QUALITY_FACTORS`）
+- ✅ `[P0]` 反思混合触发机制（重要度累积≥30 / 定时24h / 会话结束 / 强制）
+- ✅ `[P0]` 衰减间隔效应（`_BASE_LAMBDA` + `reinforcement_count`）
+- ✅ reflection 引擎 9 步管道（`services/reflection.py`）
+- ✅ 矛盾检测和专项反思机制（`trait_engine.resolve_contradiction`）
+- ✅ recall 中的 trait 权重和阶段过滤（`services/search.py`）
+- ✅ insight 降级为 trait trend + general 类型废弃（向后兼容映射）
+- ✅ trait 生命周期全 6 阶段（trend/candidate/emerging/established/core/dissolved）
+- ✅ valid_window 时间窗口管理（`trait_window_start/end`）
+- ✅ child_traits/parent_trait 引用（`trait_parent_id` 字段，反向通过 SQL 查询）
 
 ### 8.2 中期（P1 调研建议）
 

@@ -1,8 +1,8 @@
 # 存储方案 V2 设计文档
 
-> **状态**: 设计草案（头脑风暴产出）→ 修订版
+> **状态**: P0 存储任务大部分已实现（2026-03-01 代码扫描确认），P1 分区/优化待实施
 > **创建日期**: 2026-02-28
-> **修订日期**: 2026-02-28（应用 3 维度批判性审查的 17 条修订建议）
+> **修订日期**: 2026-03-01（代码扫描确认实现状态，更新路线图标记）
 > **前置文档**: `memory-classification-v2.md`（记忆分类 V2）
 > **调研基础**: 8 份独立调研（PG JSONB/pgvector/Mem0/Zep-Graphiti/Letta/学术方案/PG高级特性/图存储）
 
@@ -877,33 +877,38 @@ embedding = Column(HALFVEC(settings.EMBEDDING_DIM))
 
 ## 9. 实施路线图
 
-### P0（V2 核心，与记忆分类 V2 同步实施）
+### P0（V2 核心，与记忆分类 V2 同步实施）— 2026-03-01 确认状态
 
-| 任务 | 说明 | 工作量 |
-|------|------|--------|
-| 添加 trait 专用列 | 在现有表上 ADD COLUMN（12 列） | 小 |
-| 添加双时间线字段 | valid_at/invalid_at/expired_at/updated_at | 小 |
-| 添加 content_hash | MD5 去重字段 | 小 |
-| 创建 trait_evidence 表 | 独立证据链表 | 小 |
-| 创建 memory_history 表 | 变更审计日志 | 小 |
-| 创建 reflection_cycles 表 | 反思记录 | 小 |
-| 创建 memory_sources 表 | 对话关联溯源 | 小 |
-| 更新 ORM 模型 | Memory 模型添加新字段 | 中 |
-| 更新索引 | trait 专用索引 + trend 窗口索引 | 小 |
-| halfvec 迁移 | vector → halfvec | 中（需重建向量索引） |
-| 实现操作模型 | ADD/UPDATE/DELETE/NOOP 四操作 | 中 |
-| 实现乐观锁 | version 字段并发控制 | 小 |
+| 任务 | 说明 | 状态 | 代码位置 |
+|------|------|------|----------|
+| 添加 trait 专用列 | 12 列 trait 专用字段 | ✅ 已完成 | `models/memory.py:67-80` |
+| 添加双时间线字段 | valid_at/invalid_at/expired_at/updated_at | ✅ 已完成 | `models/memory.py:42-58` |
+| 添加 content_hash | MD5 去重字段 | ✅ 已完成 | `models/memory.py:64` |
+| 创建 trait_evidence 表 | 独立证据链表 | ✅ 已完成 | `models/trait_evidence.py` |
+| 创建 memory_history 表 | 变更审计日志 | ✅ 已完成 | `models/memory_history.py` |
+| 创建 reflection_cycles 表 | 反思记录 | ✅ 已完成 | `models/reflection_cycle.py` |
+| 创建 memory_sources 表 | 对话关联溯源 | ✅ 已完成 | `models/memory_source.py` |
+| 更新 ORM 模型 | Memory 模型添加新字段 | ✅ 已完成 | `models/memory.py` |
+| 更新索引 | trait 专用索引 + trend 窗口索引 | ✅ 已完成 | `db.py:215-236` |
+| halfvec 迁移 | vector → halfvec | ✅ 已完成 | `models/memory.py:25`, `db.py:200-212` 自动迁移 |
+| 表名迁移 | embeddings → memories | ✅ 已完成 | `db.py:91` 自动迁移 |
+| BM25 全文索引 | pg_search + tsvector 降级 | ✅ 已完成 | `db.py:281-293`, `services/search.py` |
+| RRF 融合搜索 | 向量 + BM25 + 四维评分 | ✅ 已完成 | `services/search.py:92-235` |
+| 实现操作模型 | ADD/UPDATE/DELETE/NOOP 四操作 | ⚠️ 仅 Graph 模块 | `services/graph_memory.py:267-304`，Memory 表用 supersede |
+| 实现乐观锁 | version 字段并发控制 | ⚠️ 字段存在未使用 | `models/memory.py:48-50`，trait_engine 未做版本检查 |
 
-### P1（分区 + 高级特性，数据量增长后）
+### P1（分区 + 高级特性，数据量增长后）— 待实施
 
-| 任务 | 说明 | 工作量 |
-|------|------|--------|
-| LIST 分区迁移 | 单表 → 分区表 + fillfactor/autovacuum 调优 | 大（数据迁移） |
-| 物化视图 | mv_trait_decayed | 中 |
-| 定时任务 | 衰减/清理/MV 刷新/一致性检查 | 中 |
-| RLS 多租户 | Cloud 部署 | 中 |
-| BM25 混合检索 | pg_search 或原生 tsvector | 中 |
-| Sleep-time 反思 | 异步 worker 架构 | 中 |
+| 任务 | 说明 | 工作量 | 状态 |
+|------|------|--------|------|
+| LIST 分区迁移 | 单表 → 分区表 + fillfactor/autovacuum 调优 | 大（数据迁移） | ❌ 待实施 |
+| 物化视图 | mv_trait_decayed 衰减预计算 | 中 | ❌ 待实施（当前实时计算） |
+| 定时任务 | 衰减/清理/MV 刷新/一致性检查 | 中 | ❌ 待实施 |
+| RLS 多租户 | Cloud 部署（当前 Cloud 用 schema 隔离） | 中 | ❌ 待实施 |
+| ~~BM25 混合检索~~ | ~~pg_search 或原生 tsvector~~ | ~~中~~ | ✅ 已在 P0 完成 |
+| Sleep-time 反思 | 独立 worker 守护进程 | 中 | ⚠️ 部分（有后台触发，无独立 daemon） |
+| 乐观锁启用 | trait_engine 中使用 version 并发控制 | 小 | ❌ 待实施 |
+| 四操作模型泛化 | Memory 表实现 ADD/UPDATE/DELETE/NOOP | 中 | ❌ 待实施（当前仅 Graph） |
 
 ### P2（远期优化）
 

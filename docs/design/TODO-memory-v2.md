@@ -1,5 +1,7 @@
-# 记忆分类 V2 — 待实施改进项
+# 记忆分类 V2 — 演进改进项
 
+> **状态**: V2 核心已全部实现（2026-03-01 确认），以下为待实施的 P1/P2 演进功能
+> **跟踪文件**: `rpiv/todo/feature-memory-v2-p1.md`（P1）、`rpiv/todo/feature-memory-v2-p2.md`（P2）
 > 来源：2026-02-28 全球调研（5 份报告）
 > 设计文档：`memory-classification-v2.md`
 > 调研报告：`research/01~05`

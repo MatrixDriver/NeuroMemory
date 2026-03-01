@@ -116,18 +116,53 @@
         "4": {"count": 832, "judge": 0.809, "f1": 0.317}
       },
       "notes": "Preferences 合并进 profile namespace，重构无功能变化。Judge 0.8017，与 R12 持平"
+    },
+    {
+      "test_id": "2026-03-01_classification_v2",
+      "date": "2026-03-01",
+      "name": "Memory Classification V2 + OpenAI via OpenRouter (R14)",
+      "commit": "cb258aa",
+      "branch": "master",
+      "judge_score": 0.806,
+      "f1": 0.256,
+      "bleu1": 0.203,
+      "improvement_vs_previous": 0.5,
+      "total_questions": 1483,
+      "results_file": "locomo_results.json",
+      "by_category": {
+        "1": {"count": 274, "judge": 0.807, "f1": 0.188},
+        "2": {"count": 307, "judge": 0.756, "f1": 0.301},
+        "3": {"count": 90,  "judge": 0.911, "f1": 0.128},
+        "4": {"count": 812, "judge": 0.813, "f1": 0.276}
+      },
+      "config": {
+        "llm": "openai/gpt-4o-mini via OpenRouter",
+        "embedding": "openai/text-embedding-3-small via OpenRouter",
+        "judge": "openai/gpt-4o-mini via OpenRouter",
+        "decay_rate_days": 365,
+        "reflection_interval": 20,
+        "graph_enabled": false
+      },
+      "notes": "记忆分类 V2 重构（fact/episodic/trait/document 四分类，insight 降级为 trait.trend，新增 trait 三层子类）。LLM/Embedding 从 DeepSeek+SiliconFlow 切换为 OpenAI via OpenRouter。Overall Judge 0.806（+0.5% vs R13）。Open-domain +9.2%，Temporal +4.0%，Multi-hop -6.4%。57 题因 ingest embedding 错误丢失",
+      "investigation": {
+        "issue": "Multi-hop -6.4%（0.871→0.807）退化原因分析",
+        "hypothesis_tested": "trend trait 过滤器排除了旧 insight，导致多跳推理缺失高级语义",
+        "fix_applied": "search.py:329 移除 trend 排除 + 添加 trend boost=0.02",
+        "r15_result": {"judge": 0.785, "multi_hop": 0.802, "total_questions": 1425},
+        "conclusion": "修复无效（Overall 0.806→0.785，multi-hop 持平 0.802），放开 trend 引入噪声导致全面下降。已回滚。退化原因确认为 LLM/Embedding 模型切换（DeepSeek+SiliconFlow → OpenAI gpt-4o-mini），非分类重构问题"
+      }
     }
   ],
 
   "latest": {
-    "test_id": "2026-02-21_profile_refactor",
-    "judge_score": 0.8017
+    "test_id": "2026-03-01_classification_v2",
+    "judge_score": 0.806
   },
 
   "best": {
     "judge_score": {
-      "test_id": "2026-02-21_profile_refactor",
-      "score": 0.8017
+      "test_id": "2026-03-01_classification_v2",
+      "score": 0.806
     },
     "ingest_speed": {
       "test_id": "2025-02-16_perf_opt",

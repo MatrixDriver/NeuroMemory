@@ -34,7 +34,7 @@ def get_memory_stats(db_url: str) -> Dict[str, int]:
     with engine.connect() as conn:
         result = conn.execute(text("""
             SELECT user_id, COUNT(*) as count
-            FROM embeddings
+            FROM memories
             GROUP BY user_id
             ORDER BY user_id
         """))
