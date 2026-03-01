@@ -23,7 +23,6 @@ pgdata/
 tmpclaude-*
 
 # rpiv 临时文件
-rpiv/archive/
 rpiv/issues/
 rpiv/biubiubiu-preview.html
 
