@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeuroMem 存储架构可视化</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #e6edf3; --text2: #8b949e;
+    --accent: #58a6ff; --green: #3fb950; --purple: #bc8cff;
+    --orange: #d29922; --red: #f85149; --pink: #f778ba;
+    --cyan: #39d353; --yellow: #e3b341;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    line-height: 1.6; padding: 2rem; max-width: 1400px; margin: 0 auto;
+  }
+  h1 { text-align: center; font-size: 2rem; margin-bottom: 0.3rem; }
+  .subtitle { text-align: center; color: var(--text2); margin-bottom: 2.5rem; font-size: 0.95rem; }
+  .section { margin-bottom: 3rem; }
+  .section-title {
+    font-size: 1.35rem; font-weight: 700; margin-bottom: 1.2rem;
+    padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 2.5rem 0; }
+
+  /* ===== 技术栈分层图 ===== */
+  .stack-diagram {
+    display: flex; flex-direction: column; gap: 0;
+    border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+  .stack-layer {
+    display: grid; grid-template-columns: 200px 1fr;
+    border-bottom: 1px solid var(--border); min-height: 80px;
+  }
+  .stack-layer:last-child { border-bottom: none; }
+  .stack-label {
+    padding: 1rem 1.2rem; display: flex; flex-direction: column;
+    justify-content: center; font-weight: 700; font-size: 0.9rem;
+  }
+  .stack-label-sub { font-size: 0.75rem; font-weight: 400; color: var(--text2); margin-top: 2px; }
+  .stack-content {
+    padding: 1rem 1.2rem; display: flex; flex-wrap: wrap;
+    gap: 0.6rem; align-items: center; border-left: 1px solid var(--border);
+  }
+  .stack-chip {
+    padding: 6px 14px; border-radius: 8px; font-size: 0.82rem;
+    font-weight: 600; white-space: nowrap;
+  }
+  .stack-chip-desc {
+    font-size: 0.7rem; font-weight: 400; opacity: 0.75; display: block; margin-top: 1px;
+  }
+  .layer-app .stack-label { background: rgba(88,166,255,0.08); color: var(--accent); }
+  .layer-app .stack-chip { background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.3); color: var(--accent); }
+  .layer-orm .stack-label { background: rgba(188,140,255,0.08); color: var(--purple); }
+  .layer-orm .stack-chip { background: rgba(188,140,255,0.1); border: 1px solid rgba(188,140,255,0.3); color: var(--purple); }
+  .layer-ext .stack-label { background: rgba(63,185,80,0.08); color: var(--green); }
+  .layer-ext .stack-chip { background: rgba(63,185,80,0.1); border: 1px solid rgba(63,185,80,0.3); color: var(--green); }
+  .layer-pg .stack-label { background: rgba(210,153,34,0.08); color: var(--orange); }
+  .layer-pg .stack-chip { background: rgba(210,153,34,0.1); border: 1px solid rgba(210,153,34,0.3); color: var(--orange); }
+  .layer-infra .stack-label { background: rgba(248,81,73,0.08); color: var(--red); }
+  .layer-infra .stack-chip { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.3); color: var(--red); }
+
+  /* ===== 映射表 ===== */
+  .mapping-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  .mapping-header {
+    padding: 0.8rem 1.2rem; font-weight: 700; font-size: 0.95rem;
+    border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem;
+  }
+  .mapping-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .mapping-table th {
+    text-align: left; padding: 0.6rem 1rem; color: var(--text2);
+    font-weight: 600; font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.5px; border-bottom: 1px solid var(--border);
+    background: rgba(22,27,34,0.6);
+  }
+  .mapping-table td {
+    padding: 0.6rem 1rem; border-bottom: 1px solid rgba(48,54,61,0.4); vertical-align: top;
+  }
+  .mapping-table tr:last-child td { border-bottom: none; }
+  .mapping-table tr:hover td { background: rgba(88,166,255,0.03); }
+  .mapping-table code {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    background: rgba(110,118,129,0.1); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem;
+  }
+
+  /* ===== 技术标签 ===== */
+  .tt { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; margin: 1px 2px; }
+  .tt-pg { background: rgba(210,153,34,0.12); color: var(--orange); }
+  .tt-vec { background: rgba(63,185,80,0.12); color: var(--green); }
+  .tt-bm { background: rgba(188,140,255,0.12); color: var(--purple); }
+  .tt-sq { background: rgba(88,166,255,0.12); color: var(--accent); }
+  .tt-tv { background: rgba(227,179,65,0.12); color: var(--yellow); }
+
+  /* ===== 双栏 ===== */
+  .dual { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+  @media (max-width: 1000px) { .dual { grid-template-columns: 1fr; } }
+
+  /* ===== 卡片 ===== */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .card-h { padding: 0.8rem 1rem; font-weight: 700; font-size: 0.9rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem; }
+
+  /* Schema rows */
+  .fr { display: grid; grid-template-columns: 28px 155px 145px 1fr; padding: 0.4rem 1rem; font-size: 0.82rem; border-bottom: 1px solid rgba(48,54,61,0.4); align-items: center; }
+  .fr:last-child { border-bottom: none; }
+  .fr:hover { background: rgba(88,166,255,0.03); }
+  .fi { text-align: center; font-size: 0.72rem; }
+  .fi-pk { color: var(--orange); } .fi-ix { color: var(--accent); }
+  .fi-v { color: var(--green); } .fi-fk { color: var(--purple); }
+  .fn { font-family: 'Cascadia Code', 'Fira Code', monospace; font-weight: 600; }
+  .ft { color: var(--text2); font-family: monospace; font-size: 0.78rem; }
+  .fd { color: var(--text2); font-size: 0.78rem; }
+
+  /* JSON */
+  .json { padding: 1rem; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.78rem; line-height: 1.7; overflow-x: auto; white-space: pre; }
+  .jk { color: var(--accent); } .js { color: var(--green); } .jn { color: var(--orange); }
+  .jnl { color: var(--red); font-style: italic; } .jb { color: var(--purple); }
+  .jc { color: var(--text2); font-style: italic; }
+
+  /* SQL */
+  .sql { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.78rem; line-height: 1.8; overflow-x: auto; white-space: pre; margin: 0.8rem 0; }
+  .sk { color: var(--purple); font-weight: 600; } .sf { color: var(--accent); }
+  .ss { color: var(--green); } .sn { color: var(--orange); }
+  .so { color: var(--pink); } .sc { color: var(--text2); font-style: italic; }
+  .st { color: var(--yellow); }
+
+  /* Flow */
+  .flow { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; margin: 1rem 0; }
+  .fs { display: flex; gap: 1rem; align-items: flex-start; padding: 0.8rem 0; border-bottom: 1px solid rgba(48,54,61,0.3); }
+  .fs:last-child { border-bottom: none; }
+  .sn { min-width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.85rem; flex-shrink: 0; }
+  .s1 { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .s2 { background: rgba(188,140,255,0.15); color: var(--purple); }
+  .s3 { background: rgba(63,185,80,0.15); color: var(--green); }
+  .s4 { background: rgba(210,153,34,0.15); color: var(--orange); }
+  .s5 { background: rgba(248,81,73,0.15); color: var(--red); }
+  .s6 { background: rgba(247,120,186,0.15); color: var(--pink); }
+  .sb { flex: 1; }
+  .sh { font-weight: 700; font-size: 0.95rem; }
+  .sd { color: var(--text2); font-size: 0.82rem; margin-top: 0.2rem; }
+  .sd code { font-family: 'Cascadia Code', monospace; background: rgba(110,118,129,0.15); padding: 1px 5px; border-radius: 3px; }
+
+  /* 索引 */
+  .ig { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+  .ic { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; }
+  .ic h4 { font-size: 0.9rem; margin-bottom: 0.6rem; }
+  .ie { font-family: monospace; font-size: 0.78rem; color: var(--text2); padding: 3px 0; border-bottom: 1px dashed rgba(48,54,61,0.3); display: flex; justify-content: space-between; align-items: center; }
+  .ie:last-child { border-bottom: none; }
+  .it { font-size: 0.68rem; padding: 1px 6px; border-radius: 4px; font-weight: 600; white-space: nowrap; }
+  .it-b { background: rgba(210,153,34,0.12); color: var(--orange); }
+  .it-r { background: rgba(248,81,73,0.12); color: var(--red); }
+  .it-i { background: rgba(63,185,80,0.12); color: var(--green); }
+  .it-m { background: rgba(188,140,255,0.12); color: var(--purple); }
+  .it-u { background: rgba(88,166,255,0.12); color: var(--accent); }
+
+  /* 3列 */
+  .c3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0; }
+  @media (max-width: 800px) { .c3 { grid-template-columns: 1fr; } }
+  .ib { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem; text-align: center; }
+  .ib h4 { margin-bottom: 0.4rem; font-size: 0.95rem; }
+  .ib p { color: var(--text2); font-size: 0.82rem; }
+
+  .svg-box { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem; display: flex; justify-content: center; margin: 1rem 0; }
+</style>
+</head>
+<body>
+
+<h1>NeuroMem 存储架构可视化</h1>
+<p class="subtitle">逻辑模型 + 技术实现全景 &mdash; PostgreSQL 18 + pgvector + pg_search (ParadeDB)</p>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 1. 技术栈分层 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">1. 技术栈分层总览</div>
+  <div class="stack-diagram">
+    <div class="stack-layer layer-app">
+      <div class="stack-label">Application<span class="stack-label-sub">neuromem SDK</span></div>
+      <div class="stack-content">
+        <div class="stack-chip">MemoryService<span class="stack-chip-desc">记忆 CRUD + 时间线</span></div>
+        <div class="stack-chip">SearchService<span class="stack-chip-desc">混合检索 + RRF 融合</span></div>
+        <div class="stack-chip">ConversationService<span class="stack-chip-desc">对话存储 + 自动提取</span></div>
+        <div class="stack-chip">GraphMemoryService<span class="stack-chip-desc">三元组知识图谱</span></div>
+        <div class="stack-chip">KVService<span class="stack-chip-desc">键值偏好</span></div>
+        <div class="stack-chip">EmotionService<span class="stack-chip-desc">三层情感</span></div>
+        <div class="stack-chip">DocumentService<span class="stack-chip-desc">文档管理</span></div>
+      </div>
+    </div>
+    <div class="stack-layer layer-orm">
+      <div class="stack-label">ORM / Driver<span class="stack-label-sub">Python 异步</span></div>
+      <div class="stack-content">
+        <div class="stack-chip">SQLAlchemy 2.x async<span class="stack-chip-desc">AsyncSession + AsyncEngine</span></div>
+        <div class="stack-chip">asyncpg<span class="stack-chip-desc">PostgreSQL C 扩展异步驱动</span></div>
+        <div class="stack-chip">pgvector-python<span class="stack-chip-desc">Vector() 列类型 ORM 映射</span></div>
+        <div class="stack-chip">pool_size=10<span class="stack-chip-desc">expire_on_commit=False, autoflush=False</span></div>
+      </div>
+    </div>
+    <div class="stack-layer layer-ext">
+      <div class="stack-label">PG Extensions<span class="stack-label-sub">SQL 级能力扩展</span></div>
+      <div class="stack-content">
+        <div class="stack-chip">pgvector<span class="stack-chip-desc">VECTOR 类型 + &lt;=&gt; cosine + IVFFlat 索引</span></div>
+        <div class="stack-chip">pg_search (ParadeDB)<span class="stack-chip-desc">BM25 索引 + @@@ 操作符 + Tantivy 引擎</span></div>
+        <div class="stack-chip" style="opacity:0.6">tsvector 降级<span class="stack-chip-desc">PG 内置全文检索 + @@ 操作符 (fallback)</span></div>
+      </div>
+    </div>
+    <div class="stack-layer layer-pg">
+      <div class="stack-label">PostgreSQL Core<span class="stack-label-sub">v18 存储引擎</span></div>
+      <div class="stack-content">
+        <div class="stack-chip">JSONB<span class="stack-chip-desc">元数据 / 属性 / 配置 (-&gt; -&gt;&gt; @&gt;)</span></div>
+        <div class="stack-chip">UUID<span class="stack-chip-desc">所有主键 (uuid_generate_v4)</span></div>
+        <div class="stack-chip">B-tree<span class="stack-chip-desc">等值 + 范围查询 (默认索引)</span></div>
+        <div class="stack-chip">BRIN<span class="stack-chip-desc">时间序列 (pages_per_range=128)</span></div>
+        <div class="stack-chip">CTE + Window<span class="stack-chip-desc">ROW_NUMBER() OVER 排名</span></div>
+        <div class="stack-chip">TIMESTAMPTZ<span class="stack-chip-desc">时区感知时间戳</span></div>
+        <div class="stack-chip">ARRAY(UUID)<span class="stack-chip-desc">来源记忆追踪</span></div>
+      </div>
+    </div>
+    <div class="stack-layer layer-infra">
+      <div class="stack-label">Infrastructure<span class="stack-label-sub">部署环境</span></div>
+      <div class="stack-content">
+        <div class="stack-chip">Docker: neuromem-postgres:18-vector<span class="stack-chip-desc">ParadeDB 定制镜像 (pgvector + pg_search 预装)</span></div>
+        <div class="stack-chip">Railway PostgreSQL<span class="stack-chip-desc">云端 (pgvector 可用, pg_search 不可用)</span></div>
+        <div class="stack-chip">S3 / MinIO<span class="stack-chip-desc">文档文件存储 (object_key)</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 2. 表 ↔ PG 技术映射 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">2. 数据表 &harr; PG 技术组件映射</div>
+  <div class="mapping-card">
+    <div class="mapping-header">每张表依赖的 PostgreSQL 特性一览</div>
+    <table class="mapping-table">
+      <thead><tr>
+        <th style="width:155px;">表名 (9张)</th>
+        <th style="width:90px;">数据规模</th>
+        <th>PG Core</th>
+        <th>pgvector</th>
+        <th>pg_search / tsvector</th>
+        <th>索引策略</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><code>embeddings</code></td>
+          <td style="color:var(--accent)">主表 / 最大</td>
+          <td><span class="tt tt-pg">UUID PK</span> <span class="tt tt-pg">JSONB</span> <span class="tt tt-pg">TIMESTAMPTZ</span></td>
+          <td><span class="tt tt-vec">VECTOR(1024)</span> <span class="tt tt-vec">&lt;=&gt; cosine</span></td>
+          <td><span class="tt tt-bm">BM25 @@@</span> <span class="tt tt-tv">tsvector @@</span></td>
+          <td>B-tree&times;4 + BRIN + BM25</td>
+        </tr>
+        <tr>
+          <td><code>conversations</code></td>
+          <td style="color:var(--green)">高频写入</td>
+          <td><span class="tt tt-pg">UUID PK</span> <span class="tt tt-pg">JSONB</span> <span class="tt tt-pg">BOOLEAN</span></td>
+          <td><span class="tt tt-vec">VECTOR(动态)</span> <span class="tt tt-vec">IVFFlat(100)</span></td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td>B-tree&times;3 + IVFFlat</td>
+        </tr>
+        <tr>
+          <td><code>conversation_sessions</code></td>
+          <td style="color:var(--text2)">低频</td>
+          <td><span class="tt tt-pg">UUID PK</span> <span class="tt tt-pg">UNIQUE</span></td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td>B-tree&times;2</td>
+        </tr>
+        <tr>
+          <td><code>graph_nodes</code></td>
+          <td style="color:var(--purple)">中等</td>
+          <td><span class="tt tt-pg">UUID PK</span> <span class="tt tt-pg">JSONB</span> <span class="tt tt-pg">UNIQUE 复合</span></td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td>UNIQUE(user,type,id)</td>
+        </tr>
+        <tr>
+          <td><code>graph_edges</code></td>
+          <td style="color:var(--purple)">中等</td>
+          <td><span class="tt tt-pg">UUID PK</span> <span class="tt tt-pg">JSONB</span></td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td>复合 B-tree&times;2 (正反向)</td>
+        </tr>
+        <tr>
+          <td><code>key_values</code></td>
+          <td style="color:var(--text2)">低频</td>
+          <td><span class="tt tt-pg">UUID PK</span> <span class="tt tt-pg">JSONB value</span> <span class="tt tt-pg">UNIQUE 复合</span></td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td>UNIQUE(ns,scope,key)</td>
+        </tr>
+        <tr>
+          <td><code>documents</code></td>
+          <td style="color:var(--text2)">低频</td>
+          <td><span class="tt tt-pg">UUID PK</span> <span class="tt tt-pg">JSONB tags</span> <span class="tt tt-pg">BIGINT</span></td>
+          <td><span class="tt tt-vec">FK &rarr; embeddings</span></td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td>B-tree&times;3</td>
+        </tr>
+        <tr>
+          <td><code>emotion_profiles</code></td>
+          <td style="color:var(--text2)">每用户 1 行</td>
+          <td><span class="tt tt-pg">VARCHAR PK</span> <span class="tt tt-pg">JSONB&times;2</span> <span class="tt tt-pg">ARRAY(UUID)</span> <span class="tt tt-pg">FLOAT</span></td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td style="color:var(--text2)">&mdash;</td>
+          <td>PK only</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 3. pgvector 深入 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">3. pgvector &mdash; 向量存储与相似度检索
+    <span class="tt tt-vec" style="font-size:0.8rem">CREATE EXTENSION vector</span>
+  </div>
+  <div class="c3">
+    <div class="ib" style="border-left:3px solid var(--green);">
+      <h4 style="color:var(--green)">数据类型</h4>
+      <p><code>VECTOR(dim)</code></p>
+      <p>维度运行时动态设定<br>默认 1024 (bge-m3)</p>
+    </div>
+    <div class="ib" style="border-left:3px solid var(--green);">
+      <h4 style="color:var(--green)">距离操作符</h4>
+      <p><code>&lt;=&gt;</code> cosine distance</p>
+      <p>相似度 = <code>1 - (a &lt;=&gt; b)</code><br>值域 [0,1]，1=完全相同</p>
+    </div>
+    <div class="ib" style="border-left:3px solid var(--green);">
+      <h4 style="color:var(--green)">索引</h4>
+      <p><code>IVFFlat</code> (lists=100)</p>
+      <p>conversations 表使用<br>embeddings 表暂无向量索引</p>
+    </div>
+  </div>
+  <div class="dual">
+    <div>
+      <h4 style="margin-bottom:0.8rem;color:var(--green)">向量维度动态配置</h4>
+      <div class="sql"><span class="sc">-- Python 运行时（不是 SQL 层固定）</span>
+<span class="sc">-- neuromem/models/__init__.py</span>
+_embedding_dims: int = <span class="sn">1024</span>   <span class="sc">-- 默认值</span>
+
+<span class="sc">-- NeuroMemory.__init__() 中覆盖为实际维度</span>
+_models._embedding_dims = embedding.dims
+<span class="sc">--   bge-m3     → 1024</span>
+<span class="sc">--   OpenAI-sm  → 1536</span>
+<span class="sc">--   MiniLM     → 384</span>
+
+<span class="sc">-- 表创建前遍历 metadata 动态修正</span>
+<span class="sk">for</span> col <span class="sk">in</span> table.columns:
+    <span class="sk">if</span> isinstance(col.type, Vector):
+        col.type = Vector(dims)</div>
+    </div>
+    <div>
+      <h4 style="margin-bottom:0.8rem;color:var(--green)">向量检索 SQL</h4>
+      <div class="sql"><span class="sc">-- embeddings 表：cosine 相似度排名 (CTE)</span>
+<span class="sk">WITH</span> <span class="st">vector_ranked</span> <span class="sk">AS</span> (
+  <span class="sk">SELECT</span> id, content, memory_type,
+    <span class="sn">1</span> <span class="so">-</span> (embedding <span class="so">&lt;=&gt;</span> <span class="ss">:qvec</span>::vector)
+      <span class="sk">AS</span> vector_score,
+    <span class="sf">ROW_NUMBER</span>() <span class="sk">OVER</span> (
+      <span class="sk">ORDER BY</span> embedding <span class="so">&lt;=&gt;</span> <span class="ss">:qvec</span>::vector
+    ) <span class="sk">AS</span> vector_rank
+  <span class="sk">FROM</span> <span class="st">embeddings</span>
+  <span class="sk">WHERE</span> user_id = <span class="ss">:uid</span>
+    <span class="sk">AND</span> valid_until <span class="sk">IS NULL</span>
+  <span class="sk">LIMIT</span> <span class="sn">20</span>
+)</div>
+    </div>
+  </div>
+  <h4 style="margin:1.2rem 0 0.8rem;color:var(--green)">IVFFlat 索引演进 (migrations 002→003)</h4>
+  <div class="sql"><span class="sc">-- 002: 固定维度</span>
+<span class="sk">ALTER TABLE</span> <span class="st">conversations</span> <span class="sk">ADD COLUMN</span> embedding <span class="sf">vector</span>(<span class="sn">1024</span>);
+
+<span class="sc">-- 003: 移除维度约束 → 支持动态维度</span>
+<span class="sk">ALTER TABLE</span> <span class="st">conversations</span> <span class="sk">DROP COLUMN</span> embedding;
+<span class="sk">ALTER TABLE</span> <span class="st">conversations</span> <span class="sk">ADD COLUMN</span> embedding <span class="sf">vector</span>;  <span class="sc">-- 无维度限制</span>
+
+<span class="sc">-- 条件 IVFFlat 索引（仅对有向量的行）</span>
+<span class="sk">CREATE INDEX IF NOT EXISTS</span> idx_conversations_embedding
+  <span class="sk">ON</span> <span class="st">conversations</span> <span class="sk">USING</span> <span class="sf">ivfflat</span> (embedding <span class="sf">vector_cosine_ops</span>)
+  <span class="sk">WITH</span> (lists = <span class="sn">100</span>)
+  <span class="sk">WHERE</span> embedding <span class="sk">IS NOT NULL</span>;</div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 4. pg_search BM25 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">4. pg_search (ParadeDB) &mdash; BM25 全文检索
+    <span class="tt tt-bm" style="font-size:0.8rem">CREATE EXTENSION pg_search</span>
+    <span class="tt tt-tv" style="font-size:0.8rem">tsvector 降级</span>
+  </div>
+  <div class="c3">
+    <div class="ib" style="border-left:3px solid var(--purple);">
+      <h4 style="color:var(--purple)">引擎</h4>
+      <p>Tantivy (Rust)</p>
+      <p>Lucene 级别的倒排索引<br>通过 PG 扩展暴露 SQL 接口</p>
+    </div>
+    <div class="ib" style="border-left:3px solid var(--purple);">
+      <h4 style="color:var(--purple)">操作符</h4>
+      <p><code>@@@</code> BM25 匹配</p>
+      <p><code>paradedb.parse()</code> 查询解析<br><code>paradedb.score()</code> 相关性评分</p>
+    </div>
+    <div class="ib" style="border-left:3px solid var(--yellow);">
+      <h4 style="color:var(--yellow)">降级方案</h4>
+      <p><code>tsvector + @@</code></p>
+      <p>pg_search 不可用时 (如 Railway)<br>候选量 &times;4 补偿精度损失</p>
+    </div>
+  </div>
+  <div class="dual">
+    <div>
+      <h4 style="margin-bottom:0.8rem;color:var(--purple)">pg_search: BM25 索引 + 查询</h4>
+      <div class="sql"><span class="sc">-- 创建 BM25 索引 (db.py)</span>
+<span class="sk">CREATE INDEX IF NOT EXISTS</span> idx_embeddings_bm25
+  <span class="sk">ON</span> <span class="st">embeddings</span>
+  <span class="sk">USING</span> <span class="sf">bm25</span> (id, content)
+  <span class="sk">WITH</span> (key_field = <span class="ss">'id'</span>);
+
+<span class="sc">-- BM25 检索</span>
+<span class="sk">SELECT</span> id,
+  <span class="sf">paradedb.score</span>(id) <span class="sk">AS</span> bm25_score,
+  <span class="sf">ROW_NUMBER</span>() <span class="sk">OVER</span> (
+    <span class="sk">ORDER BY</span> <span class="sf">paradedb.score</span>(id) <span class="sk">DESC</span>
+  ) <span class="sk">AS</span> bm25_rank
+<span class="sk">FROM</span> <span class="st">embeddings</span>
+<span class="sk">WHERE</span> user_id = <span class="ss">:uid</span>
+  <span class="sk">AND</span> id <span class="so">@@@</span> <span class="sf">paradedb.parse</span>(<span class="ss">:query</span>)
+<span class="sk">LIMIT</span> <span class="sn">20</span></div>
+    </div>
+    <div>
+      <h4 style="margin-bottom:0.8rem;color:var(--yellow)">降级: tsvector 内置全文检索</h4>
+      <div class="sql"><span class="sc">-- pg_search 不可用时的降级方案</span>
+<span class="sk">SELECT</span> id,
+  <span class="sf">ts_rank_cd</span>(
+    <span class="sf">to_tsvector</span>(<span class="ss">'simple'</span>, content),
+    <span class="sf">plainto_tsquery</span>(<span class="ss">'simple'</span>, <span class="ss">:query</span>)
+  ) <span class="sk">AS</span> bm25_score,
+  <span class="sf">ROW_NUMBER</span>() <span class="sk">OVER</span> (...) <span class="sk">AS</span> bm25_rank
+<span class="sk">FROM</span> <span class="st">embeddings</span>
+<span class="sk">WHERE</span> user_id = <span class="ss">:uid</span>
+  <span class="sk">AND</span> <span class="sf">to_tsvector</span>(<span class="ss">'simple'</span>, content)
+    <span class="so">@@</span> <span class="sf">plainto_tsquery</span>(<span class="ss">'simple'</span>, <span class="ss">:query</span>)
+<span class="sk">LIMIT</span> <span class="sn">40</span>  <span class="sc">-- 候选量 ×4 补偿精度</span>
+
+<span class="sc">-- 对比：</span>
+<span class="sc">-- pg_search → candidate = limit × 2</span>
+<span class="sc">-- tsvector  → candidate = limit × 4</span></div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 5. 混合搜索管线 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">5. 混合搜索管线 &mdash; Vector + BM25 + RRF + 三因子评分</div>
+  <div class="flow">
+    <div class="fs">
+      <div class="sn s1">1</div>
+      <div class="sb">
+        <div class="sh">查询向量化</div>
+        <div class="sd"><span class="tt tt-sq">Python</span> 用户查询 &rarr; <code>EmbeddingProvider.embed()</code> &rarr; 1024维向量 &rarr; 格式化为 <code>"[0.12,-0.45,...,0.78]"</code></div>
+      </div>
+    </div>
+    <div class="fs">
+      <div class="sn s2">2</div>
+      <div class="sb">
+        <div class="sh">CTE 1: 向量检索路径</div>
+        <div class="sd"><span class="tt tt-vec">pgvector</span> <code>embedding &lt;=&gt; query_vec</code> cosine 距离排序 &rarr; <code>vector_rank</code> (<span class="tt tt-pg">ROW_NUMBER() OVER</span> 窗口函数)</div>
+      </div>
+    </div>
+    <div class="fs">
+      <div class="sn s3">3</div>
+      <div class="sb">
+        <div class="sh">CTE 2: 关键词检索路径</div>
+        <div class="sd"><span class="tt tt-bm">pg_search</span> <code>id @@@ paradedb.parse(query)</code> &rarr; <code>bm25_rank</code><br>
+        或 <span class="tt tt-tv">tsvector</span> <code>to_tsvector(content) @@ plainto_tsquery(query)</code> 降级</div>
+      </div>
+    </div>
+    <div class="fs">
+      <div class="sn s4">4</div>
+      <div class="sb">
+        <div class="sh">RRF 倒数秩融合 (K=60)</div>
+        <div class="sd"><span class="tt tt-pg">CTE + LEFT JOIN</span> 两路 LEFT JOIN &rarr; <code>rrf = 1/(60+vec_rank) + COALESCE(1/(60+bm25_rank), 0)</code></div>
+      </div>
+    </div>
+    <div class="fs">
+      <div class="sn s5">5</div>
+      <div class="sb">
+        <div class="sh">三因子加权评分</div>
+        <div class="sd"><span class="tt tt-pg">JSONB -&gt; -&gt;&gt;</span> 最终 = base &times; (1 + recency + importance)<br>
+        <strong>base</strong> = min(vector_score + bm25命中奖励0.05, 1.0)<br>
+        <strong>recency</strong> = 0.15 &times; EXP(-age / (30天 &times; (1 + <code>metadata-&gt;'emotion'-&gt;&gt;'arousal'</code> &times; 0.5)))<br>
+        <strong>importance</strong> = 0.15 &times; (<code>metadata-&gt;&gt;'importance'</code> / 10)</div>
+      </div>
+    </div>
+    <div class="fs">
+      <div class="sn s6">6</div>
+      <div class="sb">
+        <div class="sh">返回 + 副作用</div>
+        <div class="sd"><span class="tt tt-pg">UPDATE</span> 返回 Top-N，同时 <code>access_count += 1</code>, <code>last_accessed_at = now()</code></div>
+      </div>
+    </div>
+  </div>
+
+  <h4 style="margin-bottom:0.8rem">完整 RRF + 三因子融合 SQL</h4>
+  <div class="sql"><span class="sk">WITH</span> <span class="st">vector_ranked</span> <span class="sk">AS</span> (
+  <span class="sk">SELECT</span> id, content, memory_type, metadata, created_at,
+    <span class="sn">1</span> <span class="so">-</span> (embedding <span class="so">&lt;=&gt;</span> <span class="ss">:qvec</span>::vector) <span class="sk">AS</span> vector_score,
+    <span class="sf">ROW_NUMBER</span>() <span class="sk">OVER</span>(<span class="sk">ORDER BY</span> embedding <span class="so">&lt;=&gt;</span> <span class="ss">:qvec</span>::vector) <span class="sk">AS</span> vector_rank
+  <span class="sk">FROM</span> <span class="st">embeddings</span>
+  <span class="sk">WHERE</span> user_id = <span class="ss">:uid</span> <span class="sk">AND</span> valid_until <span class="sk">IS NULL</span>
+  <span class="sk">LIMIT</span> <span class="sn">20</span>
+),
+<span class="st">bm25_ranked</span> <span class="sk">AS</span> (
+  <span class="sk">SELECT</span> id, <span class="sf">paradedb.score</span>(id) <span class="sk">AS</span> bm25_score,
+    <span class="sf">ROW_NUMBER</span>() <span class="sk">OVER</span>(<span class="sk">ORDER BY</span> <span class="sf">paradedb.score</span>(id) <span class="sk">DESC</span>) <span class="sk">AS</span> bm25_rank
+  <span class="sk">FROM</span> <span class="st">embeddings</span>
+  <span class="sk">WHERE</span> user_id = <span class="ss">:uid</span> <span class="sk">AND</span> id <span class="so">@@@</span> <span class="sf">paradedb.parse</span>(<span class="ss">:query</span>)
+  <span class="sk">LIMIT</span> <span class="sn">20</span>
+),
+<span class="st">hybrid</span> <span class="sk">AS</span> (
+  <span class="sk">SELECT</span> v.*, <span class="sf">COALESCE</span>(b.bm25_score, <span class="sn">0</span>) <span class="sk">AS</span> bm25_score,
+    (<span class="sn">1.0</span>/(<span class="sn">60</span>+v.vector_rank)) + <span class="sf">COALESCE</span>(<span class="sn">1.0</span>/(<span class="sn">60</span>+b.bm25_rank), <span class="sn">0</span>) <span class="sk">AS</span> rrf_score
+  <span class="sk">FROM</span> <span class="st">vector_ranked</span> v <span class="sk">LEFT JOIN</span> <span class="st">bm25_ranked</span> b <span class="sk">ON</span> v.id = b.id
+)
+<span class="sk">SELECT</span> *,
+  <span class="sf">LEAST</span>(vector_score + <span class="sk">CASE WHEN</span> bm25_score > <span class="sn">0</span> <span class="sk">THEN</span> <span class="sn">0.05</span> <span class="sk">ELSE</span> <span class="sn">0</span> <span class="sk">END</span>, <span class="sn">1.0</span>)
+  <span class="so">*</span> (<span class="sn">1.0</span>
+    + <span class="sn">0.15</span> <span class="so">*</span> <span class="sf">EXP</span>(<span class="so">-</span><span class="sf">EXTRACT</span>(<span class="sk">EPOCH FROM</span> (<span class="sf">NOW</span>()-created_at))
+        / (<span class="sn">2592000</span> <span class="so">*</span> (<span class="sn">1</span>+<span class="sf">COALESCE</span>((metadata<span class="so">-></span><span class="ss">'emotion'</span><span class="so">->></span><span class="ss">'arousal'</span>)::<span class="sk">float</span>,<span class="sn">0</span>)*<span class="sn">0.5</span>)))
+    + <span class="sn">0.15</span> <span class="so">*</span> <span class="sf">COALESCE</span>((metadata<span class="so">->></span><span class="ss">'importance'</span>)::<span class="sk">float</span>/<span class="sn">10.0</span>, <span class="sn">0.5</span>)
+  ) <span class="sk">AS</span> score
+<span class="sk">FROM</span> <span class="st">hybrid</span> <span class="sk">ORDER BY</span> score <span class="sk">DESC</span> <span class="sk">LIMIT</span> <span class="ss">:limit</span>;</div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 6. 索引全景 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">6. 索引策略全景</div>
+  <div class="ig">
+    <div class="ic">
+      <h4><span style="color:var(--accent)">embeddings</span> (6 索引)</h4>
+      <div class="ie"><span>ix_emb_user <code>(user_id)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>ix_emb_user_ts <code>(user_id, extracted_timestamp)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>ix_emb_type_user <code>(user_id, memory_type)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>ix_emb_user_valid <code>(user_id, valid_from, valid_until)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>idx_emb_created_at_brin <code>(created_at)</code></span> <span class="it it-r">BRIN</span></div>
+      <div class="ie"><span>idx_embeddings_bm25 <code>(id, content)</code></span> <span class="it it-m">BM25</span></div>
+    </div>
+    <div class="ic">
+      <h4><span style="color:var(--green)">conversations</span> (4 索引)</h4>
+      <div class="ie"><span>idx_conv_session <code>(user_id, session_id)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>idx_conv_extraction <code>(user_id, extracted)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>idx_conv_ext_status <code>(user_id, extraction_status)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>idx_conv_embedding <code>(embedding) WHERE NOT NULL</code></span> <span class="it it-i">IVFFlat</span></div>
+    </div>
+    <div class="ic">
+      <h4><span style="color:var(--purple)">graph_nodes</span> (1 索引)</h4>
+      <div class="ie"><span>ix_graph_nodes_lookup <code>(user_id, node_type, node_id)</code></span> <span class="it it-u">UNIQUE</span></div>
+    </div>
+    <div class="ic">
+      <h4><span style="color:var(--purple)">graph_edges</span> (2 索引)</h4>
+      <div class="ie"><span>ix_edges_lookup <code>(user, src_type, src_id, edge, tgt_type, tgt_id)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>ix_edges_target <code>(user_id, target_id)</code></span> <span class="it it-b">B-tree</span></div>
+    </div>
+    <div class="ic">
+      <h4><span style="color:var(--orange)">key_values</span> (2 索引)</h4>
+      <div class="ie"><span>ix_kv_lookup <code>(namespace, scope_id, key)</code></span> <span class="it it-u">UNIQUE</span></div>
+      <div class="ie"><span>ix_kv_ns_scope <code>(namespace, scope_id)</code></span> <span class="it it-b">B-tree</span></div>
+    </div>
+    <div class="ic">
+      <h4><span style="color:var(--pink)">documents</span> (3 索引)</h4>
+      <div class="ie"><span>ix_doc_user <code>(user_id)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>ix_doc_user_category <code>(user_id, category)</code></span> <span class="it it-b">B-tree</span></div>
+      <div class="ie"><span>ix_doc_user_file_type <code>(user_id, file_type)</code></span> <span class="it it-b">B-tree</span></div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 7. 核心表 + 示例数据 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">7. 核心表结构与示例数据</div>
+
+  <h4 style="margin-bottom:0.8rem">7.1 embeddings &mdash; 核心记忆</h4>
+  <div class="dual">
+    <div class="card">
+      <div class="card-h">表结构 + 技术标注</div>
+      <div>
+        <div class="fr" style="font-weight:700;color:var(--text2);font-size:0.73rem"><span></span><span>字段</span><span>类型</span><span>技术组件</span></div>
+        <div class="fr"><span class="fi fi-pk">PK</span><span class="fn">id</span><span class="ft">UUID</span><span class="fd"><span class="tt tt-pg">PG UUID</span></span></div>
+        <div class="fr"><span class="fi fi-ix">IX</span><span class="fn">user_id</span><span class="ft">VARCHAR(255)</span><span class="fd"><span class="tt tt-pg">B-tree</span> 多租户隔离</span></div>
+        <div class="fr"><span class="fi">T</span><span class="fn">content</span><span class="ft">TEXT</span><span class="fd"><span class="tt tt-bm">BM25</span> <span class="tt tt-tv">tsvector</span></span></div>
+        <div class="fr"><span class="fi fi-v">V</span><span class="fn">embedding</span><span class="ft">VECTOR(1024)</span><span class="fd"><span class="tt tt-vec">pgvector &lt;=&gt;</span></span></div>
+        <div class="fr"><span class="fi fi-ix">IX</span><span class="fn">memory_type</span><span class="ft">VARCHAR(50)</span><span class="fd"><span class="tt tt-pg">B-tree</span></span></div>
+        <div class="fr"><span class="fi">J</span><span class="fn">metadata_</span><span class="ft">JSONB</span><span class="fd"><span class="tt tt-pg">-&gt; -&gt;&gt; @&gt;</span></span></div>
+        <div class="fr"><span class="fi">N</span><span class="fn">access_count</span><span class="ft">INTEGER</span><span class="fd">热度计数</span></div>
+        <div class="fr"><span class="fi fi-ix">IX</span><span class="fn">valid_from</span><span class="ft">TIMESTAMPTZ</span><span class="fd"><span class="tt tt-pg">B-tree</span> 版本化</span></div>
+        <div class="fr"><span class="fi">T</span><span class="fn">valid_until</span><span class="ft">TIMESTAMPTZ</span><span class="fd">null=当前有效</span></div>
+        <div class="fr"><span class="fi">N</span><span class="fn">version</span><span class="ft">INTEGER</span><span class="fd">DEFAULT 1</span></div>
+        <div class="fr"><span class="fi fi-fk">FK</span><span class="fn">superseded_by</span><span class="ft">UUID</span><span class="fd">被替代指向</span></div>
+        <div class="fr"><span class="fi">T</span><span class="fn">created_at</span><span class="ft">TIMESTAMPTZ</span><span class="fd"><span class="tt tt-pg">BRIN</span> now()</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h">示例数据 (user=alice)</div>
+      <div class="json"><span class="jc">// ─── fact: 事实性记忆 ───</span>
+{
+  <span class="jk">"id"</span>: <span class="js">"f47ac10b-58cc-...d479"</span>,
+  <span class="jk">"user_id"</span>: <span class="js">"alice"</span>,
+  <span class="jk">"content"</span>: <span class="js">"我在 Google 担任高级软件工程师"</span>,
+  <span class="jk">"embedding"</span>: [<span class="jn">0.123</span>, <span class="jn">-0.456</span>, ..., <span class="jn">0.789</span>],
+  <span class="jk">"memory_type"</span>: <span class="js">"fact"</span>,
+  <span class="jk">"metadata_"</span>: {
+    <span class="jk">"emotion"</span>: {<span class="jk">"label"</span>:<span class="js">"proud"</span>, <span class="jk">"valence"</span>:<span class="jn">0.8</span>},
+    <span class="jk">"importance"</span>: <span class="jn">8</span>,
+    <span class="jk">"tags"</span>: [<span class="js">"career"</span>]
+  },
+  <span class="jk">"access_count"</span>: <span class="jn">12</span>,
+  <span class="jk">"valid_from"</span>: <span class="js">"2026-01-15T00:00:00Z"</span>,
+  <span class="jk">"valid_until"</span>: <span class="jnl">null</span>,
+  <span class="jk">"version"</span>: <span class="jn">2</span>
+}
+
+<span class="jc">// ─── episode: 情景记忆 ───</span>
+{ <span class="jk">"content"</span>: <span class="js">"昨天和团队讨论了新项目架构"</span>,
+  <span class="jk">"memory_type"</span>: <span class="js">"episode"</span> }
+
+<span class="jc">// ─── reflection: 反思洞察 ───</span>
+{ <span class="jk">"content"</span>: <span class="js">"Alice 在技术讨论中高度热情"</span>,
+  <span class="jk">"memory_type"</span>: <span class="js">"reflection"</span> }</div>
+    </div>
+  </div>
+
+  <!-- graph -->
+  <h4 style="margin:2rem 0 0.8rem">7.2 graph_nodes + graph_edges &mdash; 知识图谱</h4>
+  <div class="svg-box">
+    <svg viewBox="0 0 820 320" width="820" height="320" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ap" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#bc8cff"/></marker>
+        <marker id="ag" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3fb950"/></marker>
+        <marker id="ao" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#d29922"/></marker>
+        <marker id="ak" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#f778ba"/></marker>
+      </defs>
+      <circle cx="400" cy="160" r="42" fill="rgba(88,166,255,0.12)" stroke="#58a6ff" stroke-width="2"/>
+      <text x="400" y="155" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="700">Alice</text>
+      <text x="400" y="172" text-anchor="middle" fill="#8b949e" font-size="9">Person</text>
+      <rect x="620" y="40" width="130" height="48" rx="8" fill="rgba(188,140,255,0.1)" stroke="#bc8cff" stroke-width="1.5"/>
+      <text x="685" y="62" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="600">Google</text>
+      <text x="685" y="78" text-anchor="middle" fill="#8b949e" font-size="9">Organization</text>
+      <line x1="442" y1="140" x2="618" y2="72" stroke="#bc8cff" stroke-width="1.5" marker-end="url(#ap)"/>
+      <text x="535" y="96" text-anchor="middle" fill="#bc8cff" font-size="10" font-weight="600">WORKS_AT</text>
+      <rect x="620" y="200" width="140" height="48" rx="8" fill="rgba(63,185,80,0.1)" stroke="#3fb950" stroke-width="1.5"/>
+      <text x="690" y="222" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="600">San Francisco</text>
+      <text x="690" y="238" text-anchor="middle" fill="#8b949e" font-size="9">Location</text>
+      <line x1="442" y1="175" x2="618" y2="215" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ag)"/>
+      <text x="540" y="207" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">LIVES_IN</text>
+      <rect x="80" y="45" width="120" height="48" rx="8" fill="rgba(210,153,34,0.1)" stroke="#d29922" stroke-width="1.5"/>
+      <text x="140" y="67" text-anchor="middle" fill="#d29922" font-size="12" font-weight="600">Python</text>
+      <text x="140" y="83" text-anchor="middle" fill="#8b949e" font-size="9">Skill</text>
+      <line x1="358" y1="140" x2="202" y2="78" stroke="#d29922" stroke-width="1.5" marker-end="url(#ao)"/>
+      <text x="270" y="100" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">HAS_SKILL</text>
+      <circle cx="140" cy="240" r="32" fill="rgba(247,120,186,0.1)" stroke="#f778ba" stroke-width="1.5"/>
+      <text x="140" y="237" text-anchor="middle" fill="#f778ba" font-size="12" font-weight="600">Bob</text>
+      <text x="140" y="253" text-anchor="middle" fill="#8b949e" font-size="9">Person</text>
+      <line x1="362" y1="185" x2="174" y2="230" stroke="#f778ba" stroke-width="1.5" marker-end="url(#ak)"/>
+      <text x="258" y="222" text-anchor="middle" fill="#f778ba" font-size="10" font-weight="600">KNOWS</text>
+      <rect x="20" y="285" width="780" height="28" rx="4" fill="rgba(22,27,34,0.7)" stroke="#30363d"/>
+      <text x="30" y="303" fill="#8b949e" font-size="10">PG:</text>
+      <text x="50" y="303" fill="#d29922" font-size="10" font-weight="600">graph_nodes</text>
+      <text x="136" y="303" fill="#8b949e" font-size="10">(UUID PK + JSONB props + UNIQUE复合) +</text>
+      <text x="415" y="303" fill="#d29922" font-size="10" font-weight="600">graph_edges</text>
+      <text x="497" y="303" fill="#8b949e" font-size="10">(6列复合 B-tree 正向 + user_id,target_id 反向)</text>
+    </svg>
+  </div>
+
+  <!-- conversations -->
+  <h4 style="margin:2rem 0 0.8rem">7.3 conversations &mdash; 对话 + 提取管线</h4>
+  <div class="dual">
+    <div class="card">
+      <div class="card-h">表结构</div>
+      <div>
+        <div class="fr"><span class="fi fi-pk">PK</span><span class="fn">id</span><span class="ft">UUID</span><span class="fd"><span class="tt tt-pg">PG UUID</span></span></div>
+        <div class="fr"><span class="fi fi-ix">IX</span><span class="fn">user_id</span><span class="ft">VARCHAR</span><span class="fd"><span class="tt tt-pg">B-tree</span></span></div>
+        <div class="fr"><span class="fi fi-ix">IX</span><span class="fn">session_id</span><span class="ft">VARCHAR</span><span class="fd"><span class="tt tt-pg">B-tree</span> 复合</span></div>
+        <div class="fr"><span class="fi">R</span><span class="fn">role</span><span class="ft">VARCHAR</span><span class="fd">user / assistant</span></div>
+        <div class="fr"><span class="fi">T</span><span class="fn">content</span><span class="ft">TEXT</span><span class="fd">消息原文</span></div>
+        <div class="fr"><span class="fi fi-v">V</span><span class="fn">embedding</span><span class="ft">VECTOR</span><span class="fd"><span class="tt tt-vec">IVFFlat(100)</span> WHERE NOT NULL</span></div>
+        <div class="fr"><span class="fi fi-ix">IX</span><span class="fn">extraction_status</span><span class="ft">VARCHAR</span><span class="fd"><span class="tt tt-pg">B-tree</span> pending/done/failed</span></div>
+        <div class="fr"><span class="fi">J</span><span class="fn">metadata_</span><span class="ft">JSONB</span><span class="fd"><span class="tt tt-pg">JSONB</span> 情感标注</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-h">示例：一个完整会话</div>
+      <div class="json"><span class="jc">// conversation_sessions</span>
+{ <span class="jk">"session_id"</span>: <span class="js">"sess-2026-02-27-001"</span>,
+  <span class="jk">"title"</span>: <span class="js">"职业规划讨论"</span>,
+  <span class="jk">"message_count"</span>: <span class="jn">4</span> }
+
+<span class="jc">// user 消息 → extracted=true</span>
+{ <span class="jk">"role"</span>: <span class="js">"user"</span>,
+  <span class="jk">"content"</span>: <span class="js">"我刚升职为高级工程师了！"</span>,
+  <span class="jk">"embedding"</span>: [<span class="jn">0.23</span>, ...], <span class="jc">// IVFFlat 检索</span>
+  <span class="jk">"extracted"</span>: <span class="jb">true</span>,
+  <span class="jk">"extraction_status"</span>: <span class="js">"done"</span>,
+  <span class="jk">"metadata_"</span>: {
+    <span class="jk">"emotion"</span>: {<span class="jk">"label"</span>:<span class="js">"excited"</span>, <span class="jk">"valence"</span>:<span class="jn">0.9</span>}
+  } }
+
+<span class="jc">// assistant 消息 → 不建向量</span>
+{ <span class="jk">"role"</span>: <span class="js">"assistant"</span>,
+  <span class="jk">"content"</span>: <span class="js">"恭喜你！..."</span>,
+  <span class="jk">"embedding"</span>: <span class="jnl">null</span>,
+  <span class="jk">"extracted"</span>: <span class="jb">false</span> }</div>
+    </div>
+  </div>
+
+  <!-- emotion_profiles -->
+  <h4 style="margin:2rem 0 0.8rem">7.4 emotion_profiles &mdash; 三层情感模型</h4>
+  <div class="c3">
+    <div class="ib" style="border-left:3px solid var(--green)">
+      <h4 style="color:var(--green)">Micro 微观</h4>
+      <p>存于 <code>embeddings.metadata_</code></p>
+      <p><span class="tt tt-pg">JSONB</span> <code>-&gt;'emotion'-&gt;&gt;'valence'</code></p>
+      <p style="margin-top:0.3rem">每条记忆逐条标注<br>RRF 评分衰减调节因子</p>
+    </div>
+    <div class="ib" style="border-left:3px solid var(--orange)">
+      <h4 style="color:var(--orange)">Meso 中观</h4>
+      <p>存于 <code>emotion_profiles</code></p>
+      <p><span class="tt tt-pg">FLOAT</span> <span class="tt tt-pg">TEXT</span></p>
+      <p style="margin-top:0.3rem">latest_state + valence/arousal<br>最近 1-2 周情绪综合</p>
+    </div>
+    <div class="ib" style="border-left:3px solid var(--red)">
+      <h4 style="color:var(--red)">Macro 宏观</h4>
+      <p>存于 <code>emotion_profiles</code></p>
+      <p><span class="tt tt-pg">JSONB</span> <span class="tt tt-pg">ARRAY(UUID)</span></p>
+      <p style="margin-top:0.3rem">dominant_emotions + triggers<br>长期特质 + 来源追踪</p>
+    </div>
+  </div>
+  <div class="card" style="max-width:700px">
+    <div class="card-h">emotion_profiles 示例</div>
+    <div class="json">{ <span class="jk">"user_id"</span>: <span class="js">"alice"</span>,
+  <span class="jc">// Meso</span>
+  <span class="jk">"latest_state"</span>: <span class="js">"工作压力大，但对新项目充满期待"</span>,
+  <span class="jk">"latest_state_valence"</span>: <span class="jn">0.4</span>,  <span class="jc">// FLOAT</span>
+  <span class="jk">"latest_state_arousal"</span>: <span class="jn">0.7</span>,
+  <span class="jc">// Macro</span>
+  <span class="jk">"dominant_emotions"</span>: {<span class="jk">"焦虑"</span>:<span class="jn">0.45</span>, <span class="jk">"期待"</span>:<span class="jn">0.35</span>},  <span class="jc">// JSONB</span>
+  <span class="jk">"emotion_triggers"</span>: {
+    <span class="jk">"工作"</span>: {<span class="jk">"valence"</span>:<span class="jn">0.4</span>, <span class="jk">"arousal"</span>:<span class="jn">0.8</span>},
+    <span class="jk">"技术"</span>: {<span class="jk">"valence"</span>:<span class="jn">0.8</span>, <span class="jk">"arousal"</span>:<span class="jn">0.6</span>}
+  },
+  <span class="jk">"source_memory_ids"</span>: [<span class="js">"uuid1"</span>,<span class="js">"uuid2"</span>,...],  <span class="jc">// ARRAY(UUID)</span>
+  <span class="jk">"source_count"</span>: <span class="jn">47</span> }</div>
+  </div>
+
+  <!-- KV + documents -->
+  <h4 style="margin:2rem 0 0.8rem">7.5 key_values + documents</h4>
+  <div class="dual">
+    <div class="card">
+      <div class="card-h">key_values</div>
+      <div class="json"><span class="jc">// UNIQUE(namespace, scope_id, key) → Upsert</span>
+{ <span class="jk">"namespace"</span>: <span class="js">"user_profile"</span>,
+  <span class="jk">"scope_id"</span>: <span class="js">"alice"</span>,
+  <span class="jk">"key"</span>: <span class="js">"bio"</span>,
+  <span class="jk">"value"</span>: {                   <span class="jc">// JSONB 任意结构</span>
+    <span class="jk">"fullname"</span>: <span class="js">"Alice Smith"</span>,
+    <span class="jk">"interests"</span>: [<span class="js">"AI"</span>, <span class="js">"databases"</span>]
+  } }</div>
+    </div>
+    <div class="card">
+      <div class="card-h">documents</div>
+      <div class="json">{ <span class="jk">"filename"</span>: <span class="js">"resume_2026.pdf"</span>,
+  <span class="jk">"file_size"</span>: <span class="jn">245680</span>,            <span class="jc">// BIGINT</span>
+  <span class="jk">"object_key"</span>: <span class="js">"alice/resume.pdf"</span>, <span class="jc">// → S3/MinIO</span>
+  <span class="jk">"extracted_text"</span>: <span class="js">"Alice Smith..."</span>,
+  <span class="jk">"embedding_id"</span>: <span class="js">"f47ac10b-..."</span>,  <span class="jc">// FK → embeddings</span>
+  <span class="jk">"tags"</span>: {<span class="jk">"type"</span>:<span class="js">"resume"</span>}       <span class="jc">// JSONB @> 包含查询</span>
+}</div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 8. DB 初始化 + Migration -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">8. 数据库初始化 + 迁移历史</div>
+  <div class="flow">
+    <div class="fs">
+      <div class="sn s1">1</div>
+      <div class="sb"><div class="sh">CREATE EXTENSION vector</div>
+      <div class="sd">启用 pgvector，注册 VECTOR 类型和距离操作符 (<code>&lt;=&gt;</code> <code>&lt;#&gt;</code> <code>&lt;-&gt;</code>)</div></div>
+    </div>
+    <div class="fs">
+      <div class="sn s2">2</div>
+      <div class="sb"><div class="sh">运行时修正 VECTOR 维度</div>
+      <div class="sd">遍历 <code>Base.metadata.tables</code>，将所有 <code>Vector()</code> 列替换为 <code>Vector(actual_dims)</code></div></div>
+    </div>
+    <div class="fs">
+      <div class="sn s3">3</div>
+      <div class="sb"><div class="sh">Base.metadata.create_all()</div>
+      <div class="sd">SQLAlchemy 自动创建 9 张表 + 所有 B-tree/UNIQUE 索引 (幂等 IF NOT EXISTS)</div></div>
+    </div>
+    <div class="fs">
+      <div class="sn s4">4</div>
+      <div class="sb"><div class="sh">ALTER TABLE 版本列</div>
+      <div class="sd">幂等添加 <code>valid_from</code>, <code>valid_until</code>, <code>version</code>, <code>superseded_by</code></div></div>
+    </div>
+    <div class="fs">
+      <div class="sn s5">5</div>
+      <div class="sb"><div class="sh">探测 pg_search → BM25 索引</div>
+      <div class="sd">尝试 <code>CREATE EXTENSION pg_search</code>，成功则建 BM25 索引 + <code>pg_search_available=True</code>，失败降级 tsvector</div></div>
+    </div>
+  </div>
+  <div class="mapping-card" style="margin-top:1rem">
+    <div class="mapping-header">Migration 历史</div>
+    <table class="mapping-table">
+      <thead><tr><th>版本</th><th>文件</th><th>操作</th><th>技术</th></tr></thead>
+      <tbody>
+        <tr><td><code>001</code></td><td>add_time_indexes</td><td>BRIN(created_at) + 复合 B-tree(tenant,user,created DESC)</td><td><span class="tt tt-pg">BRIN pages=128</span></td></tr>
+        <tr><td><code>002</code></td><td>add_conv_embeddings</td><td>conversations 增加 embedding 列 + IVFFlat 索引</td><td><span class="tt tt-vec">VECTOR(1024)</span> <span class="tt tt-vec">IVFFlat</span></td></tr>
+        <tr><td><code>003</code></td><td>fix_vector_dims</td><td>移除固定维度 → VECTOR(无限制) + WHERE NOT NULL</td><td><span class="tt tt-vec">动态维度</span></td></tr>
+        <tr><td><code>004</code></td><td>add_mem_versioning</td><td>embeddings +4 版本列 + B-tree 索引</td><td><span class="tt tt-pg">TIMESTAMPTZ</span> <span class="tt tt-pg">B-tree</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 9. 连接架构 -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">9. 连接架构 &mdash; SQLAlchemy + asyncpg</div>
+  <div class="sql"><span class="sc">-- 连接字符串</span>
+postgresql+asyncpg://neuromem:neuromem@localhost:<span class="sn">5432</span>/neuromem
+<span class="sc">-- ↑方言      ↑驱动     ↑用户    ↑密码       ↑端口  ↑数据库</span>
+
+<span class="sc">-- Python 初始化</span>
+engine = <span class="sf">create_async_engine</span>(url, pool_size=<span class="sn">10</span>, echo=<span class="ss">False</span>)
+session_factory = <span class="sf">async_sessionmaker</span>(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=<span class="ss">False</span>,   <span class="sc">-- 避免查询后自动重载</span>
+    autoflush=<span class="ss">False</span>,           <span class="sc">-- 由代码显式 flush</span>
+)
+
+<span class="sc">-- 会话使用模式（自动 commit/rollback）</span>
+<span class="sk">async with</span> db.session() <span class="sk">as</span> s:
+    svc = MemoryService(s)
+    result = <span class="sk">await</span> svc.search(...)
+    <span class="sc"># 成功自动 commit；异常自动 rollback</span></div>
+</div>
+
+<p style="text-align:center;color:var(--text2);font-size:0.82rem;margin-top:3rem">
+  NeuroMem SDK Storage Architecture &mdash; PostgreSQL 18 + pgvector + pg_search (ParadeDB)<br>
+  Generated 2026-02-28
+</p>
+</body>
+</html>
