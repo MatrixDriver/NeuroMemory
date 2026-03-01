@@ -524,7 +524,7 @@ wheels = [
 
 [[package]]
 name = "neuromem"
-version = "0.8.0"
+version = "0.9.4"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
