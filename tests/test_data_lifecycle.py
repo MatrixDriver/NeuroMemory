@@ -120,7 +120,9 @@ class TestExportUserData:
         assert result["graph"]["nodes"] == []
         assert result["graph"]["edges"] == []
         assert result["kv"] == []
-        assert result["profile"] is None
+        assert result["profile"]["facts"] == {}
+        assert result["profile"]["traits"] == []
+        assert result["profile"]["recent_mood"] is None
         assert result["documents"] == []
 
     @pytest.mark.asyncio

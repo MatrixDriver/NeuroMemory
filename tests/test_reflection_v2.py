@@ -102,17 +102,19 @@ async def _insert_memories(db_session, mock_embedding, count=5, user_id="ref_use
 
 
 async def _ensure_session(db_session, user_id="ref_user", last_reflected_at=None):
-    """Ensure a conversation_session exists for the user."""
-    from neuromem.models.conversation import ConversationSession
-    session_obj = ConversationSession(
-        user_id=user_id,
-        session_id=f"test-session-{uuid.uuid4().hex[:8]}",
-    )
+    """Ensure a watermark exists for the user in reflection_cycles."""
     if last_reflected_at is not None:
-        session_obj.last_reflected_at = last_reflected_at
-    db_session.add(session_obj)
-    await db_session.commit()
-    return session_obj
+        from neuromem.models.reflection_cycle import ReflectionCycle
+        cycle = ReflectionCycle(
+            user_id=user_id,
+            trigger_type="test_setup",
+            status="completed",
+            completed_at=last_reflected_at,
+        )
+        db_session.add(cycle)
+        await db_session.commit()
+        return cycle
+    return None
 
 
 # ====================================================================
@@ -297,24 +299,66 @@ class TestReflect:
 
     @pytest.mark.asyncio
     async def test_llm_failure_no_watermark_update(self, db_session, mock_embedding):
-        """LLM 失败时不更新 last_reflected_at。"""
+        """反思流程硬失败（异常逃逸）时 cycle 记录 status=failed，水位线不前进。
+
+        注意：_call_reflection_llm 内部会捕获 LLM 异常并返回 None（软失败），
+        此时 reflect() 仍会标记 cycle 为 completed。要测试水位线不前进，
+        需要在 _run_reflection_steps 层面触发未捕获的异常。
+        """
+        from unittest.mock import AsyncMock, patch
+        from sqlalchemy import text
+
+        mock_llm = AsyncMock(spec=LLMProvider)
+
+        old_time = datetime.now(timezone.utc) - timedelta(hours=25)
+        await _ensure_session(db_session, last_reflected_at=old_time)
+        await _insert_memories(db_session, mock_embedding, count=3)
+
+        svc = ReflectionService(db_session, mock_embedding, mock_llm)
+
+        # Patch _run_reflection_steps 使其直接抛出异常（模拟硬失败）
+        with patch.object(svc, "_run_reflection_steps", side_effect=RuntimeError("DB connection lost")):
+            result = await svc.reflect("ref_user", force=True)
+
+        assert result.get("error") is not None
+
+        # 水位线应保持为 old_time（不应有新的 completed cycle）
+        row = (await db_session.execute(
+            text("SELECT completed_at FROM reflection_cycles "
+                 "WHERE user_id = :uid AND status = 'completed' "
+                 "ORDER BY completed_at DESC LIMIT 1"),
+            {"uid": "ref_user"},
+        )).first()
+        if row is not None:
+            delta = abs((row.completed_at - old_time).total_seconds())
+            assert delta < 5  # 水位线应该保持不变
+
+    @pytest.mark.asyncio
+    async def test_llm_soft_failure_cycle_still_completed(self, db_session, mock_embedding):
+        """LLM 调用异常被 _call_reflection_llm 内部捕获时，cycle 仍为 completed。
+
+        这是设计行为：衰减等非 LLM 步骤仍然执行了，cycle 标记为 completed，
+        水位线正常前进。
+        """
+        from sqlalchemy import text
 
         class FailLLM(LLMProvider):
             async def chat(self, messages, temperature=0.1, max_tokens=2048) -> str:
                 raise RuntimeError("LLM down")
 
-        old_time = datetime.now(timezone.utc) - timedelta(hours=25)
-        session_obj = await _ensure_session(db_session, last_reflected_at=old_time)
         await _insert_memories(db_session, mock_embedding, count=3)
-
         svc = ReflectionService(db_session, mock_embedding, FailLLM())
-        await svc.reflect("ref_user", force=True)
+        result = await svc.reflect("ref_user", force=True)
 
-        # 水位线不应更新
-        await db_session.refresh(session_obj)
-        if session_obj.last_reflected_at is not None:
-            delta = abs((session_obj.last_reflected_at - old_time).total_seconds())
-            assert delta < 5  # 水位线应该保持不变
+        assert result["triggered"] is True
+        assert result["traits_created"] == 0
+        # cycle 应标记为 completed（非 failed）
+        row = (await db_session.execute(
+            text("SELECT status FROM reflection_cycles WHERE id = :cid"),
+            {"cid": result["cycle_id"]},
+        )).first()
+        assert row is not None
+        assert row.status == "completed"
 
     @pytest.mark.asyncio
     async def test_reflect_cycle_recorded(self, db_session, mock_embedding):
@@ -336,9 +380,11 @@ class TestReflect:
 
     @pytest.mark.asyncio
     async def test_reflect_updates_watermark(self, db_session, mock_embedding):
-        """步骤 9 更新 last_reflected_at 水位线。"""
+        """reflect() 在 reflection_cycles 中创建新的 completed 记录作为水位线。"""
+        from sqlalchemy import text
+
         old_time = datetime.now(timezone.utc) - timedelta(hours=25)
-        session_obj = await _ensure_session(db_session, last_reflected_at=old_time)
+        await _ensure_session(db_session, last_reflected_at=old_time)
 
         mock_llm = MockReflectionLLM(main_response=EMPTY_LLM_RESPONSE)
         await _insert_memories(db_session, mock_embedding, count=1)
@@ -346,10 +392,16 @@ class TestReflect:
         svc = ReflectionService(db_session, mock_embedding, mock_llm)
         await svc.reflect("ref_user", force=True)
 
-        await db_session.refresh(session_obj)
-        if session_obj.last_reflected_at is not None:
-            delta = abs((session_obj.last_reflected_at - old_time).total_seconds())
-            assert delta > 60  # 水位线应已更新
+        # Verify watermark updated in reflection_cycles
+        row = (await db_session.execute(
+            text("SELECT completed_at FROM reflection_cycles "
+                 "WHERE user_id = :uid AND status = 'completed' "
+                 "ORDER BY completed_at DESC LIMIT 1"),
+            {"uid": "ref_user"},
+        )).first()
+        assert row is not None
+        delta = abs((row.completed_at - old_time).total_seconds())
+        assert delta > 60  # 水位线应已更新
 
     @pytest.mark.asyncio
     async def test_reflect_returns_expected_format(self, db_session, mock_embedding):
@@ -384,7 +436,7 @@ class TestDigestCompat:
             {"content": "test fact", "memory_type": "fact", "metadata": {}},
         ])
         assert "insights" in result
-        assert "emotion_profile" in result
+        assert "emotion_profile" not in result
 
     @pytest.mark.asyncio
     async def test_digest_empty_memories(self, db_session, mock_embedding, mock_llm):
@@ -392,7 +444,7 @@ class TestDigestCompat:
         svc = ReflectionService(db_session, mock_embedding, mock_llm)
         result = await svc.digest("compat_user", [])
         assert result["insights"] == []
-        assert result["emotion_profile"] is None
+        assert "emotion_profile" not in result
 
 
 # ====================================================================

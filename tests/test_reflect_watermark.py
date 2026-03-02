@@ -21,11 +21,8 @@ class MockLLMProvider(LLMProvider):
 
     async def chat(self, messages, temperature=0.1, max_tokens=2048) -> str:
         self.call_count += 1
-        # Alternate: odd calls = insights, even calls = emotion
-        if self.call_count % 2 == 1:
-            return '{"insights": [{"content": "insight #%d", "category": "pattern", "source_ids": []}]}' % self.call_count
-        else:
-            return '{"latest_state": "test state", "dominant_emotions": {}, "emotion_triggers": {}}'
+        # All calls return insights (emotion profile update removed)
+        return '{"insights": [{"content": "insight #%d", "category": "pattern", "source_ids": []}]}' % self.call_count
 
 
 @pytest.fixture
@@ -61,14 +58,16 @@ async def test_reflect_watermark_initial(mock_embedding, mock_llm):
         assert result["memories_analyzed"] == 3
         assert result["insights_generated"] >= 1
 
-        # Verify watermark was set
+        # Verify watermark was set in reflection_cycles
         async with nm._db.session() as session:
             row = (await session.execute(
-                text("SELECT last_reflected_at FROM emotion_profiles WHERE user_id = :uid"),
+                text("SELECT completed_at FROM reflection_cycles "
+                     "WHERE user_id = :uid AND status = 'completed' "
+                     "ORDER BY completed_at DESC LIMIT 1"),
                 {"uid": user},
             )).first()
             assert row is not None
-            assert row.last_reflected_at is not None
+            assert row.completed_at is not None
     finally:
         await nm.close()
 
@@ -187,13 +186,15 @@ async def test_reflect_background(mock_embedding, mock_llm):
         # Give background task time to complete
         await asyncio.sleep(1)
 
-        # Verify watermark was set by background task
+        # Verify watermark was set by background task in reflection_cycles
         async with nm._db.session() as session:
             row = (await session.execute(
-                text("SELECT last_reflected_at FROM emotion_profiles WHERE user_id = :uid"),
+                text("SELECT completed_at FROM reflection_cycles "
+                     "WHERE user_id = :uid AND status = 'completed' "
+                     "ORDER BY completed_at DESC LIMIT 1"),
                 {"uid": user},
             )).first()
             assert row is not None
-            assert row.last_reflected_at is not None
+            assert row.completed_at is not None
     finally:
         await nm.close()

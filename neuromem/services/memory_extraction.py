@@ -138,15 +138,6 @@ class MemoryExtractionService:
                 logger.error(f"❌ 存储 triples 失败: {e}", exc_info=True)
                 triples_count = 0
 
-        # Store profile updates to KV store
-        profile_updates = classified.get("profile_updates", {})
-        if profile_updates:
-            try:
-                await self._store_profile_updates(user_id, profile_updates)
-                logger.info(f"✅ 存储 profile_updates 成功: {list(profile_updates.keys())}")
-            except Exception as e:
-                logger.error(f"❌ 存储 profile_updates 失败: {e}", exc_info=True)
-
         # 统一提交所有记忆（facts, episodes, triples）
         # 保证原子性：要么全部成功，要么全部失败
         total_count = facts_count + episodes_count + triples_count
@@ -302,9 +293,7 @@ class MemoryExtractionService:
         """Build Chinese classification prompt (original)."""
         triples_section = ""
         triples_output = ""
-        profile_num = 4
         if self._graph_enabled:
-            profile_num = 5
             triples_section = """
 4. **Triples（实体关系三元组）**: 从 Facts 和 Episodes 中提取的结构化关系
    - 格式: {{"subject": "主体", "subject_type": "类型", "relation": "关系", "object": "客体", "object_type": "类型", "content": "原始描述", "confidence": 0.0-1.0}}
@@ -329,16 +318,6 @@ class MemoryExtractionService:
    - 同时将原始时间表达保留在 "timestamp_original" 字段中
 """
 
-        profile_section_zh = f"""{profile_num}. **Profile Updates（用户画像更新）**: 从对话中提取的用户画像信息
-   - 只在对话中**明确提到**相关信息时才输出对应字段，没有信息的字段不要包含
-   - identity: 用户的姓名、年龄、性别等核心身份信息（字符串，如"张三，男，28岁"）
-   - occupation: 用户的职业/公司/职位信息（字符串，如"Google 软件工程师"）
-   - interests: 用户的兴趣爱好列表（字符串数组，如["摄影", "徒步"]）
-   - preferences: 用户的偏好和习惯（字符串数组，如["喜欢喝咖啡", "偏好深色模式"]）
-   - values: 用户的价值观和信念（字符串数组，如["重视家庭", "环保意识强"]）
-   - relationships: 用户的人际关系（字符串数组，如["妻子 Emily", "朋友 Tom"]）
-   - personality: 用户的性格特征（字符串数组，如["外向", "乐观"]）"""
-
         return f"""分析以下对话，提取用户的记忆信息。请严格按照 JSON 格式返回结果。
 **语言规则**：所有提取的 content 字段必须使用中文。禁止输出英文翻译，禁止为同一信息生成中英双语版本。
 
@@ -351,7 +330,7 @@ class MemoryExtractionService:
 
 1. **Facts（事实）**: 用户及对话中提到的人物的客观信息
    - 格式: {{"content": "事实描述", "category": "分类", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "情感描述"}} 或 null}}
-   - category 可选: work, skill, hobby, personal, education, location, health, relationship, finance
+   - category 可选: identity, work, skill, hobby, personal, education, location, health, relationship, finance, values
    - importance: 对用户的重要程度（1=随口一提, 5=日常信息, 9=非常重要如生日/重大事件, 10=核心身份信息）
    - emotion: 标注该事实相关的情感基调。大多数对话都带有情感色彩（积极/消极/中性），请尽量标注。仅当内容完全是客观事实（如"用户住在北京"）时才设为 null
    - entities: 提取该事实中提到的人名、地点和关键主题
@@ -404,8 +383,6 @@ class MemoryExtractionService:
    - 同时提取具体事实和概念性/抽象信息（计划、兴趣、价值观、推理链）
 {triples_section}
 
-{profile_section_zh}
-
 要求：
 - 只提取明确提到的信息，不要推测
 - confidence 表示提取的确信度 (0.0-1.0)
@@ -417,8 +394,7 @@ class MemoryExtractionService:
 ```json
 {{
   "facts": [...],
-  "episodes": [...]{triples_output},
-  "profile_updates": {{...}}
+  "episodes": [...]{triples_output}
 }}
 ```"""
 
@@ -426,7 +402,6 @@ class MemoryExtractionService:
         """Build English classification prompt for English conversations."""
         triples_section = ""
         triples_output = ""
-        profile_num = 4
         if self._graph_enabled:
             triples_section = """
 4. **Triples (Entity-Relation Triples)**: Structured relationships extracted from Facts and Episodes
@@ -440,7 +415,6 @@ class MemoryExtractionService:
    - Skip triples with confidence < 0.6
    - Only extract a triple when the object is a concrete entity — skip otherwise"""
             triples_output = ',\n  "triples": [...]'
-            profile_num = 5
 
         temporal_section = ""
         if session_timestamp:
@@ -452,16 +426,6 @@ class MemoryExtractionService:
    - Store computed absolute time in the "timestamp" field as ISO 8601 format (e.g. "2023-05-06")
    - Also preserve the original expression in "timestamp_original" field
 """
-
-        profile_section_en = f"""{profile_num}. **Profile Updates**: User profile information extracted from the conversation
-   - Only include fields that are **explicitly mentioned** in the conversation. Omit fields with no information.
-   - identity: User's name, age, gender, and other core identity info (string, e.g. "John Smith, male, 28 years old")
-   - occupation: User's job title, company, role (string, e.g. "Software engineer at Google")
-   - interests: User's hobbies and interests (string array, e.g. ["photography", "hiking"])
-   - preferences: User's preferences and habits (string array, e.g. ["likes coffee", "prefers dark mode"])
-   - values: User's values and beliefs (string array, e.g. ["values family", "environmentally conscious"])
-   - relationships: User's interpersonal relationships (string array, e.g. ["wife Emily", "friend Tom"])
-   - personality: User's personality traits (string array, e.g. ["extroverted", "optimistic"])"""
 
         return f"""Extract structured memory information from the following conversation. Return results strictly in JSON format.
 **Language rule**: ALL extracted content fields MUST be in English. Do NOT produce translations or bilingual duplicates.
@@ -475,7 +439,7 @@ Extract the following memories:
 
 1. **Facts**: Objective information about the user and people mentioned
    - Format: {{"content": "fact description", "category": "category", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "emotion"}} or null}}
-   - Category options: work, skill, hobby, personal, education, location, health, relationship, finance
+   - Category options: identity, work, skill, hobby, personal, education, location, health, relationship, finance, values
    - Importance: significance to user's life (1=casual mention, 5=daily info, 9=very important like birthday/major events, 10=core identity)
    - Emotion: tag the emotional tone for this fact. Most conversations carry emotional undertones (positive/negative/neutral) — tag them. Only set null for purely objective facts like "User lives in Beijing"
    - entities: extract people names, locations, and key topics mentioned in this fact
@@ -528,8 +492,6 @@ Extract the following memories:
    - Extract both concrete facts AND conceptual/abstract information (plans, interests, values, reasoning)
 {triples_section}
 
-{profile_section_en}
-
 Requirements:
 - Only extract explicitly mentioned information, do not infer
 - Confidence represents extraction certainty (0.0-1.0)
@@ -541,8 +503,7 @@ Return format (JSON only, no other content):
 ```json
 {{
   "facts": [...],
-  "episodes": [...]{triples_output},
-  "profile_updates": {{...}}
+  "episodes": [...]{triples_output}
 }}
 ```"""
 
@@ -576,23 +537,18 @@ Return format (JSON only, no other content):
             if not isinstance(triples, list):
                 triples = []
 
-            profile_updates = result.get("profile_updates", {})
-            if not isinstance(profile_updates, dict):
-                profile_updates = {}
-
             return {
                 "facts": facts,
                 "episodes": episodes,
                 "triples": triples,
-                "profile_updates": profile_updates,
             }
 
         except json.JSONDecodeError as e:
             logger.error("Failed to parse JSON from classification result: %s", e)
-            return {"facts": [], "episodes": [], "triples": [], "profile_updates": {}}
+            return {"facts": [], "episodes": [], "triples": []}
         except Exception as e:
             logger.error("Error parsing classification result: %s", e)
-            return {"facts": [], "episodes": [], "triples": [], "profile_updates": {}}
+            return {"facts": [], "episodes": [], "triples": []}
 
     def _resolve_timestamp(
         self,
@@ -890,58 +846,3 @@ Return format (JSON only, no other content):
             logger.error("Failed to store triples: %s", e)
             return 0
 
-    # Keys that are overwritten each time (latest value wins)
-    _PROFILE_OVERWRITE_KEYS = {"identity", "occupation"}
-    # Keys that are append+dedup (accumulate over time)
-    _PROFILE_APPEND_KEYS = {"interests", "values", "relationships", "personality", "preferences"}
-
-    async def _store_profile_updates(
-        self,
-        user_id: str,
-        profile_updates: dict,
-    ) -> None:
-        """Store user profile updates to KV store.
-
-        - identity, occupation: overwrite (string)
-        - interests, values, relationships, personality, preferences: append+dedup (list)
-
-        Uses 1 batch-read + 1 batch-write instead of N sequential get/set pairs.
-        """
-        kv_service = KVService(self.db)
-
-        # Filter to valid keys only
-        valid_keys = self._PROFILE_OVERWRITE_KEYS | self._PROFILE_APPEND_KEYS
-        valid_updates = {k: v for k, v in profile_updates.items() if k in valid_keys and v}
-        if not valid_updates:
-            return
-
-        # Batch-read all existing profile values in one query
-        existing_items = await kv_service.list("profile", user_id)
-        existing_profile: dict = {item.key: item.value for item in existing_items}
-
-        # Compute merged values
-        to_write: dict = {}
-        for key, value in valid_updates.items():
-            if key in self._PROFILE_OVERWRITE_KEYS:
-                to_write[key] = value
-            else:
-                # Append + dedup for list fields
-                new_items = value if isinstance(value, list) else [value]
-                new_items = [item for item in new_items if item]
-                if not new_items:
-                    continue
-                existing = existing_profile.get(key)
-                if existing and isinstance(existing, list):
-                    seen = {item.lower() for item in existing}
-                    merged = list(existing)
-                    for item in new_items:
-                        if item.lower() not in seen:
-                            seen.add(item.lower())
-                            merged.append(item)
-                    to_write[key] = merged
-                else:
-                    to_write[key] = new_items
-
-        # Single batch write
-        if to_write:
-            await kv_service.batch_set("profile", user_id, to_write)

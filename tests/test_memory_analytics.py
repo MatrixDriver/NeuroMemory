@@ -57,7 +57,8 @@ class TestStats:
         assert result["by_type"] == {}
         assert result["by_week"] == []
         assert result["active_entities"] == 0
-        assert result["profile_summary"] is None
+        assert result["profile_summary"]["trait_count"] == 0
+        assert result["profile_summary"]["recent_mood"] is None
 
     @pytest.mark.asyncio
     async def test_stats_counts_entities(self, nm_graph):

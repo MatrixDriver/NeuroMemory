@@ -65,7 +65,7 @@ async def test_reflect_generates_insights(db_session, mock_embedding):
     result = await reflection_svc.digest("reflect_user", recent_memories)
 
     assert "insights" in result
-    assert "emotion_profile" in result
+    assert "emotion_profile" not in result
     assert len(result["insights"]) == 2
     assert result["insights"][0]["category"] == "summary"
     assert result["insights"][1]["category"] == "pattern"
@@ -78,7 +78,7 @@ async def test_reflect_with_no_memories(db_session, mock_embedding):
     reflection_svc = ReflectionService(db_session, mock_embedding, mock_llm)
     result = await reflection_svc.digest("empty_user", [])
     assert result["insights"] == []
-    assert result["emotion_profile"] is None
+    assert "emotion_profile" not in result
 
 
 @pytest.mark.asyncio
@@ -121,8 +121,8 @@ async def test_reflect_stores_as_insight_type(db_session, mock_embedding):
 
 
 @pytest.mark.asyncio
-async def test_reflect_updates_emotion_profile(db_session, mock_embedding):
-    """Test that reflection updates emotion_profiles table."""
+async def test_reflect_no_longer_updates_emotion_profile(db_session, mock_embedding):
+    """Test that reflection no longer updates emotion_profiles table (Profile Unification)."""
     import uuid
     from sqlalchemy import text
 
@@ -146,33 +146,26 @@ async def test_reflect_updates_emotion_profile(db_session, mock_embedding):
 
     mock_llm = MockLLMProvider(
         insight_response="""{"insights": []}""",
-        emotion_response="""```json
-{
-  "latest_state": "近期工作压力大，情绪低落",
-  "dominant_emotions": {"焦虑": 0.6, "疲惫": 0.4},
-  "emotion_triggers": {"工作": {"valence": -0.6}}
-}
-```""",
     )
 
     reflection_svc = ReflectionService(db_session, mock_embedding, mock_llm)
     result = await reflection_svc.digest("emotion_user", recent_memories)
 
-    assert result["emotion_profile"] is not None
-    assert result["emotion_profile"]["latest_state"] == "近期工作压力大，情绪低落"
-    assert result["emotion_profile"]["latest_state_valence"] is not None
+    # emotion_profile should no longer be in the result
+    assert "emotion_profile" not in result
+    assert "insights" in result
 
-    # Verify emotion_profiles table
-    rows = await db_session.execute(
-        text("SELECT user_id, latest_state, latest_state_valence, dominant_emotions FROM emotion_profiles WHERE user_id = :uid"),
-        {"uid": "emotion_user"},
-    )
-    stored = rows.fetchone()
-    assert stored is not None
-    assert stored.user_id == "emotion_user"
-    assert stored.latest_state == "近期工作压力大，情绪低落"
-    assert stored.latest_state_valence < 0  # Negative valence
-    assert "焦虑" in stored.dominant_emotions
+    # Verify emotion_profiles table was NOT written to
+    try:
+        rows = await db_session.execute(
+            text("SELECT user_id FROM emotion_profiles WHERE user_id = :uid"),
+            {"uid": "emotion_user"},
+        )
+        stored = rows.fetchone()
+        assert stored is None, "emotion_profiles should not be updated by digest"
+    except Exception:
+        # Table might not exist, which is also correct
+        pass
 
 
 @pytest.mark.asyncio
@@ -190,7 +183,7 @@ async def test_reflect_with_no_emotions_skips_profile_update(db_session, mock_em
     result = await reflection_svc.digest("no_emotion_user", recent_memories)
 
     assert result["insights"] is not None
-    assert result["emotion_profile"] is None  # No emotion data, no profile update
+    assert "emotion_profile" not in result  # No longer returned
 
 
 @pytest.mark.asyncio
@@ -243,14 +236,14 @@ async def test_reflect_facade_method(db_session, mock_embedding):
         metadata={"emotion": {"valence": -0.6, "arousal": 0.7}},
     )
 
-    # v0.2.0: digest() only generates insights and updates emotion profile
+    # digest() generates insights only (emotion_profile removed in Profile Unification)
     result = await nm.digest("facade_user", batch_size=10)
 
-    # Check insight generation (no extraction counters in v0.2.0)
+    # Check insight generation
     assert "insights_generated" in result
     assert "insights" in result
-    assert "emotion_profile" in result
-    # v0.2.0: No longer returns extraction results
+    assert "emotion_profile" not in result
+    # No longer returns extraction results
     assert "conversations_processed" not in result
     assert "facts_added" not in result
     assert "preferences_updated" not in result

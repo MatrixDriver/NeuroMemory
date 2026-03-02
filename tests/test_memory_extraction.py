@@ -42,10 +42,7 @@ async def test_extract_memories_from_conversations(db_session, mock_embedding):
     {"content": "在 Google 工作", "category": "work", "confidence": 0.98},
     {"content": "主要做后端开发", "category": "skill", "confidence": 0.95}
   ],
-  "episodes": [],
-  "profile_updates": {
-    "preferences": ["喜欢蓝色", "看科幻电影"]
-  }
+  "episodes": []
 }
 ```""")
 
@@ -58,12 +55,6 @@ async def test_extract_memories_from_conversations(db_session, mock_embedding):
     assert result["messages_processed"] == 4
     assert result["facts_extracted"] == 2
     assert result["episodes_extracted"] == 0
-
-    # Verify preferences stored in profile namespace
-    kv_svc = KVService(db_session)
-    prefs = await kv_svc.get("profile", "test_user", "preferences")
-    assert prefs is not None
-    assert len(prefs.value) >= 2
 
 
 @pytest.mark.asyncio
@@ -109,7 +100,7 @@ async def test_parse_classification_result():
 
     # Invalid JSON
     result3 = svc._parse_classification_result("not json")
-    assert result3 == {"facts": [], "episodes": [], "triples": [], "profile_updates": {}}
+    assert result3 == {"facts": [], "episodes": [], "triples": []}
 
 
 @pytest.mark.asyncio

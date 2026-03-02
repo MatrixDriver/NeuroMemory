@@ -7,11 +7,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select, text as sql_text
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from neuromem.models.conversation import ConversationSession
-from neuromem.models.emotion_profile import EmotionProfile
 from neuromem.models.memory import Memory
 from neuromem.models.reflection_cycle import ReflectionCycle
 from neuromem.providers.embedding import EmbeddingProvider
@@ -29,6 +27,12 @@ REFLECTION_PROMPT_TEMPLATE = """## 已有特质
 ## 分析任务
 
 请严格按以下规则分析，返回 JSON 结果：
+
+注意：新增记忆中的 metadata 可能包含 emotion 字段（含 valence、arousal、label）。在检测趋势和行为模式时，请关注：
+- 特定话题/情境下反复出现的情绪模式（如"讨论工作时总是焦虑"）
+- 情绪变化趋势（如"最近整体情绪变积极了"）
+- 情绪触发关联（如"提到某人时情绪波动大"）
+将这些情绪模式作为情境化 trait 产生，context 从话题推断。
 
 ### 1. 短期趋势检测 (new_trends)
 - 从新增记忆中识别**近期趋势**（证据跨度短、数量少的初步模式）
@@ -110,7 +114,6 @@ class ReflectionService:
     """9-step reflection engine with trait lifecycle management.
 
     Replaces the original insight-based reflection with structured trait analysis.
-    Preserves emotion profile update functionality.
     """
 
     def __init__(
@@ -130,17 +133,18 @@ class ReflectionService:
         Returns:
             (should_trigger, trigger_type, trigger_value)
         """
-        # Query last_reflected_at from conversation_sessions
+        # Query watermark from reflection_cycles
         result = await self.db.execute(
             sql_text(
-                "SELECT last_reflected_at FROM conversation_sessions "
-                "WHERE user_id = :uid ORDER BY last_reflected_at DESC NULLS LAST LIMIT 1"
+                "SELECT completed_at FROM reflection_cycles "
+                "WHERE user_id = :uid AND status = 'completed' "
+                "ORDER BY completed_at DESC LIMIT 1"
             ),
             {"uid": user_id},
         )
         row = result.first()
 
-        if not row or row.last_reflected_at is None:
+        if not row or row.completed_at is None:
             # Check if user has any memories at all
             mem_result = await self.db.execute(
                 sql_text(
@@ -154,7 +158,7 @@ class ReflectionService:
                 return (False, None, None)
             return (True, "first_time", None)
 
-        last_reflected = row.last_reflected_at
+        last_reflected = row.completed_at
         now = datetime.now(timezone.utc)
 
         # Idempotency check: if last reflected within 60s, skip
@@ -310,7 +314,6 @@ class ReflectionService:
             # No new memories -> only apply decay
             dissolved = await self._trait_engine.apply_decay(user_id)
             stats["traits_dissolved"] += dissolved
-            await self._update_watermark(user_id)
             return stats
 
         # Step 2: LLM main call
@@ -390,23 +393,21 @@ class ReflectionService:
         dissolved = await self._trait_engine.apply_decay(user_id)
         stats["traits_dissolved"] += dissolved
 
-        # Step 9: Update watermark
-        await self._update_watermark(user_id)
-
         return stats
 
     async def _scan_new_memories(self, user_id: str) -> list[dict]:
-        """Scan memories created after last_reflected_at."""
-        # Get watermark
+        """Scan memories created after last reflection watermark."""
+        # Get watermark from reflection_cycles
         result = await self.db.execute(
             sql_text(
-                "SELECT last_reflected_at FROM conversation_sessions "
-                "WHERE user_id = :uid ORDER BY last_reflected_at DESC NULLS LAST LIMIT 1"
+                "SELECT completed_at FROM reflection_cycles "
+                "WHERE user_id = :uid AND status = 'completed' "
+                "ORDER BY completed_at DESC LIMIT 1"
             ),
             {"uid": user_id},
         )
         row = result.first()
-        watermark = row.last_reflected_at if row else None
+        watermark = row.completed_at if row else None
 
         # Build query
         where = "user_id = :uid AND memory_type IN ('fact', 'episodic')"
@@ -525,29 +526,6 @@ class ReflectionService:
             logger.error("Error parsing reflection result: %s", e)
             return None
 
-    async def _update_watermark(self, user_id: str) -> None:
-        """Update conversation_sessions.last_reflected_at."""
-        now = datetime.now(timezone.utc)
-        # Try to update existing session
-        result = await self.db.execute(
-            sql_text(
-                "UPDATE conversation_sessions SET last_reflected_at = :now "
-                "WHERE user_id = :uid "
-                "RETURNING id"
-            ),
-            {"uid": user_id, "now": now},
-        )
-        if result.first() is None:
-            # No session exists for this user, create a minimal one
-            await self.db.execute(
-                sql_text(
-                    "INSERT INTO conversation_sessions (user_id, session_id, last_reflected_at) "
-                    "VALUES (:uid, :sid, :now) "
-                    "ON CONFLICT (session_id) DO UPDATE SET last_reflected_at = EXCLUDED.last_reflected_at"
-                ),
-                {"uid": user_id, "sid": f"__reflect_{user_id}", "now": now},
-            )
-
     # ============== Backward compatibility ==============
 
     async def digest(
@@ -558,25 +536,16 @@ class ReflectionService:
     ) -> dict:
         """Backward-compatible digest entry point.
 
-        Preserves the original digest() behavior:
-        1. Generate pattern/summary insights via LLM and store as trait(trend)
-        2. Update emotion profile
+        Generates pattern/summary insights via LLM and stores as trait(trend).
 
         Note: New code should use reflect() instead.
         """
         if not recent_memories:
-            return {"insights": [], "emotion_profile": None}
+            return {"insights": []}
 
-        # 1. Generate pattern and summary insights (legacy behavior)
         insights = await self._generate_insights(user_id, recent_memories, existing_insights)
 
-        # 2. Update emotion profile
-        emotion_profile = await self._update_emotion_profile(user_id, recent_memories)
-
-        return {
-            "insights": insights,
-            "emotion_profile": emotion_profile,
-        }
+        return {"insights": insights}
 
     async def _generate_insights(
         self,
@@ -733,199 +702,3 @@ class ReflectionService:
             logger.error("Error parsing insight result: %s", e)
             return []
 
-    # ============== Preserved methods (emotion profile) ==============
-
-    async def _update_emotion_profile(
-        self, user_id: str, recent_memories: list[dict]
-    ) -> dict | None:
-        """Update emotion profile: latest_state (recent) + long-term traits.
-
-        Args:
-            user_id: The user ID.
-            recent_memories: Recent memories (should include emotion metadata).
-
-        Returns:
-            Dict with emotion profile data, or None if update failed.
-        """
-        # Extract emotion data from recent memories
-        emotions = []
-        source_ids = []
-        for mem in recent_memories:
-            mem_id = mem.get("id")
-            meta = mem.get("metadata") or {}
-            if "emotion" in meta and meta["emotion"]:
-                em = meta["emotion"]
-                valence = em.get("valence")
-                arousal = em.get("arousal")
-                if valence is not None and arousal is not None:
-                    emotions.append({"valence": valence, "arousal": arousal})
-                    if mem_id:
-                        source_ids.append(mem_id)
-
-        if not emotions:
-            logger.info("No emotion data in recent memories, skipping emotion profile update")
-            return None
-
-        # Calculate aggregates
-        valence_avg = sum(e["valence"] for e in emotions) / len(emotions)
-        arousal_avg = sum(e["arousal"] for e in emotions) / len(emotions)
-
-        # Generate natural language summary with LLM
-        prompt = self._build_emotion_summary_prompt(recent_memories, emotions)
-        try:
-            result_text = await self._llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=1024,
-            )
-            summary_data = self._parse_emotion_summary(result_text)
-        except Exception as e:
-            logger.error("Emotion summary LLM call failed: %s", e, exc_info=True)
-            summary_data = {
-                "latest_state": f"近期情绪平均 valence={valence_avg:.2f}",
-                "dominant_emotions": {},
-                "emotion_triggers": {},
-            }
-
-        # Update or create emotion_profile row
-        stmt = select(EmotionProfile).where(EmotionProfile.user_id == user_id)
-        result = await self.db.execute(stmt)
-        profile = result.scalar_one_or_none()
-
-        now = datetime.now(timezone.utc)
-        if profile:
-            # Update existing profile
-            profile.latest_state = summary_data.get("latest_state")
-            profile.latest_state_period = self._get_current_period()
-            profile.latest_state_valence = valence_avg
-            profile.latest_state_arousal = arousal_avg
-            profile.latest_state_updated_at = now
-            profile.valence_avg = valence_avg
-            profile.arousal_avg = arousal_avg
-            profile.dominant_emotions = summary_data.get("dominant_emotions")
-            profile.emotion_triggers = summary_data.get("emotion_triggers")
-            profile.source_memory_ids = source_ids
-            profile.source_count = len(source_ids)
-            profile.updated_at = now
-        else:
-            # Create new profile
-            profile = EmotionProfile(
-                user_id=user_id,
-                latest_state=summary_data.get("latest_state"),
-                latest_state_period=self._get_current_period(),
-                latest_state_valence=valence_avg,
-                latest_state_arousal=arousal_avg,
-                latest_state_updated_at=now,
-                valence_avg=valence_avg,
-                arousal_avg=arousal_avg,
-                dominant_emotions=summary_data.get("dominant_emotions"),
-                emotion_triggers=summary_data.get("emotion_triggers"),
-                source_memory_ids=source_ids,
-                source_count=len(source_ids),
-            )
-            self.db.add(profile)
-
-        await self.db.commit()
-
-        return {
-            "latest_state": profile.latest_state,
-            "latest_state_valence": profile.latest_state_valence,
-            "valence_avg": profile.valence_avg,
-            "dominant_emotions": profile.dominant_emotions,
-        }
-
-    def _build_emotion_summary_prompt(
-        self, memories: list[dict], emotions: list[dict]
-    ) -> str:
-        """Build prompt for generating emotion profile summary."""
-        memory_lines = []
-        for i, m in enumerate(memories):
-            content = m.get("content", "")
-            meta = m.get("metadata") or {}
-            emotion_str = ""
-            if "emotion" in meta and meta["emotion"]:
-                em = meta["emotion"]
-                label = em.get("label", "")
-                valence = em.get("valence", 0)
-                arousal = em.get("arousal", 0)
-                if label:
-                    emotion_str = f" [情感: {label}, valence={valence:.1f}, arousal={arousal:.1f}]"
-            memory_lines.append(f"{i+1}. {content}{emotion_str}")
-
-        memories_text = "\n".join(memory_lines)
-
-        valence_avg = sum(e["valence"] for e in emotions) / len(emotions)
-        arousal_avg = sum(e["arousal"] for e in emotions) / len(emotions)
-
-        return f"""你是一个情感分析系统。请根据用户最近的记忆和情感标注，生成情感画像总结。
-
-用户最近的记忆（含情感标注）：
-{memories_text}
-
-统计数据：
-- 平均 valence: {valence_avg:.2f} (-1=负面, 1=正面)
-- 平均 arousal: {arousal_avg:.2f} (0=平静, 1=兴奋)
-
-请生成：
-1. latest_state: 一句话总结用户近期的情感状态（如"最近工作压力大，情绪偏低落"）
-2. dominant_emotions: 主要情感分布（如 {{"焦虑": 0.6, "疲惫": 0.3}}）
-3. emotion_triggers: 话题-情感关联（如 {{"工作": {{"valence": -0.5}}, "技术": {{"valence": 0.7}}}}）
-
-返回格式（只返回 JSON，不要其他内容）：
-```json
-{{
-  "latest_state": "用户近期情感状态描述",
-  "dominant_emotions": {{"情感1": 0.6, "情感2": 0.4}},
-  "emotion_triggers": {{"话题1": {{"valence": -0.5}}, "话题2": {{"valence": 0.7}}}}
-}}
-```"""
-
-    def _parse_emotion_summary(self, result_text: str) -> dict:
-        """Parse LLM emotion summary output."""
-        try:
-            t = result_text.strip()
-
-            if "```json" in t:
-                start = t.find("```json") + 7
-                end = t.find("```", start)
-                t = t[start:end].strip()
-            elif "```" in t:
-                start = t.find("```") + 3
-                end = t.find("```", start)
-                t = t[start:end].strip()
-
-            result = json.loads(t)
-
-            if not isinstance(result, dict):
-                return {
-                    "latest_state": "近期情感状态",
-                    "dominant_emotions": {},
-                    "emotion_triggers": {},
-                }
-
-            return {
-                "latest_state": result.get("latest_state", "近期情感状态"),
-                "dominant_emotions": result.get("dominant_emotions", {}),
-                "emotion_triggers": result.get("emotion_triggers", {}),
-            }
-
-        except json.JSONDecodeError as e:
-            logger.error("Failed to parse emotion summary JSON: %s", e)
-            return {
-                "latest_state": "近期情感状态",
-                "dominant_emotions": {},
-                "emotion_triggers": {},
-            }
-        except Exception as e:
-            logger.error("Error parsing emotion summary: %s", e)
-            return {
-                "latest_state": "近期情感状态",
-                "dominant_emotions": {},
-                "emotion_triggers": {},
-            }
-
-    def _get_current_period(self) -> str:
-        """Get current time period identifier (e.g., '2026-W06')."""
-        now = datetime.now(timezone.utc)
-        year, week, _ = now.isocalendar()
-        return f"{year}-W{week:02d}"

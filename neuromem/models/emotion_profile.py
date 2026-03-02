@@ -1,4 +1,9 @@
-"""Emotion profile model for aggregated user emotional state."""
+"""Emotion profile model for aggregated user emotional state.
+
+DEPRECATED: This model is deprecated as part of the Profile Unification refactoring.
+The emotion_profiles table will be dropped after data migration is complete.
+Use profile_view() for emotion data (aggregated from episodic memories).
+"""
 
 from __future__ import annotations
 

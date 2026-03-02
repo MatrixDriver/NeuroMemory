@@ -1075,7 +1075,7 @@ class NeuroMemory:
                 created_after=created_after,
                 created_before=created_before,
             ),
-            self._fetch_user_profile(user_id),
+            self.profile_view(user_id),
         ]
         conv_idx: int | None = None
         graph_idx: int | None = None
@@ -1089,7 +1089,7 @@ class NeuroMemory:
         results = await asyncio.gather(*coros, return_exceptions=True)
 
         vector_results: list[dict] = results[0] if not isinstance(results[0], Exception) else []
-        user_profile: dict = results[1] if not isinstance(results[1], Exception) else {}
+        user_profile: dict = results[1] if not isinstance(results[1], Exception) else {"facts": {}, "traits": [], "recent_mood": None}
         conversation_results: list[dict] = (
             results[conv_idx] if conv_idx is not None and not isinstance(results[conv_idx], Exception) else []
         )
@@ -1367,25 +1367,147 @@ class NeuroMemory:
                     **common_kwargs,
                 )
 
-    async def _fetch_user_profile(self, user_id: str) -> dict:
-        """Read user profile from KV store in a single batch query."""
-        try:
-            from neuromem.services.kv import KVService
-            _profile_keys = {
-                "identity", "occupation", "interests", "preferences",
-                "values", "relationships", "personality",
+    async def profile_view(self, user_id: str) -> dict:
+        """获取用户画像视图。
+
+        从 fact + trait + 近期 episodic emotion metadata 实时组装用户画像。
+        每次调用实时查询，不缓存。
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            {
+                "facts": {category: value, ...},
+                "traits": [{content, subtype, stage, confidence, context}, ...],
+                "recent_mood": {valence_avg, arousal_avg, sample_count, period} | None,
             }
+        """
+        from sqlalchemy import text as sql_text
+
+        async def _fetch_facts() -> dict:
+            """从 memories 表查询 fact 类型记忆，按 category 分组取最新。"""
             async with self._db.session() as session:
-                kv_svc = KVService(session)
-                items = await kv_svc.list("profile", user_id)
-                return {
-                    item.key: item.value
-                    for item in items
-                    if item.key in _profile_keys and item.value
-                }
+                result = await session.execute(
+                    sql_text(
+                        "SELECT content, metadata->>'category' AS category, created_at "
+                        "FROM memories "
+                        "WHERE user_id = :uid AND memory_type = 'fact' "
+                        "AND valid_until IS NULL "
+                        "ORDER BY created_at DESC"
+                    ),
+                    {"uid": user_id},
+                )
+                rows = result.fetchall()
+
+            # 按 category 分组
+            # 单值 category（identity, occupation, location）取最新一条
+            # 列表 category（hobby, skill, relationship, work, personal, values 等）取最新若干条
+            single_categories = {"identity", "occupation", "location"}
+            facts: dict = {}
+            list_seen: dict[str, set] = {}
+
+            for row in rows:
+                cat = row.category or "general"
+                content = row.content
+
+                if cat in single_categories:
+                    if cat not in facts:
+                        facts[cat] = content
+                else:
+                    if cat not in facts:
+                        facts[cat] = []
+                        list_seen[cat] = set()
+                    content_lower = content.lower()
+                    if content_lower not in list_seen.get(cat, set()):
+                        list_seen.setdefault(cat, set()).add(content_lower)
+                        facts[cat].append(content)
+
+            return facts
+
+        async def _fetch_traits() -> list[dict]:
+            """从 memories 表查询活跃 trait（emerging 及以上阶段）。"""
+            async with self._db.session() as session:
+                result = await session.execute(
+                    sql_text(
+                        "SELECT content, trait_subtype, trait_stage, trait_confidence, trait_context "
+                        "FROM memories "
+                        "WHERE user_id = :uid AND memory_type = 'trait' "
+                        "AND trait_stage NOT IN ('trend', 'dissolved') "
+                        "ORDER BY trait_confidence DESC NULLS LAST "
+                        "LIMIT 30"
+                    ),
+                    {"uid": user_id},
+                )
+                return [
+                    {
+                        "content": r.content,
+                        "subtype": r.trait_subtype,
+                        "stage": r.trait_stage,
+                        "confidence": float(r.trait_confidence) if r.trait_confidence else 0.0,
+                        "context": r.trait_context,
+                    }
+                    for r in result.fetchall()
+                ]
+
+        async def _fetch_recent_mood() -> dict | None:
+            """从近期 episodic 记忆的 emotion metadata 实时聚合情绪状态。"""
+            async with self._db.session() as session:
+                result = await session.execute(
+                    sql_text(
+                        "SELECT "
+                        "  AVG((metadata->'emotion'->>'valence')::float) AS valence_avg, "
+                        "  AVG((metadata->'emotion'->>'arousal')::float) AS arousal_avg, "
+                        "  COUNT(*) AS sample_count "
+                        "FROM memories "
+                        "WHERE user_id = :uid "
+                        "  AND memory_type = 'episodic' "
+                        "  AND metadata->'emotion' IS NOT NULL "
+                        "  AND (metadata->'emotion'->>'valence') IS NOT NULL "
+                        "  AND (metadata->'emotion'->>'valence') ~ '^-?[0-9]*\\.?[0-9]+$' "
+                        "  AND ((metadata->'emotion'->>'arousal') IS NULL "
+                        "       OR (metadata->'emotion'->>'arousal') ~ '^-?[0-9]*\\.?[0-9]+$') "
+                        "  AND created_at > NOW() - INTERVAL '14 days'"
+                    ),
+                    {"uid": user_id},
+                )
+                row = result.first()
+
+            if not row or not row.sample_count or row.sample_count == 0:
+                return None
+
+            return {
+                "valence_avg": round(float(row.valence_avg), 3) if row.valence_avg is not None else 0.0,
+                "arousal_avg": round(float(row.arousal_avg), 3) if row.arousal_avg is not None else 0.0,
+                "sample_count": row.sample_count,
+                "period": "last_14_days",
+            }
+
+        try:
+            facts, traits, mood = await asyncio.gather(
+                _fetch_facts(),
+                _fetch_traits(),
+                _fetch_recent_mood(),
+                return_exceptions=True,
+            )
+            if isinstance(facts, Exception):
+                logger.warning("profile_view facts query failed: %s", facts)
+                facts = {}
+            if isinstance(traits, Exception):
+                logger.warning("profile_view traits query failed: %s", traits)
+                traits = []
+            if isinstance(mood, Exception):
+                logger.warning("profile_view mood query failed: %s", mood)
+                mood = None
+
+            return {
+                "facts": facts,
+                "traits": traits,
+                "recent_mood": mood,
+            }
         except Exception as e:
-            logger.warning(f"Failed to read user profile: {e}")
-            return {}
+            logger.warning("profile_view failed: %s", e)
+            return {"facts": {}, "traits": [], "recent_mood": None}
 
     async def _fetch_graph_memories(
         self, user_id: str, query: str, limit: int,
@@ -1489,9 +1611,9 @@ class NeuroMemory:
         batch_size: int = 50,
         background: bool = False,
     ) -> dict | None:
-        """Generate insights and update emotion profile from un-digested memories.
+        """Generate insights from un-digested memories.
 
-        Uses a watermark (``last_reflected_at`` on EmotionProfile) to only
+        Uses a watermark (``completed_at`` on ReflectionCycle) to only
         process memories that haven't been analyzed yet.  Internally paginates
         through the new memories in batches so the LLM context stays bounded.
 
@@ -1530,11 +1652,15 @@ class NeuroMemory:
         watermark = None
         async with self._db.session() as session:
             row = (await session.execute(
-                sql_text("SELECT last_reflected_at FROM emotion_profiles WHERE user_id = :uid"),
+                sql_text(
+                    "SELECT completed_at FROM reflection_cycles "
+                    "WHERE user_id = :uid AND status = 'completed' "
+                    "ORDER BY completed_at DESC LIMIT 1"
+                ),
                 {"uid": user_id},
             )).first()
-            if row and row.last_reflected_at:
-                watermark = row.last_reflected_at
+            if row and row.completed_at:
+                watermark = row.completed_at
 
         # --- Count un-reflected memories (cheap) ---
         async with self._db.session() as session:
@@ -1552,7 +1678,6 @@ class NeuroMemory:
                 "memories_analyzed": 0,
                 "insights_generated": 0,
                 "insights": [],
-                "emotion_profile": None,
             }
 
         # --- Seed existing insights for dedup ---
@@ -1575,7 +1700,6 @@ class NeuroMemory:
         all_insights: list[dict] = []
         total_analyzed = 0
         offset = 0
-        emotion_profile = None
         max_created_at = watermark  # track new watermark
 
         while True:
@@ -1625,9 +1749,6 @@ class NeuroMemory:
                     "metadata": {"category": ins.get("category", "pattern")},
                 })
 
-            if emotion_profile is None:
-                emotion_profile = batch_result.get("emotion_profile")
-
             logger.info(
                 "Reflect[%s] batch offset=%d: analyzed=%d insights=%d (total=%d/%d)",
                 user_id, offset, len(batch), len(batch_insights), len(all_insights), cnt,
@@ -1641,13 +1762,12 @@ class NeuroMemory:
         if max_created_at is not None:
             async with self._db.session() as session:
                 await session.execute(
-                    sql_text("""
-                        INSERT INTO emotion_profiles (user_id, last_reflected_at)
-                        VALUES (:uid, :ts)
-                        ON CONFLICT (user_id) DO UPDATE
-                            SET last_reflected_at = EXCLUDED.last_reflected_at
-                    """),
-                    {"uid": user_id, "ts": max_created_at},
+                    sql_text(
+                        "INSERT INTO reflection_cycles "
+                        "(id, user_id, trigger_type, status, completed_at, memories_scanned) "
+                        "VALUES (gen_random_uuid(), :uid, 'digest', 'completed', :ts, :count)"
+                    ),
+                    {"uid": user_id, "ts": max_created_at, "count": total_analyzed},
                 )
                 await session.commit()
 
@@ -1655,7 +1775,6 @@ class NeuroMemory:
             "memories_analyzed": total_analyzed,
             "insights_generated": len(all_insights),
             "insights": all_insights,
-            "emotion_profile": emotion_profile,
         }
 
     # -- Reflection APIs --
@@ -1666,7 +1785,7 @@ class NeuroMemory:
         Three trigger conditions (any one returns True):
         - Importance accumulated >= 30
         - Time since last reflection >= 24h
-        - First reflection (last_reflected_at is NULL)
+        - First reflection (no completed reflection cycles)
         """
         from neuromem.services.reflection import ReflectionService
 
@@ -1894,7 +2013,7 @@ class NeuroMemory:
             ("conversations", "user_id"),
             ("conversation_sessions", "user_id"),
             ("key_values", "scope_id"),
-            ("emotion_profiles", "user_id"),
+            ("reflection_cycles", "user_id"),
             ("documents", "user_id"),
         ]
 
@@ -2015,24 +2134,8 @@ class NeuroMemory:
                 for r in rows
             ]
 
-            # Emotion profile
-            row = (await session.execute(
-                sql_text(
-                    "SELECT * FROM emotion_profiles WHERE user_id = :uid"
-                ),
-                {"uid": user_id},
-            )).first()
-            if row:
-                profile_dict = dict(row._mapping)
-                # Convert non-serializable fields
-                for k, v in profile_dict.items():
-                    if hasattr(v, "isoformat"):
-                        profile_dict[k] = v.isoformat()
-                    elif hasattr(v, "hex"):
-                        profile_dict[k] = str(v)
-                result["profile"] = profile_dict
-            else:
-                result["profile"] = None
+            # Profile view (unified facts + traits + mood)
+            result["profile"] = await self.profile_view(user_id)
 
             # Documents
             rows = (await session.execute(
@@ -2106,21 +2209,20 @@ class NeuroMemory:
                 {"uid": user_id},
             )).scalar() or 0
 
-            # Profile summary
-            row = (await session.execute(
+            # Profile summary (from reflection_cycles + profile_view)
+            last_reflection = (await session.execute(
                 sql_text(
-                    "SELECT dominant_emotions, latest_state, last_reflected_at "
-                    "FROM emotion_profiles WHERE user_id = :uid"
+                    "SELECT completed_at FROM reflection_cycles "
+                    "WHERE user_id = :uid ORDER BY completed_at DESC LIMIT 1"
                 ),
                 {"uid": user_id},
             )).first()
-            profile_summary = None
-            if row:
-                profile_summary = {
-                    "dominant_emotions": row.dominant_emotions,
-                    "latest_state": row.latest_state,
-                    "last_reflected_at": str(row.last_reflected_at) if row.last_reflected_at else None,
-                }
+            profile_view_data = await self.profile_view(user_id)
+            profile_summary = {
+                "recent_mood": profile_view_data.get("recent_mood"),
+                "trait_count": len(profile_view_data.get("traits", [])),
+                "last_reflected_at": str(last_reflection.completed_at) if last_reflection else None,
+            }
 
         return {
             "total": total,
