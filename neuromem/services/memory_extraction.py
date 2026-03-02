@@ -330,7 +330,8 @@ class MemoryExtractionService:
 
 1. **Facts（事实）**: 用户及对话中提到的人物的客观信息
    - 格式: {{"content": "事实描述", "category": "分类", "temporality": "current|prospective|historical", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "情感描述"}} 或 null}}
-   - category 可选: identity, work, skill, hobby, personal, education, location, health, relationship, finance, values
+   - category 可选: identity, work, skill, hobby, personal, education, location, health, relationship, finance, values, workflow
+   - procedure_steps: 如果 category 为 "workflow"，提取操作步骤列表（如 ["步骤1", "步骤2", "步骤3"]）。非 workflow 类别不需要此字段
    - temporality: 事实的时间性质（必填）
      * "current": 当前仍然有效的事实（如"用户住在北京"、"用户是程序员"）
      * "prospective": 未来计划或意图（如"用户计划明年去日本"、"用户打算考研"）
@@ -444,7 +445,8 @@ Extract the following memories:
 
 1. **Facts**: Objective information about the user and people mentioned
    - Format: {{"content": "fact description", "category": "category", "temporality": "current|prospective|historical", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "emotion"}} or null}}
-   - Category options: identity, work, skill, hobby, personal, education, location, health, relationship, finance, values
+   - Category options: identity, work, skill, hobby, personal, education, location, health, relationship, finance, values, workflow
+   - procedure_steps: If category is "workflow", extract the step list (e.g. ["step1", "step2", "step3"]). Not needed for other categories
    - Temporality (required):
      * "current": facts that are still true now (e.g. "User lives in Beijing", "User is a programmer")
      * "prospective": future plans or intentions (e.g. "User plans to visit Japan next year")
@@ -729,6 +731,9 @@ Return format (JSON only, no other content):
                 event_time = fact.get("event_time")
                 if event_time:
                     meta["event_time"] = event_time
+                procedure_steps = fact.get("procedure_steps")
+                if procedure_steps and isinstance(procedure_steps, list):
+                    meta["procedure_steps"] = procedure_steps
 
                 # Resolve timestamp for facts (some facts have temporal info)
                 resolved_ts = self._resolve_timestamp(
