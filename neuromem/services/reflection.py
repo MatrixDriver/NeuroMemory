@@ -357,6 +357,8 @@ class ReflectionService:
         stats["traits_dissolved"] += expired
         stats["traits_updated"] += promoted
 
+        await self._expire_prospective_facts(user_id)
+
         if not new_memories:
             # No new memories -> only apply decay
             dissolved = await self._trait_engine.apply_decay(user_id)
@@ -448,6 +450,24 @@ class ReflectionService:
         stats["traits_dissolved"] += dissolved
 
         return stats
+
+    async def _expire_prospective_facts(self, user_id: str) -> int:
+        """Mark prospective facts as historical when their event_time has passed."""
+        result = await self.db.execute(
+            sql_text(
+                "UPDATE memories SET metadata = jsonb_set(metadata, '{temporality}', '\"historical\"') "
+                "WHERE user_id = :uid AND memory_type = 'fact' "
+                "AND metadata->>'temporality' = 'prospective' "
+                "AND (metadata->>'event_time') IS NOT NULL "
+                "AND (metadata->>'event_time')::timestamp < NOW() "
+                "RETURNING id"
+            ),
+            {"uid": user_id},
+        )
+        rows = result.fetchall()
+        if rows:
+            logger.info("Expired %d prospective facts to historical for user=%s", len(rows), user_id)
+        return len(rows)
 
     async def _scan_new_memories(self, user_id: str) -> list[dict]:
         """Scan memories created after last reflection watermark."""

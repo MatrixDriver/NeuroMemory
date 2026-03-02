@@ -408,7 +408,15 @@ class SearchService:
                    0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5) AS importance,
                    -- emotion_match_bonus: 0~0.10
                    {emotion_bonus_sql} AS emotion_match,
-                   -- final score: base_relevance × (1 + recency + importance + trait_boost + emotion_match)
+                   -- final score: prospective_penalty × base_relevance × (1 + recency + importance + trait_boost + emotion_match)
+                   CASE
+                       WHEN metadata->>'temporality' = 'prospective'
+                            AND (metadata->>'event_time') IS NOT NULL
+                            AND (metadata->>'event_time')::timestamp < NOW()
+                       THEN 0.5
+                       ELSE 1.0
+                   END
+                   *
                    LEAST(vector_score + CASE WHEN bm25_score > 0 THEN 0.05 ELSE 0 END, 1.0)
                    * (1.0
                       + 0.15 * EXP(
