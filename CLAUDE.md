@@ -123,6 +123,14 @@ digest()
   └── 推进 last_reflected_at 水位线
 ```
 
+### 记忆分类 V2（已实现）
+
+4 分类：`fact`（语义记忆）/ `episodic`（情景记忆）/ `trait`（人格特质）/ `document`（文档摘要），替代旧的 5 分类。
+
+**trait 核心约束**：只能由 `ReflectionService` 反思管道归纳产生，禁止从单次对话直接提取。trait 通过双维度管理：`trait_subtype`（层级：behavior → preference → core）和 `trait_stage`（生命周期：trend → ... → core / dissolved），强制附带 `trait_context` 情境标注。相关实现在 `services/trait_engine.py`（衰减/升级/矛盾）和 `services/reflection.py`（反思管道）。
+
+**详细设计**：`docs/design/memory-classification-v2.md`（含调研 `research/01~05`），P1/P2 演进项跟踪在 `rpiv/todo/feature-memory-v2-p1.md` 和 `p2.md`。
+
 ### API 重命名历史 (v0.8.0)
 
 公共方法已重命名：`add_message()` → `ingest()`，`reflect()` → `digest()`。代码中如遇旧名称，应使用新名称。
