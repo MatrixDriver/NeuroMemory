@@ -2,11 +2,11 @@
 
 **AI Agent 多层记忆框架**
 
-基于 PostgreSQL 构建的 Python 记忆库，为 AI agent 提供开箱即用的多层记忆。利用 PostgreSQL 生态 pgvector 向量检索、pg_search 全文检索、图检索、KV 检索等能力实现混合记忆检索。
+基于 PostgreSQL 构建的 Python 记忆库，为 AI agent 提供开箱即用的多层记忆。利用 PostgreSQL 生态 pgvector 向量检索、pg_search 全文检索（BM25）、图检索、KV 检索等能力实现混合记忆检索。
 
-- `ingest()` 自动提取四种记忆：**Fact**（持久事实）、**Episode**（带时间戳的情景记忆）、**Graph**（实体关系图谱）、**UserProfile**（用户画像）
-- `digest()` 自动周期性反思，从多轮对话中自动提取 **Insight**（用户洞察，如行为模式、情感画像）
-- `recall()` 将多层记忆融合排序后返回，零额外代码组装进 prompt
+- `ingest()` 自动提取记忆：**Fact**（持久事实）、**Episode**（带时间戳的情景记忆）、**Graph**（实体关系图谱）
+- `digest()` 9 步反思引擎，从历史记忆中归纳 **Trait**（用户特质），经历 behavior → preference → core 三层升级
+- `recall()` 混合检索（向量 + BM25 RRF 融合 + 图谱 boost + 时间衰减），零额外代码组装进 prompt
 
 ## 架构概览
 
@@ -74,7 +74,7 @@ pip install neuromem[all]
 ### 方式 2: 从源码安装（开发者）
 
 ```bash
-git clone https://github.com/yourusername/neuromem
+git clone https://github.com/MatrixDriver/neuromem
 cd neuromem
 pip install -e ".[dev]"  # 包含测试工具
 ```
@@ -134,14 +134,14 @@ async def main():
         )
         # → 后台自动提取：fact: "在 ABC Company 工作", relation: (alice)-[works_at]->(ABC Company)
 
-        # 2. 多因子检索（cosine 相关性 + 时效性 + 重要性）
+        # 2. 混合检索（向量 + BM25 RRF 融合 + 图谱 boost + 时间衰减）
         result = await nm.recall(user_id="alice", query="Where does Alice work?")
         for r in result["merged"]:
             print(f"[{r['score']:.2f}] {r['content']}")
 
-        # 3. 生成洞察和情感画像（可选，定期调用）
-        insights = await nm.digest(user_id="alice")
-        print(f"生成了 {insights['insights_generated']} 条洞察")
+        # 3. 反思：从记忆归纳用户特质（可选，定期调用或自动触发）
+        result = await nm.digest(user_id="alice")
+        print(f"分析了 {result['memories_analyzed']} 条记忆")
 
 asyncio.run(main())
 ```
@@ -152,45 +152,61 @@ neuromem 的核心使用围绕三个操作：
 
 **插入记忆**（自动模式，默认）：
 - 对话驱动：`ingest()` 存储对话 **并自动提取记忆**（推荐，像 mem0）
+- 自动提取 fact（持久事实）、episodic（情景记忆），可选 graph（实体关系三元组）
 
 **召回记忆（recall）**：
-- `await nm.recall(user_id, query)` — cosine 相似度为主信号，时效性和重要性为加成，找出最匹配的记忆
-- 在对话中使用：让 agent 能"想起"相关的历史信息来回应用户
+- `await nm.recall(user_id, query)` — 向量 + BM25 RRF 融合 + 图谱 boost + 时间衰减
+- 支持按类型过滤（`memory_type="fact"`）、时间范围过滤、时间旅行查询（`as_of`）
 
-**生成洞察（digest）**（可选，定期调用）：
-- `await nm.digest(user_id)` — 高层记忆分析：
-  1. **提炼洞察**：从已提取的记忆生成高层理解（行为模式、阶段总结）
-  2. **更新画像**：整合情感数据，更新用户情感画像
-- 让记忆从"事实"升华为"洞察"
+**反思与特质归纳（digest）**（可选，定期调用或自动触发）：
+- `await nm.digest(user_id)` — 9 步反思引擎：
+  1. **归纳特质**：从 fact/episodic 记忆中识别行为模式，生成 trait（特质）
+  2. **升级特质**：behavior → preference → core 三层递进升级
+  3. **矛盾处理**：检测与已有特质的矛盾，触发专项反思
+  4. **更新画像**：整合情感数据，更新用户情感画像
 
-> `ingest()` 默认 `auto_extract=True`，每次调用自动提取记忆。`digest()` 专注于生成 Insight 和更新情感画像，不处理基础记忆提取。
+> `ingest()` 默认 `auto_extract=True`，每次调用自动提取记忆。`digest()` 专注于从已有记忆中归纳特质和更新情感画像。默认每 20 条消息自动触发一次（`reflection_interval=20`）。
 
 **逻辑关系**：
 ```
-对话进行中 → 存储消息 (ingest) → 自动提取记忆
+对话进行中 → 存储消息 (ingest) → 自动提取 fact/episodic/graph
      ↓
-agent 需要上下文 → 召回记忆 (recall)
+agent 需要上下文 → 召回记忆 (recall) → 向量+BM25 RRF 融合+图谱 boost
      ↓
-定期分析 → 生成洞察 (digest) → 洞察 + 情感画像
+定期反思 → 归纳特质 (digest) → trait(behavior→preference→core) + 情感画像
 ```
 
 ---
 
 ## 核心特性
 
-### 记忆分类
+### 记忆分类（V2）
 
-neuromem 提供 7 种记忆类型，每种有不同的存储和获取方式：
+neuromem 基于认知心理学理论，将记忆分为 4 种核心类型：
 
-| <nobr>记忆类型</nobr> | 存储方式 | 底层存储 | 获取方式 | 示例 |
+| <nobr>记忆类型</nobr> | 说明 | 来源 | 召回方式 | 示例 |
 |---------|---------|---------|---------|------|
-| <nobr>**事实 Fact**</nobr> | Embedding + Graph | pgvector + 关系表 | `nm.recall(user_id, query)` | "在 Google 工作" |
-| <nobr>**情景 Episode**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | "昨天面试很紧张" |
-| <nobr>**关系 Relation**</nobr> | Graph Store | PostgreSQL 关系表 | `nm.graph.get_neighbors(user_id, type, id)` | `(user)-[works_at]->(Google)` |
-| <nobr>**洞察 Insight**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | "用户倾向于晚上工作" |
-| <nobr>**情感画像**</nobr> | Table | PostgreSQL | `digest()` 自动更新 | "容易焦虑，对技术兴奋" |
-| <nobr>**偏好 Preference**</nobr> | KV (Profile) | PostgreSQL | `nm.kv.get(user_id, "profile", "preferences")` | `["喜欢喝咖啡", "偏好深色模式"]` |
-| <nobr>**通用 General**</nobr> | Embedding | pgvector | `nm.recall(user_id, query)` | 通用记忆 |
+| <nobr>**Fact**</nobr> | 持久事实，无时间属性 | `ingest()` 自动提取 | `nm.recall(query)` | "在 Google 工作" |
+| <nobr>**Episodic**</nobr> | 带时间戳的情景记忆 | `ingest()` 自动提取 | `nm.recall(query)` | "昨天面试很紧张" |
+| <nobr>**Trait**</nobr> | 用户特质（行为/偏好/核心） | `digest()` 反思归纳 | `nm.recall(query)` | "倾向于深夜工作" |
+| <nobr>**Document**</nobr> | 文档记忆 | `nm.files.upload()` | `nm.files.search(query)` | 上传的 PDF/文档 |
+
+**Trait 三层子类型**（全球独一无二的升级链设计）：
+
+| 子类型 | 阶段 | 升级条件 | 示例 |
+|--------|------|----------|------|
+| **Behavior** | trend → candidate → emerging | 首次识别的行为模式 | "工作日晚上才开始编程" |
+| **Preference** | emerging → established | ≥2 个 behavior 一致 | "偏好深夜工作" |
+| **Core** | established → core | ≥2 个 preference 一致 | "夜猫子型人格" |
+
+**辅助系统**：
+
+| 系统 | 说明 | 获取方式 |
+|------|------|----------|
+| **Graph**（实体关系图谱） | `(user)-[works_at]->(Google)` | `nm.graph.get_neighbors()` |
+| **EmotionProfile**（情感画像） | 三层情感架构（micro/meso/macro） | `digest()` 自动更新 |
+| **KV Store**（键值存储） | 应用层自定义数据 | `nm.kv.get/set()` |
+| **TraitEvidence**（证据链） | 特质的支持/矛盾证据 | 反思引擎自动管理 |
 
 ### 单一 PostgreSQL 架构优势
 
@@ -229,11 +245,21 @@ neuromem 的所有 API 都强制要求 `user_id` 参数，框架层面保证每�
 
 ### LLM 驱动的记忆提取与反思
 
-- **提取**：`ingest()` 自动从对话中识别事实、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10），偏好存入用户画像
-- **反思** (`digest`)：定期从近期记忆提炼高层洞察（行为模式、阶段总结），更新情感画像
+- **提取**：`ingest()` 自动从对话中识别事实、事件、关系，附带情感标注（valence/arousal/label）和重要性评分（1-10），content_hash 去重避免重复存储
+- **反思** (`digest`)：9 步反思引擎，从 fact/episodic 中归纳 trait（特质），支持 behavior → preference → core 三层升级、矛盾检测、证据质量四级分级（A/B/C/D）
+- **情境标注**：trait 从 behavior 层即附带情境标签（work/personal/social/learning/general）
 - **访问追踪**：自动记录 access_count 和 last_accessed_at，符合 ACT-R 记忆模型
 
-理论基础：Generative Agents (Park 2023) 的 Reflection 机制 + LeDoux 情感标记 + Ebbinghaus 遗忘曲线 + ACT-R 记忆模型。
+理论基础：Tulving 语义/情景记忆 + Conway 自我记忆系统 + Allport 特质理论 + Mischel CAPS if-then 模式 + Generative Agents (Park 2023) Reflection + Ebbinghaus 遗忘曲线 + ACT-R 记忆模型。
+
+### 存储架构（V2）
+
+- **halfvec 量化**：向量使用 halfvec（float16）存储，空间减半，召回损失 <0.3%
+- **双时间线**（Bi-temporal）：`valid_from/valid_until` + `created_at/expired_at`，支持时间旅行查询（`recall(as_of=...)`）和记忆版本回滚
+- **content_hash 去重**：MD5 快筛，避免重复记忆存储
+- **证据链**（TraitEvidence 表）：独立存储特质的支持/矛盾证据，避免 JSONB 写放大
+- **变更审计**（MemoryHistory 表）：记忆每次更新的版本历史
+- **反思周期记录**（ReflectionCycle 表）：每次反思的元数据追踪
 
 ---
 
@@ -261,12 +287,20 @@ neuromem 的所有 API 都强制要求 `user_id` 参数，框架层面保证每�
 - [x] 后台任务系统（ExtractionStrategy 自动触发）
 - [x] auto_extract 模式后台自动 digest（`reflection_interval` 参数）
 
-### Phase 3（进行中）
+### Phase 3（已完成）
 
 - [x] 基准测试：[LoCoMo](https://github.com/MatrixDriver/neuromem/blob/master/evaluation/history/OPTIMIZATION_HISTORY.md)（ACL 2024，Judge 0.802，13 轮迭代，+541%）
-- [x] 联合融合排序（图三元组覆盖度 boost）
+- [x] 联合融合排序（图三元组覆盖度 boost + BM25 RRF 融合）
 - [x] 事务一致性 API（delete_user_data / export_user_data）
 - [x] 时间旅行查询（记忆版本化 + as_of 召回 + rollback）
+- [x] 记忆分类 V2：4 类体系（fact/episodic/trait/document），trait 三层升级链（behavior→preference→core）
+- [x] 存储架构 V2：halfvec 量化、双时间线、content_hash 去重、证据链表、变更审计表
+- [x] 9 步反思引擎：特质生命周期管理、矛盾检测、证据质量分级（A/B/C/D）、情境标注
+
+### Phase 4（进行中）
+
+- [ ] LIST 分区迁移（按 memory_type 分区，查询加速 67-83%）
+- [ ] 物化视图衰减预计算（`mv_trait_decayed`）
 - [ ] 基准测试：LongMemEval（ICLR 2025，超长记忆评测，500 个问题，115k~1.5M tokens）
 - [ ] 自然遗忘（主动记忆清理/归档机制）
 - [ ] 多模态 embedding（图片、音频）
