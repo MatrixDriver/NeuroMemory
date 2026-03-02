@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-neuromem (v0.8.0) 是一个 **AI 记忆管理框架**，为 AI agent 开发者提供记忆存储、检索和推理能力。已发布到 PyPI。
+neuromem (v0.9.5) 是一个 **AI 记忆管理框架**，为 AI agent 开发者提供记忆存储、检索和推理能力。已发布到 PyPI。
 
 **三种访问方式**：
 - **Python SDK**：`from neuromem import NeuroMemory`，直接嵌入 agent 程序（本仓库 `neuromem/`）
@@ -24,8 +24,6 @@ Web 控制台 → Next.js → Internal API → FastAPI       ┘
 - **认证**：NextAuth.js（GitHub/Google OAuth）+ API Key（Bearer `nm_sk_*`）
 - **多租户**：每个租户独立 PostgreSQL schema（`tenant_{slug}`）
 - **智能体**：Agent 实体绑定自定义 ingest/recall/digest 指令，API Key 关联到 Agent
-
-本仓库 `java/` 为 Cloud Server 的早期 Spring Boot 原型，已被 neuromem-cloud 的 FastAPI 实现取代。
 
 **仓库结构**：
 - **Python SDK** (`neuromem/`)：核心记忆框架库，可插拔 Provider（Embedding/LLM/Storage）
@@ -101,8 +99,10 @@ nm.ingest(role="user")
   ├── 存储到 conversations 表
   ├── 后台生成 embedding (asyncio.create_task)
   ├── auto_extract=True → 后台 LLM 提取 facts/episodes/relations
-  │    ├── 存储到 embeddings 表（向量化）
-  │    └── graph_enabled=True → 存储到 graph_nodes/edges 表
+  │    ├── 存储到 memories 表（向量化）
+  │    ├── graph_enabled=True → 存储到 graph_nodes/edges 表
+  │    ├── P2-3: 提取 event_time（事件实际发生时间）→ metadata_.event_time
+  │    └── P2-4: 识别多步骤工作流 → category=workflow + metadata_.procedure_steps
   └── 每 reflection_interval 条消息 → 后台 digest()
 
 recall(query)
@@ -112,13 +112,19 @@ recall(query)
   │    └── 时序过滤 (TemporalService)
   ├── 合并阶段:
   │    ├── 图三元组覆盖度 boost (双端+0.10, 单端+0.04, 上限0.20)
+  │    ├── P2-3: recency bonus 优先使用 event_time（回落到 created_at）
+  │    ├── P2-5: 已过期的前瞻记忆 0.5x 降权
+  │    ├── P2-1: Zettelkasten 1-hop 关联扩展（最多 +3 条 linked 记忆）
   │    ├── 图三元组 → merged (source="graph")
   │    └── merged 按 score 降序排序
   └── 返回结构化结果
 
 digest()
   ├── 分析水位线之后新增的 memories
+  ├── P2-5: 自动过期前瞻记忆（prospective → historical）
+  ├── P2-2: 重要反思使用两阶段（先提问再检索验证）
   ├── LLM 生成行为模式和阶段总结
+  ├── P2-1: 识别记忆间语义关联，建立双向链接（Zettelkasten）
   ├── 更新 EmotionProfile
   └── 推进 last_reflected_at 水位线
 ```
@@ -129,7 +135,14 @@ digest()
 
 **trait 核心约束**：只能由 `ReflectionService` 反思管道归纳产生，禁止从单次对话直接提取。trait 通过双维度管理：`trait_subtype`（层级：behavior → preference → core）和 `trait_stage`（生命周期：trend → ... → core / dissolved），强制附带 `trait_context` 情境标注。相关实现在 `services/trait_engine.py`（衰减/升级/矛盾）和 `services/reflection.py`（反思管道）。
 
-**详细设计**：`docs/design/memory-classification-v2.md`（含调研 `research/01~05`），P1/P2 演进项跟踪在 `rpiv/todo/feature-memory-v2-p1.md` 和 `p2.md`。
+**P2 记忆增强**（v0.9.x 已实现）：
+- **双时间线**（P2-3）：提取时解析 `event_time`，recency 排序优先使用事件时间
+- **前瞻记忆**（P2-5）：已过期的前瞻记忆自动降权 0.5x，digest 时自动过期为 historical
+- **程序性记忆**（P2-4）：识别多步骤工作流，存储为 `category=workflow` + `procedure_steps`
+- **Zettelkasten**（P2-1）：digest 时建立记忆间双向关联，recall 时 1-hop 扩展最多 +3 条
+- **两阶段反思**（P2-2）：重要反思先生成问题，再检索历史证据验证
+
+**详细设计**：`docs/design/memory-classification-v2.md`（含调研 `research/01~05`），`docs/plans/2026-03-02-p2-features-design.md`（P2 设计文档）。
 
 ### API 重命名历史 (v0.8.0)
 

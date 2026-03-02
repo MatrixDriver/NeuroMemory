@@ -1,7 +1,7 @@
 # P2 Features Design: Memory Enhancement Suite
 
 Date: 2026-03-02
-Status: Approved
+Status: Implemented (v0.9.5)
 Scope: P2-1 (Zettelkasten), P2-2 (Two-stage reflection), P2-3 (Dual timeline), P2-4 (Procedural memory), P2-5 (Prospective memory)
 
 ## Design Principles

@@ -1,8 +1,8 @@
 # 记忆分类体系 V2 设计文档
 
-> **状态**: V2 核心已实施完成（2026-03-01 代码扫描确认），P1/P2 演进待实施
+> **状态**: V2 核心已实施完成，P2 记忆增强 5/7 项已实现（2026-03-02），P1 演进待实施
 > **创建日期**: 2026-02-28
-> **更新日期**: 2026-03-01（代码扫描确认 V2 核心全部实现，更新实施状态）
+> **更新日期**: 2026-03-02（P2-1~P2-5 已实现，更新 §8.3）
 > **参与者**: Jacky + Claude
 > **关联**: `docs/memory-architecture.md`（现有架构）
 > **调研报告**: `docs/design/research/01~05`（5 份独立调研，覆盖认知心理学/学术研究/MemGPT/商业系统/Personal AI）
@@ -684,11 +684,11 @@ final_score = base_score * (1 + recency + importance + trait_boost[stage])
 
 ### 8.3 远期（P2 调研建议 + 原有规划）
 
-- **记忆间横向关联**：metadata 预留 `related_memories` 字段，Zettelkasten 模式（来自 Generative Agents #02 + MemGPT #03）
-- **两阶段反思**：先提问再检索验证（来自 Generative Agents #02）
-- **Zep 双时间线**：fact 区分事件时间 vs 系统时间（来自商业系统 #04）
-- **程序性记忆**：用户的工作流程和交互模式，区别于 behavior trait（来自认知心理学 #01）
-- **前瞻记忆**：用户的未来意图和目标（来自认知心理学 #01）
+- ~~**记忆间横向关联**~~：✅ 已实现 2026-03-02 — digest 时 LLM 识别语义关联，存入 `metadata_.related_memories`，recall 时 1-hop 扩展
+- ~~**两阶段反思**~~：✅ 已实现 2026-03-02 — importance_accumulated 触发时先生成问题再检索证据
+- ~~**Zep 双时间线**~~：✅ 已实现 2026-03-02 — 提取 `metadata_.event_time`，recency bonus 优先使用事件时间
+- ~~**程序性记忆**~~：✅ 已实现 2026-03-02 — category=workflow + `metadata_.procedure_steps`
+- ~~**前瞻记忆**~~：✅ 已实现 2026-03-02 — 过期前瞻记忆 0.5x 降权 + digest 自动过期
 - 跨用户的 trait 模式发现（群体画像）
 - 基于 trait 的主动行为预测
 

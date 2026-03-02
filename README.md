@@ -4,9 +4,9 @@
 
 基于 PostgreSQL 构建的 Python 记忆库，为 AI agent 提供开箱即用的多层记忆。利用 PostgreSQL 生态 pgvector 向量检索、pg_search 全文检索（BM25）、图检索、KV 检索等能力实现混合记忆检索。
 
-- `ingest()` 自动提取记忆：**Fact**（持久事实）、**Episode**（带时间戳的情景记忆）、**Graph**（实体关系图谱）
-- `digest()` 9 步反思引擎，从历史记忆中归纳 **Trait**（用户特质），经历 behavior → preference → core 三层升级
-- `recall()` 混合检索（向量 + BM25 RRF 融合 + 图谱 boost + 时间衰减），零额外代码组装进 prompt
+- `ingest()` 自动提取记忆：**Fact**（持久事实，含双时间线 + 程序性记忆）、**Episode**（带时间戳的情景记忆）、**Graph**（实体关系图谱）
+- `digest()` 9 步反思引擎，从历史记忆中归纳 **Trait**（用户特质），经历 behavior → preference → core 三层升级；支持两阶段反思 + Zettelkasten 记忆关联
+- `recall()` 混合检索（向量 + BM25 RRF 融合 + 图谱 boost + 时间衰减 + 关联扩展 + 前瞻降权），零额外代码组装进 prompt
 
 ## 架构概览
 
@@ -296,6 +296,11 @@ neuromem 的所有 API 都强制要求 `user_id` 参数，框架层面保证每�
 - [x] 记忆分类 V2：4 类体系（fact/episodic/trait/document），trait 三层升级链（behavior→preference→core）
 - [x] 存储架构 V2：halfvec 量化、双时间线、content_hash 去重、证据链表、变更审计表
 - [x] 9 步反思引擎：特质生命周期管理、矛盾检测、证据质量分级（A/B/C/D）、情境标注
+- [x] 双时间线：提取 event_time（事件发生时间 vs 系统记录时间），recency 排序使用事件时间
+- [x] 前瞻记忆：已过期的未来意图自动降权 0.5x，digest 时自动过期为 historical
+- [x] 程序性记忆：识别多步骤工作流（category=workflow），结构化存储 procedure_steps
+- [x] Zettelkasten 记忆关联：digest 时建立记忆间双向语义链接，recall 时 1-hop 关联扩展
+- [x] 两阶段反思：重要反思先生成关键问题，再检索历史证据验证，提高反思质量
 
 ### Phase 4（进行中）
 

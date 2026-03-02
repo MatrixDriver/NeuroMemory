@@ -48,31 +48,30 @@
 
 ## P2 — 可考虑（远期实施）
 
-### P2-1 记忆间横向关联（Zettelkasten）
+### ~~P2-1 记忆间横向关联（Zettelkasten）~~ ✅ 已实现 2026-03-02
 - **来源**：Generative Agents #02 + MemGPT #03（A-MEM NeurIPS 2025）
-- **内容**：metadata 预留 `related_memories` 字段，支持 fact↔fact、episodic↔episodic、trait↔trait 的横向链接
-- **价值**：recall 时可通过关联网络扩散激活，提升上下文丰富度
+- **内容**：digest 时 LLM 识别记忆间语义关联，存入 `metadata_.related_memories`（双向链接）；recall 时 1-hop 扩展最多 +3 条关联记忆
+- **实现**：`services/reflection.py`（链接创建）、`_core.py`（recall 扩展）
 
-### P2-2 两阶段反思
+### ~~P2-2 两阶段反思~~ ✅ 已实现 2026-03-02
 - **来源**：Generative Agents #02
-- **内容**：反思时先生成"关于该用户的关键问题"，再针对性检索验证，而非全量扫描
-- **价值**：提高反思质量和效率，减少 token 消耗
+- **内容**：importance_accumulated 触发时使用两阶段反思：Stage 1 生成 3-5 个关键问题，Stage 2 检索历史证据后综合分析
+- **实现**：`services/reflection.py`（`_two_stage_reflect` 方法）
 
-### P2-3 Zep 双时间线
+### ~~P2-3 Zep 双时间线~~ ✅ 已实现 2026-03-02
 - **来源**：商业系统 #04
-- **内容**：fact 区分事件时间（event_time）vs 系统时间（system_time）
-- **价值**：回溯分析时更精确（"用户说上周去了北京" → event_time 是上周，system_time 是今天）
-- **备注**：当前 episodic 已有 `extracted_timestamp`，fact 尚未区分
+- **内容**：提取时解析 `metadata_.event_time`（事件实际发生时间），recency bonus 优先使用 event_time，回落到 created_at
+- **实现**：`services/memory_extraction.py`（提取）、`services/search.py`（排序）
 
-### P2-4 程序性记忆
+### ~~P2-4 程序性记忆~~ ✅ 已实现 2026-03-02
 - **来源**：认知心理学 #01
-- **内容**：用户的工作流程和交互模式（"总是先画架构图再写代码"）
-- **讨论**：见 memory-classification-v2.md §1.5 遗漏维度讨论（待确定处理方案）
+- **内容**：识别多步骤工作流，提取为 fact（category=workflow），结构化存储 `metadata_.procedure_steps`
+- **实现**：`services/memory_extraction.py`（提取 prompt + 存储）
 
-### P2-5 前瞻记忆
+### ~~P2-5 前瞻记忆~~ ✅ 已实现 2026-03-02
 - **来源**：认知心理学 #01
-- **内容**：用户的未来意图和目标（"计划明年学 Rust"、"下个月要搬家"）
-- **讨论**：见 memory-classification-v2.md §1.5 遗漏维度讨论（待确定处理方案）
+- **内容**：已过期的前瞻记忆（temporality=prospective + event_time < now）在 recall 时 0.5x 降权；digest 时自动过期为 historical
+- **实现**：`services/search.py`（降权）、`services/reflection.py`（自动过期）
 
 ### P2-6 实体摘要
 - **来源**：Generative Agents #02（Hindsight 的 Entity Summaries）
