@@ -63,6 +63,11 @@ class TraitEngine:
         self.db = db
         self._embedding = embedding
 
+    @staticmethod
+    def _bump_version(trait: Memory) -> None:
+        """Increment trait version for optimistic concurrency control."""
+        trait.version = (trait.version or 1) + 1
+
     async def create_trend(
         self,
         user_id: str,
@@ -84,6 +89,7 @@ class TraitEngine:
                 await self._write_evidence(existing.id, valid_ids, "supporting", "D", cycle_id)
             existing.trait_reinforcement_count = (existing.trait_reinforcement_count or 0) + len(valid_ids)
             existing.trait_last_reinforced = datetime.now(timezone.utc)
+            self._bump_version(existing)
             await self.db.flush()
             return existing
 
@@ -135,6 +141,7 @@ class TraitEngine:
                 await self._write_evidence(existing.id, valid_ids, "supporting", "C", cycle_id)
             existing.trait_reinforcement_count = (existing.trait_reinforcement_count or 0) + len(valid_ids)
             existing.trait_last_reinforced = datetime.now(timezone.utc)
+            self._bump_version(existing)
             await self.db.flush()
             return existing
 
@@ -208,6 +215,7 @@ class TraitEngine:
         trait.trait_reinforcement_count = (trait.trait_reinforcement_count or 0) + len(valid_ids)
         trait.trait_last_reinforced = datetime.now(timezone.utc)
         trait.trait_stage = self._update_stage(new_confidence)
+        self._bump_version(trait)
 
         if valid_ids:
             await self._write_evidence(trait.id, valid_ids, "supporting", quality_grade, cycle_id)
@@ -241,6 +249,7 @@ class TraitEngine:
 
         trait.trait_contradiction_count = (trait.trait_contradiction_count or 0) + len(valid_ids)
         trait.trait_confidence = new_confidence
+        self._bump_version(trait)
 
         if valid_ids:
             await self._write_evidence(trait.id, valid_ids, "contradicting", "C", cycle_id)
@@ -335,6 +344,7 @@ class TraitEngine:
         # Set parent references
         for t in source_traits:
             t.trait_parent_id = new_trait.id
+            self._bump_version(t)
 
         # Inherit evidence from source traits
         for t in source_traits:
@@ -378,6 +388,7 @@ class TraitEngine:
             trait.trait_confidence = 0.3
             trait.trait_window_start = None
             trait.trait_window_end = None
+            self._bump_version(trait)
             count += 1
 
         if count:
@@ -404,6 +415,7 @@ class TraitEngine:
         for trait in traits:
             trait.trait_stage = "dissolved"
             trait.expired_at = now
+            self._bump_version(trait)
             count += 1
 
         if count:
@@ -452,6 +464,8 @@ class TraitEngine:
                 dissolved_count += 1
             else:
                 trait.trait_stage = self._update_stage(new_confidence)
+
+            self._bump_version(trait)
 
         if traits:
             await self.db.flush()
@@ -548,6 +562,7 @@ class TraitEngine:
             )
             self.db.add(history)
 
+        self._bump_version(trait)
         await self.db.flush()
 
         return {"action": action, "trait_id": str(trait_id)}

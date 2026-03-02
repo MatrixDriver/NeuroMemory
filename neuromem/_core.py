@@ -930,6 +930,54 @@ class NeuroMemory:
 
             return record
 
+    async def list_memories(
+        self,
+        user_id: str,
+        memory_type: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[int, list]:
+        """List memories with optional type filtering and pagination.
+
+        Returns:
+            Tuple of (total_count, list_of_memories)
+        """
+        from neuromem.services.memory import MemoryService
+        async with self._db.session() as session:
+            svc = MemoryService(session)
+            return await svc.list_all_memories(user_id, memory_type, limit, offset)
+
+    async def update_memory(
+        self,
+        memory_id: str,
+        user_id: str,
+        content: str | None = None,
+        memory_type: str | None = None,
+        metadata: dict | None = None,
+    ):
+        """Update a memory's content, type, or metadata.
+
+        If content changes, the embedding vector is regenerated.
+
+        Returns:
+            Updated Memory object or None if not found.
+        """
+        from neuromem.services.memory import MemoryService
+        async with self._db.session() as session:
+            svc = MemoryService(session, embedding=self._embedding)
+            return await svc.update_memory(memory_id, user_id, content, memory_type, metadata)
+
+    async def delete_memory(self, memory_id: str, user_id: str) -> bool:
+        """Delete a memory and its associated data (history, evidence, source links).
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        from neuromem.services.memory import MemoryService
+        async with self._db.session() as session:
+            svc = MemoryService(session)
+            return await svc.delete_memory(memory_id, user_id)
+
     async def get_memories_by_time_range(self, user_id: str, start_time, end_time=None, memory_type=None, limit=100, offset=0):
         from neuromem.services.memory import MemoryService
         async with self._db.session() as session:
@@ -1210,6 +1258,31 @@ class NeuroMemory:
             for r in graph_results
             if r.get("subject") and r.get("relation") and r.get("object")
         ]
+
+        # Recall-as-reinforcement: async micro-reinforce traits hit by recall
+        trait_ids_in_results = [
+            r["id"] for r in vector_results
+            if r.get("memory_type") == "trait" and r.get("id")
+        ]
+        if trait_ids_in_results and self._embedding:
+            async def _reinforce_recalled_traits():
+                try:
+                    from neuromem.services.trait_engine import TraitEngine
+                    async with self._db.session() as sess:
+                        engine = TraitEngine(sess, self._embedding)
+                        for tid in trait_ids_in_results:
+                            await engine.reinforce_trait(
+                                trait_id=str(tid),
+                                evidence_ids=[],
+                                quality_grade="D",
+                                cycle_id="recall_reinforcement",
+                            )
+                        await sess.commit()
+                except Exception as e:
+                    logger.warning("recall-as-reinforcement failed: %s", e)
+
+            task = asyncio.create_task(_reinforce_recalled_traits())
+            self._bg_tasks.append(task)
 
         return {
             "vector_results": vector_results,

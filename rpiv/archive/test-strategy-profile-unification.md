@@ -1,8 +1,8 @@
 ---
 description: "测试策略: Profile 统一架构重构"
-status: completed
+status: archived
 created_at: 2026-03-02T20:10:00
-updated_at: 2026-03-02T20:10:00
+updated_at: 2026-03-02T14:45:30
 ---
 
 # 测试策略: Profile 统一架构

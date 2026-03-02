@@ -45,11 +45,11 @@ storage-schema-v2.md 的 P0 存储任务已基本完成（表结构、辅助表�
   - 每天凌晨 5 点：一致性检查（孤立 evidence/history/sources）
 - **涉及文件**：新增 scheduler 模块或使用 pg_cron
 
-### 4. 乐观锁启用
+### 4. ~~乐观锁启用~~ ✓ 已实现 2026-03-03
 
 - **描述**：trait_engine 中使用 `version` 字段进行并发控制
-- **当前状态**：`version` 字段存在（`models/memory.py:48`）但未被使用
-- **涉及文件**：`services/trait_engine.py`（所有 trait 更新操作添加 `WHERE version = ?`）
+- **当前状态**：已在 TraitEngine 所有 8 个修改方法中添加 `_bump_version()` 调用
+- **涉及文件**：`services/trait_engine.py`（所有 trait 更新操作递增 version）
 - **工作量**：小
 
 ### 5. 四操作模型泛化

@@ -1,8 +1,8 @@
 ---
 description: "测试规格与验收标准: Profile 统一架构"
-status: completed
+status: archived
 created_at: 2026-03-02T21:30:00
-updated_at: 2026-03-02T21:30:00
+updated_at: 2026-03-02T14:45:30
 ---
 
 # 测试规格与验收标准: Profile 统一架构

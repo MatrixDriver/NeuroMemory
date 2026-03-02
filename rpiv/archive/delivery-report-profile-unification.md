@@ -1,9 +1,9 @@
 ---
 description: "交付报告: Profile 统一架构"
-status: completed
+status: archived
 created_at: 2026-03-02T21:35:00
-updated_at: 2026-03-03T06:20:00
-archived_at: null
+updated_at: 2026-03-02T14:45:30
+archived_at: 2026-03-02T14:45:30
 related_files:
   - rpiv/requirements/prd-profile-unification.md
   - rpiv/plans/plan-profile-unification.md

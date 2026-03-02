@@ -323,7 +323,10 @@ class MemoryService:
         memory_id: str | uuid.UUID,
         user_id: str,
     ) -> bool:
-        """Delete a memory by ID.
+        """Delete a memory and its associated data by ID.
+
+        Cascade-deletes related records from memory_history,
+        trait_evidence, and memory_sources tables.
 
         Args:
             memory_id: UUID of the memory to delete
@@ -335,6 +338,16 @@ class MemoryService:
         memory = await self.get_memory_by_id(memory_id, user_id)
         if not memory:
             return False
+
+        from sqlalchemy import delete, text
+
+        mid = memory.id
+        # Cascade-delete associated records (no FK constraints exist)
+        await self.db.execute(text("DELETE FROM memory_history WHERE memory_id = :mid"), {"mid": mid})
+        await self.db.execute(text("DELETE FROM trait_evidence WHERE memory_id = :mid"), {"mid": mid})
+        await self.db.execute(text("DELETE FROM memory_sources WHERE memory_id = :mid"), {"mid": mid})
+        # Also clean trait_evidence where this memory is the trait itself
+        await self.db.execute(text("DELETE FROM trait_evidence WHERE trait_id = :mid"), {"mid": mid})
 
         await self.db.delete(memory)
         await self.db.flush()

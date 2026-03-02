@@ -1,9 +1,9 @@
 ---
 description: "产品需求文档: Profile 统一架构 - 消除三套平行用户画像机制"
-status: completed
+status: archived
 created_at: 2026-03-02T21:00:00
-updated_at: 2026-03-02T21:30:00
-archived_at: null
+updated_at: 2026-03-02T14:45:30
+archived_at: 2026-03-02T14:45:30
 ---
 
 # PRD: Profile 统一架构

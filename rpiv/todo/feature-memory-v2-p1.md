@@ -17,7 +17,7 @@ V2 核心设计（4 类记忆、trait 三层子类、生命周期、reflection �
 
 ## 功能清单
 
-### 1. 召回即强化（Recall-as-Reinforcement）
+### 1. ~~召回即强化（Recall-as-Reinforcement）~~ ✓ 已实现 2026-03-03
 
 - **描述**：recall 命中 trait 时微弱强化置信度（+0.02），模拟心理学"测试效应"
 - **理论依据**：Generative Agents 调研 #02
