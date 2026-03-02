@@ -401,7 +401,7 @@ class SearchService:
                    rrf_score,
                    -- recency_bonus: 0~0.15
                    0.15 * EXP(
-                       -EXTRACT(EPOCH FROM (NOW() - created_at))
+                       -EXTRACT(EPOCH FROM (NOW() - COALESCE((metadata->>'event_time')::timestamp, created_at)))
                        / (:decay_rate * (1 + COALESCE((metadata->'emotion'->>'arousal')::float, 0) * 0.5))
                    ) AS recency,
                    -- importance_bonus: 0~0.15
@@ -412,7 +412,7 @@ class SearchService:
                    LEAST(vector_score + CASE WHEN bm25_score > 0 THEN 0.05 ELSE 0 END, 1.0)
                    * (1.0
                       + 0.15 * EXP(
-                          -EXTRACT(EPOCH FROM (NOW() - created_at))
+                          -EXTRACT(EPOCH FROM (NOW() - COALESCE((metadata->>'event_time')::timestamp, created_at)))
                           / (:decay_rate * (1 + COALESCE((metadata->'emotion'->>'arousal')::float, 0) * 0.5))
                       )
                       + 0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5)

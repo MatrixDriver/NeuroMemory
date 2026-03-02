@@ -124,3 +124,36 @@ async def test_fact_without_event_time_has_no_event_time_key(db_session, mock_em
     assert len(rows) == 1
     fact = rows[0]
     assert "event_time" not in fact.metadata_
+
+
+@pytest.mark.asyncio
+async def test_recall_uses_event_time_for_recency(db_session, mock_embedding):
+    """Memories with event_time in metadata should use it for recency bonus calculation."""
+    from neuromem.services.search import SearchService
+
+    search_svc = SearchService(db_session, mock_embedding)
+
+    # Create a memory with event_time in metadata
+    mem = await search_svc.add_memory(
+        user_id="test_user",
+        content="User started a new job at Google",
+        memory_type="fact",
+        metadata={"event_time": "2026-01-01", "importance": 5},
+    )
+    await db_session.commit()
+
+    assert mem is not None
+
+    # Search for it
+    results = await search_svc.scored_search(
+        user_id="test_user",
+        query="Google job",
+        limit=5,
+    )
+
+    assert len(results) >= 1
+    result = results[0]
+    assert result["metadata"] is not None
+    assert result["metadata"].get("event_time") == "2026-01-01"
+    assert result["metadata"].get("importance") == 5
+    assert result["score"] > 0
