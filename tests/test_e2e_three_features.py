@@ -247,9 +247,10 @@ class TestRecallReinforcement:
 
         # Wait for background reinforcement task
         await asyncio.sleep(0.5)
-        if nm._bg_tasks:
-            await asyncio.gather(*nm._bg_tasks, return_exceptions=True)
-            nm._bg_tasks.clear()
+        all_tasks = [t for tasks in nm._user_tasks.values() for t in tasks if not t.done()]
+        if all_tasks:
+            await asyncio.gather(*all_tasks, return_exceptions=True)
+            nm._user_tasks.clear()
 
         # Check if trait was in vector_results
         trait_in_results = any(

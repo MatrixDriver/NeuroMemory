@@ -211,6 +211,7 @@ class ConversationsFacade:
         _llm: LLMProvider | None = None,
         _graph_enabled: bool = False,
         _get_on_extraction=None,
+        _user_tasks: dict[str, list[asyncio.Task]] | None = None,
     ):
         self._db = db
         self._on_message_added = _on_message_added
@@ -221,6 +222,16 @@ class ConversationsFacade:
         self._llm = _llm
         self._graph_enabled = _graph_enabled
         self._get_on_extraction = _get_on_extraction
+        self._user_tasks = _user_tasks
+
+    def _track_task(self, user_id: str, task: asyncio.Task) -> None:
+        """Register a background task under user_id for cancellation support."""
+        if self._user_tasks is None:
+            return
+        tasks = self._user_tasks.setdefault(user_id, [])
+        # Prune completed tasks to avoid unbounded growth
+        self._user_tasks[user_id] = [t for t in tasks if not t.done()]
+        self._user_tasks[user_id].append(task)
 
     async def ingest(self, user_id: str, role: str, content: str, session_id: str | None = None, metadata: dict | None = None, auto_extract: bool | None = None):
         from neuromem.services.conversation import ConversationService
@@ -232,7 +243,8 @@ class ConversationsFacade:
         # 🚀 优化：只对 user 消息计算 embedding，避免重复和浪费
         # AI 回复是对用户的响应，检索时会造成重复，且没有新信息
         if self._embedding and role == "user":
-            asyncio.create_task(self._generate_conversation_embedding_async(msg))
+            task = asyncio.create_task(self._generate_conversation_embedding_async(msg))
+            self._track_task(user_id, task)
 
         # Strategy-based extraction (old logic)
         if self._on_message_added:
@@ -242,7 +254,8 @@ class ConversationsFacade:
         # 🚀 优化：只对 user 消息提取记忆，AI 回复不包含用户信息
         should_extract = auto_extract if auto_extract is not None else self._auto_extract
         if should_extract and self._llm and self._embedding and role == "user":
-            asyncio.create_task(self._extract_single_message_async(user_id, msg.session_id, [msg]))
+            task = asyncio.create_task(self._extract_single_message_async(user_id, msg.session_id, [msg]))
+            self._track_task(user_id, task)
 
         return msg
 
@@ -604,7 +617,7 @@ class NeuroMemory:
         self._idle_tasks: dict[tuple[str, str], asyncio.Task] = {}
         self._active_sessions: set[tuple[str, str]] = set()
         self._digest_counts: dict[str, int] = {}      # user_id -> count for reflection_interval
-        self._bg_tasks: list[asyncio.Task] = []        # background digest tasks (awaited on close)
+        self._user_tasks: dict[str, list[asyncio.Task]] = {}  # per-user background tasks (cancel/await on close)
 
         # Embedding cache for query deduplication (reduces API calls)
         self._embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
@@ -632,6 +645,7 @@ class NeuroMemory:
             _llm=self._llm,
             _graph_enabled=graph_enabled,
             _get_on_extraction=lambda: self._on_extraction,
+            _user_tasks=self._user_tasks,
         )
         self.graph = GraphFacade(self._db)
 
@@ -708,6 +722,59 @@ class NeuroMemory:
     def on_embedding_call(self, value: Callable[[dict], Any] | None) -> None:
         self._on_embedding_call = value
 
+    def _track_user_task(self, user_id: str, task: asyncio.Task) -> None:
+        """Register a background task under user_id for cancellation support."""
+        tasks = self._user_tasks.setdefault(user_id, [])
+        # Prune completed tasks to avoid unbounded growth
+        self._user_tasks[user_id] = [t for t in tasks if not t.done()]
+        self._user_tasks[user_id].append(task)
+
+    async def cancel_user_tasks(self, user_id: str) -> int:
+        """Cancel all running background tasks for a specific user.
+
+        Cancels extraction, embedding, digest, and trait-reinforcement tasks
+        that are still in progress. Also cancels idle extraction timers for
+        the user's sessions.
+
+        Args:
+            user_id: The user whose tasks to cancel.
+
+        Returns:
+            Number of tasks that were cancelled.
+        """
+        cancelled = 0
+
+        # 1. Cancel user's background tasks (extraction, embedding, digest, etc.)
+        tasks = self._user_tasks.pop(user_id, [])
+        pending = [t for t in tasks if not t.done()]
+        for t in pending:
+            t.cancel()
+            cancelled += 1
+
+        # 2. Cancel user's idle extraction timers
+        keys_to_remove = [k for k in self._idle_tasks if k[0] == user_id]
+        for k in keys_to_remove:
+            task = self._idle_tasks.pop(k)
+            if not task.done():
+                task.cancel()
+                cancelled += 1
+
+        # 3. Clean up associated state
+        self._digest_counts.pop(user_id, None)
+        keys_to_remove_sessions = [k for k in self._active_sessions if k[0] == user_id]
+        for k in keys_to_remove_sessions:
+            self._active_sessions.discard(k)
+        keys_to_remove_counts = [k for k in self._msg_counts if k[0] == user_id]
+        for k in keys_to_remove_counts:
+            del self._msg_counts[k]
+
+        # 4. Wait for cancellation to propagate
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        logger.info("cancel_user_tasks[%s]: cancelled %d tasks", user_id, cancelled)
+        return cancelled
+
     async def init(self) -> None:
         """Initialize database tables and optional storage."""
         await self._db.init()
@@ -728,12 +795,12 @@ class NeuroMemory:
         self._active_sessions.clear()
         self._msg_counts.clear()
 
-        # Await all pending background digest tasks before closing DB
-        pending = [t for t in self._bg_tasks if not t.done()]
-        if pending:
-            logger.debug("Waiting for %d background digest task(s) to complete", len(pending))
-            await asyncio.gather(*pending, return_exceptions=True)
-        self._bg_tasks.clear()
+        # Await all pending background tasks before closing DB
+        all_tasks = [t for tasks in self._user_tasks.values() for t in tasks if not t.done()]
+        if all_tasks:
+            logger.debug("Waiting for %d background task(s) to complete", len(all_tasks))
+            await asyncio.gather(*all_tasks, return_exceptions=True)
+        self._user_tasks.clear()
 
         await self._db.close()
 
@@ -1326,7 +1393,7 @@ class NeuroMemory:
                     logger.warning("recall-as-reinforcement failed: %s", e)
 
             task = asyncio.create_task(_reinforce_recalled_traits())
-            self._bg_tasks.append(task)
+            self._track_user_task(user_id, task)
 
         # Extract active traits (established+) from user_profile
         active_traits = [
@@ -1761,7 +1828,7 @@ class NeuroMemory:
                 except Exception as e:
                     logger.error("Background digest failed: user=%s error=%s", user_id, e)
             task = asyncio.create_task(_safe_digest())
-            self._bg_tasks.append(task)
+            self._track_user_task(user_id, task)
             return None
         return await self._digest_impl(user_id, batch_size)
 
@@ -2253,12 +2320,15 @@ class NeuroMemory:
     async def delete_user_data(self, user_id: str) -> dict:
         """Delete ALL data for a user in a single transaction.
 
-        Removes data from all tables (memories, conversations, graph, KV,
-        emotion profiles, documents) atomically.
+        First cancels all running background tasks for the user to prevent
+        race conditions, then removes data from all tables atomically.
 
         Returns:
-            {"deleted": {"memories": N, "conversations": N, ...}}
+            {"deleted": {"memories": N, "conversations": N, ...}, "tasks_cancelled": N}
         """
+        # Cancel background tasks first to prevent post-delete writes
+        tasks_cancelled = await self.cancel_user_tasks(user_id)
+
         from sqlalchemy import text as sql_text
 
         tables = [
@@ -2282,8 +2352,8 @@ class NeuroMemory:
                 deleted[table] = result.rowcount
             await session.commit()
 
-        logger.info("delete_user_data[%s]: %s", user_id, deleted)
-        return {"deleted": deleted}
+        logger.info("delete_user_data[%s]: %s (cancelled %d tasks)", user_id, deleted, tasks_cancelled)
+        return {"deleted": deleted, "tasks_cancelled": tasks_cancelled}
 
     async def export_user_data(self, user_id: str) -> dict:
         """Export ALL data for a user as a structured dict.
