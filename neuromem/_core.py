@@ -1221,6 +1221,48 @@ class NeuroMemory:
 
                 merged.append(entry)
 
+        # Zettelkasten: 1-hop related memory expansion
+        related_ids_to_fetch: list[str] = []
+        existing_ids = {r.get("id") for r in merged if r.get("id")}
+        for r in list(merged):
+            related = (r.get("metadata") or {}).get("related_memories", [])
+            for link in related[:3]:
+                linked_id = link.get("id")
+                if linked_id and linked_id not in existing_ids:
+                    related_ids_to_fetch.append(linked_id)
+                    existing_ids.add(linked_id)
+
+        if related_ids_to_fetch:
+            related_ids_to_fetch = related_ids_to_fetch[:3]
+            try:
+                async with self._db.session() as sess:
+                    from sqlalchemy import text as _sql_text
+                    placeholders = ", ".join(f":rid_{i}" for i in range(len(related_ids_to_fetch)))
+                    params = {f"rid_{i}": rid for i, rid in enumerate(related_ids_to_fetch)}
+                    params["user_id"] = user_id
+                    result = await sess.execute(
+                        _sql_text(
+                            f"SELECT id, content, memory_type, metadata, created_at, extracted_timestamp "
+                            f"FROM memories WHERE id IN ({placeholders}) AND user_id = :user_id"
+                        ),
+                        params,
+                    )
+                    for row in result.fetchall():
+                        content = row.content
+                        if content not in seen_contents:
+                            seen_contents.add(content)
+                            merged.append({
+                                "id": str(row.id),
+                                "content": content,
+                                "memory_type": row.memory_type,
+                                "metadata": row.metadata,
+                                "created_at": row.created_at,
+                                "score": 0.03,
+                                "source": "linked",
+                            })
+            except Exception as e:
+                logger.warning("Zettelkasten expansion failed: %s", e)
+
         # Merge conversation results when explicitly requested
         if include_conversations:
             for r in conversation_results:
@@ -1252,7 +1294,7 @@ class NeuroMemory:
                 })
 
         # Sort: vector first, then graph, then conversation; within each group by score desc
-        _source_order = {"vector": 0, "graph": 1, "conversation": 2}
+        _source_order = {"vector": 0, "graph": 1, "conversation": 2, "linked": 3}
         merged.sort(key=lambda x: (_source_order.get(x.get("source", ""), 9), -x.get("score", 0)))
 
         graph_context: list[str] = [

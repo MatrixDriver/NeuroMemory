@@ -117,7 +117,7 @@ async def test_recall_expands_linked_memories(db_session, mock_embedding):
     # Set up link: A -> B
     id_b = str(mem_b.id)
     await db_session.execute(
-        text("UPDATE memories SET metadata = jsonb_set(metadata, '{related_memories}', :links::jsonb) WHERE id = :id"),
+        text("UPDATE memories SET metadata = jsonb_set(metadata, '{related_memories}', CAST(:links AS jsonb)) WHERE id = :id"),
         {"id": mem_a.id, "links": json.dumps([{"id": id_b, "relation": "elaborates"}])},
     )
     await db_session.commit()
