@@ -1284,12 +1284,19 @@ class NeuroMemory:
             task = asyncio.create_task(_reinforce_recalled_traits())
             self._bg_tasks.append(task)
 
+        # Extract active traits (established+) from user_profile
+        active_traits = [
+            t for t in user_profile.get("traits", [])
+            if t.get("stage") in ("established", "core")
+        ]
+
         return {
             "vector_results": vector_results,
             "conversation_results": conversation_results,
             "graph_results": graph_results,
             "graph_context": graph_context,
             "user_profile": user_profile,
+            "active_traits": active_traits,
             "merged": merged[:limit],
         }
 
@@ -1980,6 +1987,135 @@ class NeuroMemory:
                 }
                 for row in rows
             ]
+
+    # -- Trait Transparency APIs --
+
+    async def get_trait_evidence(
+        self,
+        trait_id: str,
+        user_id: str,
+    ) -> dict | None:
+        """Get a trait with its complete evidence chain.
+
+        Returns:
+            Dict with trait info and supporting/contradicting evidence,
+            or None if trait not found.
+        """
+        from sqlalchemy import text as sql_text
+
+        async with self._db.session() as session:
+            # Verify trait ownership
+            trait_row = (await session.execute(
+                sql_text(
+                    "SELECT id, content, trait_subtype, trait_stage, trait_confidence, "
+                    "trait_context, trait_reinforcement_count, trait_contradiction_count "
+                    "FROM memories "
+                    "WHERE id = :tid AND user_id = :uid AND memory_type = 'trait'"
+                ),
+                {"tid": trait_id, "uid": user_id},
+            )).first()
+
+            if not trait_row:
+                return None
+
+            # Fetch evidence with source memory content
+            evidence_rows = (await session.execute(
+                sql_text(
+                    "SELECT te.id, te.memory_id, te.evidence_type, te.quality, "
+                    "te.created_at, m.content AS memory_content "
+                    "FROM trait_evidence te "
+                    "LEFT JOIN memories m ON te.memory_id = m.id "
+                    "WHERE te.trait_id = :tid "
+                    "ORDER BY te.created_at DESC"
+                ),
+                {"tid": trait_id},
+            )).fetchall()
+
+            supporting = []
+            contradicting = []
+            for e in evidence_rows:
+                entry = {
+                    "evidence_id": str(e.id),
+                    "memory_id": str(e.memory_id),
+                    "memory_content": e.memory_content,
+                    "quality": e.quality,
+                    "created_at": e.created_at,
+                }
+                if e.evidence_type == "contradicting":
+                    contradicting.append(entry)
+                else:
+                    supporting.append(entry)
+
+            return {
+                "trait": {
+                    "id": str(trait_row.id),
+                    "content": trait_row.content,
+                    "trait_subtype": trait_row.trait_subtype,
+                    "trait_stage": trait_row.trait_stage,
+                    "trait_confidence": float(trait_row.trait_confidence) if trait_row.trait_confidence else 0.0,
+                    "trait_context": trait_row.trait_context,
+                    "reinforcement_count": trait_row.trait_reinforcement_count,
+                    "contradiction_count": trait_row.trait_contradiction_count,
+                },
+                "supporting_evidence": supporting,
+                "contradicting_evidence": contradicting,
+            }
+
+    async def delete_trait(self, trait_id: str, user_id: str) -> bool:
+        """Delete a trait and its associated evidence.
+
+        Convenience alias for delete_memory with trait-type validation.
+        """
+        return await self.delete_memory(trait_id, user_id)
+
+    async def edit_trait(
+        self,
+        trait_id: str,
+        user_id: str,
+        content: str,
+    ):
+        """Edit a trait's content and regenerate its embedding.
+
+        Returns:
+            Updated Memory object or None if not found.
+        """
+        return await self.update_memory(trait_id, user_id, content=content)
+
+    # -- Working Memory API --
+
+    async def commit_working_memory(
+        self,
+        user_id: str,
+        messages: list[dict],
+        session_id: str | None = None,
+        trigger_reflection: bool = True,
+    ) -> dict:
+        """Commit a batch of working memory messages to long-term storage.
+
+        Ingests all messages and optionally triggers immediate reflection.
+
+        Args:
+            user_id: User ID.
+            messages: [{"role": "user"|"assistant", "content": "..."}, ...]
+            session_id: Optional session ID (auto-generated if None).
+            trigger_reflection: If True, force reflection after ingestion.
+
+        Returns:
+            {"session_id": str, "message_ids": list, "reflection_result": dict|None}
+        """
+        sid, message_ids = await self.conversations.add_messages_batch(
+            user_id, messages, session_id,
+        )
+
+        reflection_result = None
+        if trigger_reflection:
+            reflection_result = await self.reflect(user_id, force=True)
+
+        return {
+            "session_id": sid,
+            "message_ids": [str(mid) for mid in message_ids],
+            "reflection_result": reflection_result,
+        }
 
     # -- Time-travel APIs --
 

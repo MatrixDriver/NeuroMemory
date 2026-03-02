@@ -18,6 +18,44 @@ from neuromem.services.trait_engine import TraitEngine
 
 logger = logging.getLogger(__name__)
 
+# Sensitive categories that should never be inferred as traits
+SENSITIVE_TRAIT_CATEGORIES = frozenset({
+    "mental_health",       # 心理健康、精神状态
+    "medical",             # 医疗历史、诊断
+    "political",           # 政治倾向
+    "religious",           # 宗教信仰
+    "sexual_orientation",  # 性取向、性别认同
+    "financial_details",   # 收入、债务、资产
+    "criminal_history",    # 犯罪记录
+    "addiction",           # 成瘾行为
+    "abuse_trauma",        # 虐待、创伤
+})
+
+_SENSITIVE_KEYWORDS = {
+    # 心理健康
+    "抑郁", "焦虑", "双相", "精神分裂", "自杀", "ptsd", "心理疾病", "恐惧症",
+    "depression", "anxiety", "bipolar", "schizophrenia", "suicide",
+    # 医疗
+    "诊断", "处方药", "病症", "癌症", "hiv",
+    "diagnosis", "prescription", "disease",
+    # 政治宗教
+    "政党", "共和党", "民主党", "信仰", "基督", "佛教", "伊斯兰", "无神论",
+    "republican", "democrat", "religion", "christian", "muslim", "atheist",
+    # 财务
+    "年收入", "年薪", "工资", "债务", "贷款", "负债",
+    "salary", "income", "debt",
+    # 成瘾与创伤
+    "吸毒", "酗酒", "赌博成瘾", "虐待", "性侵", "家暴",
+    "drug abuse", "alcoholism", "gambling", "assault",
+}
+
+
+def is_sensitive_trait(content: str) -> bool:
+    """Check if trait content touches a sensitive category."""
+    lower = content.lower()
+    return any(kw in lower for kw in _SENSITIVE_KEYWORDS)
+
+
 REFLECTION_PROMPT_TEMPLATE = """## 已有特质
 {existing_traits_json}
 
@@ -27,6 +65,11 @@ REFLECTION_PROMPT_TEMPLATE = """## 已有特质
 ## 分析任务
 
 请严格按以下规则分析，返回 JSON 结果：
+
+### 0. 敏感内容排除（最高优先级）
+
+以下类别**严禁**创建为特质：心理健康诊断、精神疾病、医疗信息、政治倾向、宗教信仰、性取向、具体收入/债务金额、犯罪记录、成瘾行为、虐待/创伤经历。
+如果新增记忆涉及这些类别，直接跳过，不要在 new_trends 或 new_behaviors 中输出。
 
 注意：新增记忆中的 metadata 可能包含 emotion 字段（含 valence、arousal、label）。在检测趋势和行为模式时，请关注：
 - 特定话题/情境下反复出现的情绪模式（如"讨论工作时总是焦虑"）
@@ -328,6 +371,9 @@ class ReflectionService:
 
         # Step 4: Process new_trends + new_behaviors
         for trend in llm_result.get("new_trends", []):
+            if is_sensitive_trait(trend.get("content", "")):
+                logger.info("Skipping sensitive trend: %s", trend["content"][:60])
+                continue
             await self._trait_engine.create_trend(
                 user_id=user_id,
                 content=trend["content"],
@@ -339,6 +385,9 @@ class ReflectionService:
             stats["traits_created"] += 1
 
         for behavior in llm_result.get("new_behaviors", []):
+            if is_sensitive_trait(behavior.get("content", "")):
+                logger.info("Skipping sensitive behavior: %s", behavior["content"][:60])
+                continue
             await self._trait_engine.create_behavior(
                 user_id=user_id,
                 content=behavior["content"],

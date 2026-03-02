@@ -6,6 +6,8 @@ import tempfile
 
 import pytest
 
+pytest.importorskip("cryptography", reason="cryptography not installed; install with: pip install neuromem[encryption]")
+
 from neuromem.services.encryption import EncryptionService
 
 
@@ -29,6 +31,7 @@ class TestKeyGeneration:
         assert os.path.exists(priv)
         assert os.path.exists(pub)
 
+    @pytest.mark.skipif(os.name == "nt", reason="Unix file permissions not supported on Windows")
     def test_private_key_permissions(self, keypair):
         priv, _ = keypair
         mode = oct(os.stat(priv).st_mode)[-3:]

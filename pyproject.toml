@@ -36,10 +36,12 @@ Issues = "https://github.com/MatrixDriver/neuromem/issues"
 s3 = ["boto3>=1.34.0"]
 pdf = ["pypdf>=4.0.0"]
 docx = ["python-docx>=1.1.0"]
+encryption = ["cryptography>=42.0.0"]
 all = [
     "boto3>=1.34.0",
     "pypdf>=4.0.0",
     "python-docx>=1.1.0",
+    "cryptography>=42.0.0",
 ]
 local-embedding = ["sentence-transformers>=3.0.0"]
 eval = ["tqdm>=4.66.0"]
@@ -49,6 +51,7 @@ dev = [
     "boto3>=1.34.0",
     "pypdf>=4.0.0",
     "python-docx>=1.1.0",
+    "cryptography>=42.0.0",
 ]
 
 [build-system]

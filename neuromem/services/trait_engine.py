@@ -76,8 +76,14 @@ class TraitEngine:
         window_days: int,
         context: str,
         cycle_id: str,
-    ) -> Memory:
-        """Create a trend-stage trait."""
+    ) -> Memory | None:
+        """Create a trend-stage trait. Returns None if content is sensitive."""
+        from neuromem.services.reflection import is_sensitive_trait
+
+        if is_sensitive_trait(content):
+            logger.warning("Rejecting sensitive trend: %s", content[:60])
+            return None
+
         content_hash = hashlib.md5(content.encode()).hexdigest()
 
         # Dedup check
@@ -128,8 +134,14 @@ class TraitEngine:
         confidence: float,
         context: str,
         cycle_id: str,
-    ) -> Memory:
-        """Create a candidate-stage behavior trait."""
+    ) -> Memory | None:
+        """Create a candidate-stage behavior trait. Returns None if content is sensitive."""
+        from neuromem.services.reflection import is_sensitive_trait
+
+        if is_sensitive_trait(content):
+            logger.warning("Rejecting sensitive behavior: %s", content[:60])
+            return None
+
         content_hash = hashlib.md5(content.encode()).hexdigest()
 
         # Dedup check
