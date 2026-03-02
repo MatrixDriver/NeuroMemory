@@ -109,6 +109,11 @@ REFLECTION_PROMPT_TEMPLATE = """## 已有特质
 - 检查已有 preference 是否有 ≥2 个指向同一人格维度 → 建议升级为 core
 - 注意：升级建议由代码层验证 confidence 门槛后执行
 
+### 6. 记忆关联检测 (links)
+- 检查新增记忆之间、以及新增记忆与已有记忆之间是否存在语义关联
+- 关联类型: elaborates（补充说明）、contradicts（矛盾）、same_topic（同主题）、causal（因果）
+- 只标注有明确关联的记忆对，不要过度关联
+
 如果没有发现任何模式、强化或矛盾，返回所有数组为空的 JSON。
 
 只返回 JSON，不要其他内容：
@@ -151,6 +156,13 @@ REFLECTION_PROMPT_TEMPLATE = """## 已有特质
       "new_content": "升级后的描述",
       "new_subtype": "preference",
       "reasoning": "升级理由"
+    }}
+  ],
+  "links": [
+    {{
+      "source_id": "记忆ID-A",
+      "target_id": "记忆ID-B",
+      "relation": "关联类型"
     }}
   ]
 }}
@@ -367,7 +379,12 @@ class ReflectionService:
 
         # Step 2: LLM main call
         existing_traits = await self._load_existing_traits(user_id)
-        llm_result = await self._call_reflection_llm(new_memories, existing_traits)
+
+        use_two_stage = trigger_type in ("importance_accumulated",)
+        if use_two_stage:
+            llm_result = await self._two_stage_reflect(user_id, new_memories, existing_traits)
+        else:
+            llm_result = await self._call_reflection_llm(new_memories, existing_traits)
 
         if llm_result is None:
             # LLM failed -> only apply decay, don't update watermark
@@ -445,11 +462,57 @@ class ReflectionService:
                 else:
                     stats["traits_updated"] += 1
 
+        # Step: Process memory links (Zettelkasten)
+        for link in llm_result.get("links", []):
+            await self._create_memory_link(
+                source_id=link.get("source_id"),
+                target_id=link.get("target_id"),
+                relation=link.get("relation", "related"),
+            )
+
         # Step 8: Time decay
         dissolved = await self._trait_engine.apply_decay(user_id)
         stats["traits_dissolved"] += dissolved
 
         return stats
+
+    async def _create_memory_link(
+        self,
+        source_id: str | None,
+        target_id: str | None,
+        relation: str = "related",
+    ) -> None:
+        """Create bidirectional link between two memories via metadata."""
+        if not source_id or not target_id:
+            return
+        try:
+            import uuid as _uuid
+            source_uuid = _uuid.UUID(source_id)
+            target_uuid = _uuid.UUID(target_id)
+
+            _link_sql = sql_text(
+                "UPDATE memories "
+                "SET metadata = jsonb_set("
+                "  COALESCE(metadata, '{}'), "
+                "  '{related_memories}', "
+                "  COALESCE(metadata->'related_memories', '[]') || CAST(:link_json AS jsonb)"
+                ") "
+                "WHERE id = :id "
+                "AND NOT (COALESCE(metadata->'related_memories', '[]') @> CAST(:link_json AS jsonb))"
+            )
+
+            # Add target to source's related_memories
+            await self.db.execute(
+                _link_sql,
+                {"id": source_uuid, "link_json": json.dumps([{"id": target_id, "relation": relation}])},
+            )
+            # Add source to target's related_memories (reverse direction)
+            await self.db.execute(
+                _link_sql,
+                {"id": target_uuid, "link_json": json.dumps([{"id": source_id, "relation": relation}])},
+            )
+        except Exception as e:
+            logger.warning("Failed to create memory link %s<->%s: %s", source_id, target_id, e)
 
     async def _expire_prospective_facts(self, user_id: str) -> int:
         """Mark prospective facts as historical when their event_time has passed."""
@@ -537,6 +600,82 @@ class ReflectionService:
             }
             for r in rows
         ]
+
+    async def _two_stage_reflect(
+        self,
+        user_id: str,
+        new_memories: list[dict],
+        existing_traits: list[dict],
+    ) -> dict | None:
+        """Two-stage reflection: generate questions, retrieve evidence, then analyze."""
+        # Stage 1: Generate questions
+        memory_summary = json.dumps(
+            [{"id": m["id"], "content": m["content"]} for m in new_memories[:20]],
+            ensure_ascii=False,
+        )
+        question_prompt = (
+            f"根据以下用户近期记忆，生成 3-5 个关键问题来深入了解该用户。\n\n"
+            f"记忆:\n{memory_summary}\n\n"
+            f"只返回 JSON:\n```json\n{{\"questions\": [\"问题1\", \"问题2\", ...]}}\n```"
+        )
+        try:
+            q_result = await self._llm.chat(
+                messages=[
+                    {"role": "system", "content": "你是一个用户分析引擎。生成关于用户的关键问题。只返回 JSON。"},
+                    {"role": "user", "content": question_prompt},
+                ],
+                temperature=0.3,
+                max_tokens=512,
+            )
+            questions = self._parse_questions(q_result)
+        except Exception as e:
+            logger.warning("Two-stage reflection stage 1 failed: %s, falling back to single-stage", e)
+            return await self._call_reflection_llm(new_memories, existing_traits)
+
+        if not questions:
+            return await self._call_reflection_llm(new_memories, existing_traits)
+
+        # Stage 2: Retrieve evidence for each question
+        from neuromem.services.search import SearchService
+        search_svc = SearchService(self.db, self._embedding)
+        evidence: list[dict] = []
+        seen_ids: set[str] = set()
+        for q in questions[:5]:
+            try:
+                hits = await search_svc.scored_search(user_id=user_id, query=q, limit=3)
+                for h in hits:
+                    if h["id"] not in seen_ids:
+                        seen_ids.add(h["id"])
+                        evidence.append({"id": h["id"], "content": h["content"], "score": h["score"]})
+            except Exception:
+                pass
+
+        # Build enriched prompt with evidence
+        enriched_memories = new_memories + [
+            {"id": e["id"], "content": f"[历史证据] {e['content']}", "memory_type": "evidence"}
+            for e in evidence[:10]
+        ]
+
+        return await self._call_reflection_llm(enriched_memories, existing_traits)
+
+    def _parse_questions(self, result_text: str) -> list[str]:
+        """Parse question generation result."""
+        try:
+            t = result_text.strip()
+            if "```json" in t:
+                start = t.find("```json") + 7
+                end = t.find("```", start)
+                t = t[start:end].strip()
+            elif "```" in t:
+                start = t.find("```") + 3
+                end = t.find("```", start)
+                t = t[start:end].strip()
+            result = json.loads(t)
+            questions = result.get("questions", [])
+            return [q for q in questions if isinstance(q, str)]
+        except Exception as e:
+            logger.warning("Failed to parse questions: %s", e)
+            return []
 
     async def _call_reflection_llm(
         self,
