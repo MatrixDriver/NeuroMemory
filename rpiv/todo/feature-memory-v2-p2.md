@@ -4,7 +4,7 @@ type: feature
 status: open
 priority: low
 created_at: 2026-03-01T20:00:00
-updated_at: 2026-03-01T20:00:00
+updated_at: 2026-03-03T23:00:00
 ---
 
 # 记忆分类 V2 远期演进功能（P2）
@@ -77,26 +77,26 @@ V2 核心已实现，P1 中期功能待推进。以下 7 个 P2 功能是更长�
 - **涉及文件**：`services/graph_memory.py`（当前只有 `find_entity_facts()`，无摘要生成）
 - **MVP**：待设计——需要定义摘要触发条件和生成频率
 
-### 9. recall 情绪因子（Emotion Matching Factor）
+### 9. ~~recall 情绪因子（Emotion Matching Factor）~~ ✓ 已实现 2026-03-03
 
 - **描述**：recall 评分中增加情绪匹配因子（当前对话情绪与记忆情绪的一致性加成）
 - **理论依据**：认知心理学调研 #01（杏仁核介导的情绪记忆增强效应）
-- **当前基础**：arousal 已用于调节衰减速率（`search.py` recency_bonus），但无情绪匹配加成
-- **MVP**：recall 接受 `current_emotion` 参数，计算与记忆 emotion 的余弦相似度加成
+- **涉及文件**：`services/search.py`（scored_search 新增 `current_emotion` 参数 + emotion_match bonus 0~0.10）、`_core.py`（recall 透传 current_emotion）
+- **MVP**：emotion_match = 0.10 × (1 - valence-arousal 欧式距离 / 2.83)，在 final score 公式中叠加
 
-### 10. behavior_kind 区分（Pattern vs Procedural）
+### 10. ~~behavior_kind 区分（Pattern vs Procedural）~~ ✓ 已实现 2026-03-03
 
 - **描述**：behavior trait 内部增加 `behavior_kind` 字段，区分统计规律型（"深夜活跃"）和操作流程型（"先画架构图再写代码"）
 - **理论依据**：认知心理学调研 #01
-- **涉及文件**：`models/memory.py`（新增 metadata 字段）、`services/trait_engine.py`（创建时标注）
-- **MVP**：`metadata.behavior_kind = "pattern" | "procedural"`
+- **涉及文件**：`services/reflection.py`（prompt 新增 behavior_kind 指导 + 调用传参）、`services/trait_engine.py`（create_behavior 新增 behavior_kind 参数，存入 metadata_）
+- **MVP**：`metadata_.behavior_kind = "pattern" | "procedural"`，由 LLM 反思时推断
 
-### 11. fact_temporality 区分（Current/Prospective/Historical）
+### 11. ~~fact_temporality 区分（Current/Prospective/Historical）~~ ✓ 已实现 2026-03-03
 
-- **描述**：fact 增加 `fact_temporality` 字段，区分当前事实、未来意图、已过时事实
+- **描述**：fact 增加 `temporality` 字段，区分当前事实、未来意图、已过时事实
 - **理论依据**：认知心理学调研 #01
-- **涉及文件**：`models/memory.py`（新增 metadata 字段）、`services/memory_extraction.py`（提取时标注）、`services/reflection.py`（前瞻事实过期检查）
-- **MVP**：`metadata.fact_temporality = "current" | "prospective" | "historical"`；reflection 自动检查 prospective fact 过期
+- **涉及文件**：`services/memory_extraction.py`（中英文 prompt 新增 temporality 必填字段 + _store_facts 存入 metadata_）
+- **MVP**：`metadata_.temporality = "current" | "prospective" | "historical"`，LLM 提取时标注
 
 ## 备选方案
 

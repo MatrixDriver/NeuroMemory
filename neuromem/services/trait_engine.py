@@ -134,6 +134,7 @@ class TraitEngine:
         confidence: float,
         context: str,
         cycle_id: str,
+        behavior_kind: str = "pattern",
     ) -> Memory | None:
         """Create a candidate-stage behavior trait. Returns None if content is sensitive."""
         from neuromem.services.reflection import is_sensitive_trait
@@ -190,6 +191,7 @@ class TraitEngine:
             trait_derived_from="reflection",
             importance=0.5,
             content_hash=content_hash,
+            metadata_={"behavior_kind": behavior_kind},
         )
         self.db.add(trait)
         await self.db.flush()

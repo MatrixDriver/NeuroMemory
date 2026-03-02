@@ -259,6 +259,7 @@ class SearchService:
         as_of: datetime | None = None,
         created_after: datetime | None = None,
         created_before: datetime | None = None,
+        current_emotion: dict | None = None,
     ) -> list[dict]:
         """Cosine-based scored search with BM25 hybrid and recency/importance bonuses.
 
@@ -328,6 +329,20 @@ class SearchService:
         # Exclude inactive trait stages from search results
         filters += " AND NOT (memory_type = 'trait' AND trait_stage IN ('trend', 'candidate', 'dissolved'))"
 
+        # Emotion matching bonus SQL fragment
+        if current_emotion and isinstance(current_emotion, dict):
+            q_valence = float(current_emotion.get("valence", 0))
+            q_arousal = float(current_emotion.get("arousal", 0))
+            # Bonus: 0~0.10, based on 1 - normalized distance in valence-arousal space
+            emotion_bonus_sql = (
+                f"0.10 * GREATEST(0, 1.0 - SQRT("
+                f"  POWER(COALESCE((metadata->'emotion'->>'valence')::float, 0) - {q_valence}, 2)"
+                f"  + POWER(COALESCE((metadata->'emotion'->>'arousal')::float, 0) - {q_arousal}, 2)"
+                f") / 2.83)"  # 2.83 = sqrt(2^2 + 1^2), max possible distance
+            )
+        else:
+            emotion_bonus_sql = "0"
+
         candidate_limit = limit * 2 if self._pg_search else limit * 4
 
         if self._pg_search:
@@ -391,7 +406,9 @@ class SearchService:
                    ) AS recency,
                    -- importance_bonus: 0~0.15
                    0.15 * COALESCE((metadata->>'importance')::float / 10.0, 0.5) AS importance,
-                   -- final score: base_relevance × (1 + recency_bonus + importance_bonus + trait_boost)
+                   -- emotion_match_bonus: 0~0.10
+                   {emotion_bonus_sql} AS emotion_match,
+                   -- final score: base_relevance × (1 + recency + importance + trait_boost + emotion_match)
                    LEAST(vector_score + CASE WHEN bm25_score > 0 THEN 0.05 ELSE 0 END, 1.0)
                    * (1.0
                       + 0.15 * EXP(
@@ -409,6 +426,7 @@ class SearchService:
                               END
                           ELSE 0
                         END
+                      + {emotion_bonus_sql}
                    ) AS score
             FROM hybrid
             ORDER BY score DESC
@@ -432,6 +450,7 @@ class SearchService:
                 "rrf_score": round(float(row.rrf_score), 4),
                 "recency": round(float(row.recency), 4),
                 "importance": round(float(row.importance), 4),
+                "emotion_match": round(float(row.emotion_match), 4),
                 "score": round(float(row.score), 4),
             }
             for row in rows

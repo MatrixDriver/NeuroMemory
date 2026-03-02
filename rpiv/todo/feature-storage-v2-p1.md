@@ -4,7 +4,7 @@ type: feature
 status: open
 priority: low
 created_at: 2026-03-01T20:30:00
-updated_at: 2026-03-01T20:30:00
+updated_at: 2026-03-03T23:30:00
 ---
 
 # 存储方案 V2 待实施优化（P1）
@@ -52,11 +52,14 @@ storage-schema-v2.md 的 P0 存储任务已基本完成（表结构、辅助表�
 - **涉及文件**：`services/trait_engine.py`（所有 trait 更新操作递增 version）
 - **工作量**：小
 
-### 5. 四操作模型泛化
+### 5. ~~四操作模型泛化~~ ✓ 已实现 2026-03-03
 
 - **描述**：将 ADD/UPDATE/DELETE/NOOP 四操作模型从 Graph 模块泛化到 Memory 表
-- **当前状态**：仅 `graph_memory.py` 实现了此模型，Memory 表使用 supersede 机制
-- **涉及文件**：`services/memory_extraction.py`、`_core.py`
+- **当前状态**：已在 `memory_extraction.py` 的 `_store_facts()` 中实现 ADD/UPDATE/NOOP 三操作冲突解决
+  - 相似度 > 0.95 → NOOP（语义相同，跳过）
+  - 0.85 < 相似度 ≤ 0.95 → UPDATE（supersede 旧 fact，设置 `valid_until` + `superseded_by`）
+  - 无相似 → ADD（新增）
+- **涉及文件**：`services/memory_extraction.py`（`_store_facts()` 向量去重逻辑重构）
 - **工作量**：中
 
 ### 6. Sleep-time 反思守护进程

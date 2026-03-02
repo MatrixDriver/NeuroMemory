@@ -87,6 +87,9 @@ REFLECTION_PROMPT_TEMPLATE = """## 已有特质
 - 从新增记忆中识别**行为模式**（≥3 条记忆呈现相同模式，或跨度较长）
 - 与已有特质内容去重：如果某个模式已被已有特质覆盖，归入 reinforcements 而非 new_behaviors
 - 为每条 behavior 推断情境标签(context)
+- 为每条 behavior 推断行为类型(behavior_kind):
+  * "pattern": 统计规律型（如"深夜活跃"、"偏好简洁"、"每周运动3次"）
+  * "procedural": 操作流程型（如"先画架构图再写代码"、"调试时先看日志再加断点"）
 - 初始置信度建议：通常 0.4，跨情境一致的可以给 0.5
 
 ### 3. 已有特质强化 (reinforcements)
@@ -124,7 +127,8 @@ REFLECTION_PROMPT_TEMPLATE = """## 已有特质
       "content": "行为模式描述",
       "evidence_ids": ["记忆ID1", "记忆ID2", "记忆ID3"],
       "confidence": 0.4,
-      "context": "work"
+      "context": "work",
+      "behavior_kind": "pattern"
     }}
   ],
   "reinforcements": [
@@ -395,6 +399,7 @@ class ReflectionService:
                 confidence=behavior.get("confidence", 0.4),
                 context=behavior.get("context", "general"),
                 cycle_id=cycle_id,
+                behavior_kind=behavior.get("behavior_kind", "pattern"),
             )
             stats["traits_created"] += 1
 

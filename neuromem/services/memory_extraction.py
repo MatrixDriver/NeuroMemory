@@ -329,8 +329,12 @@ class MemoryExtractionService:
 请提取以下记忆：
 
 1. **Facts（事实）**: 用户及对话中提到的人物的客观信息
-   - 格式: {{"content": "事实描述", "category": "分类", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "情感描述"}} 或 null}}
+   - 格式: {{"content": "事实描述", "category": "分类", "temporality": "current|prospective|historical", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "情感描述"}} 或 null}}
    - category 可选: identity, work, skill, hobby, personal, education, location, health, relationship, finance, values
+   - temporality: 事实的时间性质（必填）
+     * "current": 当前仍然有效的事实（如"用户住在北京"、"用户是程序员"）
+     * "prospective": 未来计划或意图（如"用户计划明年去日本"、"用户打算考研"）
+     * "historical": 已过时的事实（如"用户以前在上海工作"、"用户曾经学过法语"）
    - importance: 对用户的重要程度（1=随口一提, 5=日常信息, 9=非常重要如生日/重大事件, 10=核心身份信息）
    - emotion: 标注该事实相关的情感基调。大多数对话都带有情感色彩（积极/消极/中性），请尽量标注。仅当内容完全是客观事实（如"用户住在北京"）时才设为 null
    - entities: 提取该事实中提到的人名、地点和关键主题
@@ -438,8 +442,12 @@ Conversation:
 Extract the following memories:
 
 1. **Facts**: Objective information about the user and people mentioned
-   - Format: {{"content": "fact description", "category": "category", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "emotion"}} or null}}
+   - Format: {{"content": "fact description", "category": "category", "temporality": "current|prospective|historical", "confidence": 0.0-1.0, "importance": 1-10, "entities": {{"people": [...], "locations": [...], "topics": [...]}}, "emotion": {{"valence": -1.0~1.0, "arousal": 0.0~1.0, "label": "emotion"}} or null}}
    - Category options: identity, work, skill, hobby, personal, education, location, health, relationship, finance, values
+   - Temporality (required):
+     * "current": facts that are still true now (e.g. "User lives in Beijing", "User is a programmer")
+     * "prospective": future plans or intentions (e.g. "User plans to visit Japan next year")
+     * "historical": facts no longer true (e.g. "User used to work in Shanghai", "User previously studied French")
    - Importance: significance to user's life (1=casual mention, 5=daily info, 9=very important like birthday/major events, 10=core identity)
    - Emotion: tag the emotional tone for this fact. Most conversations carry emotional undertones (positive/negative/neutral) — tag them. Only set null for purely objective facts like "User lives in Beijing"
    - entities: extract people names, locations, and key topics mentioned in this fact
@@ -655,28 +663,53 @@ Return format (JSON only, no other content):
                     logger.debug("Skipping duplicate fact (hash match): %s", content[:80])
                     continue
 
-                # Vector-based dedup (safety net for semantically identical content)
+                # Vector-based conflict resolution (ADD / UPDATE / NOOP)
                 vector_str = f"[{','.join(str(float(v)) for v in embedding_vector)}]"
-                dup = await self.db.execute(
+                similar = await self.db.execute(
                     sql_text(f"""
-                        SELECT 1 FROM memories
+                        SELECT id, content, 1 - (embedding <=> '{vector_str}') AS similarity
+                        FROM memories
                         WHERE user_id = :uid AND memory_type = 'fact'
                           AND valid_until IS NULL
-                          AND 1 - (embedding <=> '{vector_str}') > 0.95
+                          AND 1 - (embedding <=> '{vector_str}') > 0.85
+                        ORDER BY similarity DESC
                         LIMIT 1
                     """),
                     {"uid": user_id},
                 )
-                if dup.fetchone():
-                    logger.debug("Skipping duplicate fact: %s", content[:80])
-                    continue
+                similar_row = similar.fetchone()
+                if similar_row:
+                    sim = float(similar_row.similarity)
+                    if sim > 0.95:
+                        # NOOP: semantically identical
+                        logger.debug("NOOP - duplicate fact (sim=%.3f): %s", sim, content[:80])
+                        continue
+                    else:
+                        # UPDATE: same topic but different content (0.85 < sim <= 0.95)
+                        # Supersede old fact and insert new version
+                        old_id = similar_row.id
+                        now_ts = datetime.now(timezone.utc)
+                        await self.db.execute(
+                            sql_text(
+                                "UPDATE memories SET valid_until = :now, "
+                                "superseded_by = :new_hash "
+                                "WHERE id = :old_id"
+                            ),
+                            {"now": now_ts, "new_hash": content_hash, "old_id": old_id},
+                        )
+                        logger.info(
+                            "UPDATE - superseding fact %s (sim=%.3f): '%s' → '%s'",
+                            old_id, sim, similar_row.content[:50], content[:50],
+                        )
 
                 category = fact.get("category", "general")
+                temporality = fact.get("temporality", "current")
                 confidence = fact.get("confidence", 1.0)
                 importance = fact.get("importance")
                 emotion = fact.get("emotion")
                 meta = {
                     "category": category,
+                    "temporality": temporality,
                     "confidence": confidence,
                     "extracted_from": "conversation",
                 }

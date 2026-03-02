@@ -1071,6 +1071,7 @@ class NeuroMemory:
         event_before: datetime | None = None,
         include_conversations: bool = False,
         as_of: datetime | None = None,
+        current_emotion: dict | None = None,
     ) -> dict:
         """Hybrid recall: memories + graph, merged and deduplicated.
 
@@ -1122,6 +1123,7 @@ class NeuroMemory:
                 memory_type=memory_type,
                 created_after=created_after,
                 created_before=created_before,
+                current_emotion=current_emotion,
             ),
             self.profile_view(user_id),
         ]
@@ -1380,6 +1382,7 @@ class NeuroMemory:
         memory_type: str | None = None,
         created_after: datetime | None = None,
         created_before: datetime | None = None,
+        current_emotion: dict | None = None,
     ) -> list[dict]:
         """Search extracted memories (vector + BM25 hybrid).
 
@@ -1395,6 +1398,7 @@ class NeuroMemory:
             as_of=as_of,
             created_after=created_after,
             created_before=created_before,
+            current_emotion=current_emotion,
         )
 
         # User explicitly specified memory_type → single search
