@@ -279,16 +279,23 @@ class Database:
             logger.info("pg_search not available, using tsvector fallback: %s", e)
 
         # Create BM25 index if pg_search is available
+        # ParadeDB limits one BM25 index per table; check existence first
         if self.pg_search_available:
             try:
                 async with self.engine.begin() as conn:
-                    await conn.execute(text("""
-                        CREATE INDEX IF NOT EXISTS idx_memories_bm25
-                        ON memories
-                        USING bm25 (id, content)
-                        WITH (key_field='id')
-                    """))
-                    logger.info("BM25 index created on memories")
+                    result = await conn.execute(text(
+                        "SELECT 1 FROM pg_indexes WHERE indexname = 'idx_memories_bm25'"
+                    ))
+                    if result.first() is None:
+                        await conn.execute(text("""
+                            CREATE INDEX idx_memories_bm25
+                            ON memories
+                            USING bm25 (id, content)
+                            WITH (key_field='id')
+                        """))
+                        logger.info("BM25 index created on memories")
+                    else:
+                        logger.debug("BM25 index already exists, skipping creation")
             except Exception as e:
                 logger.warning("Failed to create BM25 index: %s", e)
 
