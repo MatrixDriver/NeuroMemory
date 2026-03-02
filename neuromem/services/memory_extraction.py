@@ -335,6 +335,7 @@ class MemoryExtractionService:
      * "current": 当前仍然有效的事实（如"用户住在北京"、"用户是程序员"）
      * "prospective": 未来计划或意图（如"用户计划明年去日本"、"用户打算考研"）
      * "historical": 已过时的事实（如"用户以前在上海工作"、"用户曾经学过法语"）
+   - event_time: 事实发生的实际时间（ISO 日期格式如 "2026-02-25"），从对话中的时间表达推算。如果无法确定具体日期则设为 null
    - importance: 对用户的重要程度（1=随口一提, 5=日常信息, 9=非常重要如生日/重大事件, 10=核心身份信息）
    - emotion: 标注该事实相关的情感基调。大多数对话都带有情感色彩（积极/消极/中性），请尽量标注。仅当内容完全是客观事实（如"用户住在北京"）时才设为 null
    - entities: 提取该事实中提到的人名、地点和关键主题
@@ -448,6 +449,7 @@ Extract the following memories:
      * "current": facts that are still true now (e.g. "User lives in Beijing", "User is a programmer")
      * "prospective": future plans or intentions (e.g. "User plans to visit Japan next year")
      * "historical": facts no longer true (e.g. "User used to work in Shanghai", "User previously studied French")
+   - event_time: The actual date when the fact occurred (ISO date like "2026-02-25"), computed from time expressions in conversation. Set to null if the date cannot be determined
    - Importance: significance to user's life (1=casual mention, 5=daily info, 9=very important like birthday/major events, 10=core identity)
    - Emotion: tag the emotional tone for this fact. Most conversations carry emotional undertones (positive/negative/neutral) — tag them. Only set null for purely objective facts like "User lives in Beijing"
    - entities: extract people names, locations, and key topics mentioned in this fact
@@ -724,6 +726,9 @@ Return format (JSON only, no other content):
                 entities = fact.get("entities")
                 if entities and isinstance(entities, dict):
                     meta["entities"] = entities
+                event_time = fact.get("event_time")
+                if event_time:
+                    meta["event_time"] = event_time
 
                 # Resolve timestamp for facts (some facts have temporal info)
                 resolved_ts = self._resolve_timestamp(
