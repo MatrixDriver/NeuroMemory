@@ -519,8 +519,38 @@ Return format (JSON only, no other content):
 }}
 ```"""
 
+    @staticmethod
+    def _repair_json(text: str) -> str:
+        """Attempt to repair common LLM JSON errors.
+
+        Handles: trailing commas, truncated output (unclosed brackets),
+        and stray text after the JSON object.
+        """
+        import re as _re
+
+        # Remove trailing commas before } or ]
+        text = _re.sub(r',\s*([}\]])', r'\1', text)
+
+        # If the JSON is truncated (unclosed brackets), try to close them
+        open_braces = text.count('{') - text.count('}')
+        open_brackets = text.count('[') - text.count(']')
+
+        if open_braces > 0 or open_brackets > 0:
+            # Truncate at the last complete item (last '}' or ']')
+            last_close = max(text.rfind('}'), text.rfind(']'))
+            if last_close > 0:
+                text = text[:last_close + 1]
+                # Recount
+                open_braces = text.count('{') - text.count('}')
+                open_brackets = text.count('[') - text.count(']')
+
+            # Close remaining brackets
+            text += ']' * open_brackets + '}' * open_braces
+
+        return text
+
     def _parse_classification_result(self, result_text: str) -> dict[str, list[dict]]:
-        """Parse LLM classification result."""
+        """Parse LLM classification result with JSON repair fallback."""
         try:
             text = result_text.strip()
 
@@ -533,7 +563,18 @@ Return format (JSON only, no other content):
                 end = text.find("```", start)
                 text = text[start:end].strip()
 
-            result = json.loads(text)
+            # Try parsing directly first
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError:
+                # Attempt repair and retry
+                repaired = self._repair_json(text)
+                try:
+                    result = json.loads(repaired)
+                    logger.info("JSON repair succeeded for classification result")
+                except json.JSONDecodeError as e2:
+                    logger.error("Failed to parse JSON even after repair: %s", e2)
+                    return {"facts": [], "episodes": [], "triples": []}
 
             if not isinstance(result, dict):
                 raise ValueError("Result is not a dictionary")
