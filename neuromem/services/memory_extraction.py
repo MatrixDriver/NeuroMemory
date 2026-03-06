@@ -153,27 +153,23 @@ class MemoryExtractionService:
 
         total_count = facts_count + episodes_count + triples_count
         if total_count > 0:
-            try:
-                await self.db.commit()
-                logger.info(f"Committed memories (facts={facts_count}, "
-                           f"episodes={episodes_count}, triples={triples_count})")
-            except Exception as e:
-                logger.error(f"Commit failed, rolling back: {e}", exc_info=True)
-                try:
-                    await self.db.rollback()
-                except Exception:
-                    pass
-                raise RuntimeError(f"Failed to commit memories: {e}") from e
+            await self.db.flush()
+            logger.info(f"Flushed memories (facts={facts_count}, "
+                       f"episodes={episodes_count}, triples={triples_count})")
 
-        # If we had valid items but stored nothing, raise so extraction is marked failed
+        # If we had valid items but stored nothing due to errors, raise
         if errors:
             logger.error(f"Partial extraction failures: {errors}")
-        if total_count == 0 and (valid_facts or valid_episodes):
-            raise RuntimeError(
-                f"Extraction produced 0 memories from "
-                f"{len(valid_facts)} facts, {len(valid_episodes)} episodes. "
-                f"Errors: {'; '.join(errors) if errors else 'all items filtered or storage failed'}"
-            )
+            if total_count == 0:
+                raise RuntimeError(
+                    f"Extraction produced 0 memories from "
+                    f"{len(valid_facts)} facts, {len(valid_episodes)} episodes. "
+                    f"Errors: {'; '.join(errors)}"
+                )
+        elif total_count == 0 and (valid_facts or valid_episodes):
+            # All items filtered by dedup — normal, not an error
+            logger.info("All %d facts and %d episodes filtered by dedup",
+                        len(valid_facts), len(valid_episodes))
 
         return {
             "facts_extracted": facts_count,
@@ -588,11 +584,17 @@ Return format (JSON only, no other content):
         if "```json" in text:
             start = text.find("```json") + 7
             end = text.find("```", start)
-            text = text[start:end].strip()
+            if end == -1:
+                text = text[start:].strip()
+            else:
+                text = text[start:end].strip()
         elif "```" in text:
             start = text.find("```") + 3
             end = text.find("```", start)
-            text = text[start:end].strip()
+            if end == -1:
+                text = text[start:].strip()
+            else:
+                text = text[start:end].strip()
 
         # Try parsing directly first
         try:
@@ -695,6 +697,14 @@ Return format (JSON only, no other content):
         if not valid_facts:
             return 0
 
+        # Guard against vector/fact count mismatch (caller filtered differently)
+        if pre_vectors and len(pre_vectors) != len(valid_facts):
+            logger.warning(
+                "pre_vectors length (%d) != valid_facts length (%d), recomputing embeddings",
+                len(pre_vectors), len(valid_facts),
+            )
+            pre_vectors = None
+
         if pre_vectors:
             vectors = pre_vectors
         else:
@@ -710,37 +720,41 @@ Return format (JSON only, no other content):
 
         import hashlib
 
+        # Batch hash dedup: single query to find all existing hashes
+        all_hashes = [hashlib.md5(f["content"].encode()).hexdigest() for f in valid_facts]
+        hash_params = {f"h{i}": h for i, h in enumerate(all_hashes)}
+        hash_placeholders = ", ".join(f":h{i}" for i in range(len(all_hashes)))
+        existing_hashes_result = await self.db.execute(
+            sql_text(
+                f"SELECT content_hash FROM memories WHERE user_id = :uid AND memory_type = 'fact'"
+                f" AND content_hash IN ({hash_placeholders})"
+            ),
+            {"uid": user_id, **hash_params},
+        )
+        existing_hash_set = {row.content_hash for row in existing_hashes_result.fetchall()}
+
         count = 0
-        for fact, embedding_vector in zip(valid_facts, vectors):
+        for fact, embedding_vector, content_hash in zip(valid_facts, vectors, all_hashes):
             try:
                 content = fact["content"]
-                content_hash = hashlib.md5(content.encode()).hexdigest()
 
-                # Hash-based dedup check (fast path)
-                hash_dup = await self.db.execute(
-                    sql_text(
-                        "SELECT 1 FROM memories WHERE user_id = :uid AND memory_type = 'fact'"
-                        " AND content_hash = :hash LIMIT 1"
-                    ),
-                    {"uid": user_id, "hash": content_hash},
-                )
-                if hash_dup.fetchone():
+                if content_hash in existing_hash_set:
                     logger.debug("Skipping duplicate fact (hash match): %s", content[:80])
                     continue
 
                 # Vector-based conflict resolution (ADD / UPDATE / NOOP)
                 vector_str = f"[{','.join(str(float(v)) for v in embedding_vector)}]"
                 similar = await self.db.execute(
-                    sql_text(f"""
-                        SELECT id, content, 1 - (embedding <=> '{vector_str}') AS similarity
+                    sql_text("""
+                        SELECT id, content, 1 - (embedding <=> CAST(:qvec AS vector)) AS similarity
                         FROM memories
                         WHERE user_id = :uid AND memory_type = 'fact'
                           AND valid_until IS NULL
-                          AND 1 - (embedding <=> '{vector_str}') > 0.85
+                          AND 1 - (embedding <=> CAST(:qvec AS vector)) > 0.85
                         ORDER BY similarity DESC
                         LIMIT 1
                     """),
-                    {"uid": user_id},
+                    {"uid": user_id, "qvec": vector_str},
                 )
                 similar_row = similar.fetchone()
                 if similar_row:
@@ -838,6 +852,14 @@ Return format (JSON only, no other content):
         if not valid_episodes:
             return 0
 
+        # Guard against vector/episode count mismatch
+        if pre_vectors and len(pre_vectors) != len(valid_episodes):
+            logger.warning(
+                "pre_vectors length (%d) != valid_episodes length (%d), recomputing embeddings",
+                len(pre_vectors), len(valid_episodes),
+            )
+            pre_vectors = None
+
         if pre_vectors:
             vectors = pre_vectors
         else:
@@ -864,14 +886,14 @@ Return format (JSON only, no other content):
                 # Vector-based dedup (safety net for semantically identical content)
                 vector_str = f"[{','.join(str(float(v)) for v in embedding_vector)}]"
                 dup = await self.db.execute(
-                    sql_text(f"""
+                    sql_text("""
                         SELECT 1 FROM memories
                         WHERE user_id = :uid AND memory_type = 'episodic'
                           AND valid_until IS NULL
-                          AND 1 - (embedding <=> '{vector_str}') > 0.95
+                          AND 1 - (embedding <=> CAST(:qvec AS vector)) > 0.95
                         LIMIT 1
                     """),
-                    {"uid": user_id},
+                    {"uid": user_id, "qvec": vector_str},
                 )
                 if dup.fetchone():
                     logger.debug("Skipping duplicate episode: %s", content[:80])

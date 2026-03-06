@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 
@@ -151,7 +152,7 @@ class FileService:
         vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
 
         filters = "d.user_id = :user_id"
-        params: dict = {"user_id": user_id, "limit": limit}
+        params: dict = {"user_id": user_id, "limit": limit, "query_vec": vector_str}
 
         if file_types:
             filters += " AND d.file_type = ANY(:file_types)"
@@ -163,17 +164,17 @@ class FileService:
 
         if tags:
             filters += " AND d.tags @> :tags::jsonb"
-            params["tags"] = str(tags).replace("'", '"')
+            params["tags"] = json.dumps(tags)
 
         sql = text(
             f"""
             SELECT d.id, d.filename, d.file_type, d.category, d.tags,
                    d.file_size, d.extracted_text, d.created_at,
-                   1 - (e.embedding <=> '{vector_str}') AS similarity
+                   1 - (e.embedding <=> CAST(:query_vec AS vector)) AS similarity
             FROM documents d
             JOIN memories e ON d.embedding_id = e.id
             WHERE {filters}
-            ORDER BY e.embedding <=> '{vector_str}'
+            ORDER BY e.embedding <=> CAST(:query_vec AS vector)
             LIMIT :limit
             """
         )
@@ -253,6 +254,14 @@ class FileService:
             await self._storage.delete(doc.object_key)
         except Exception as e:
             logger.warning("Storage delete failed for %s: %s", doc.object_key, e)
+
+        # Clean up associated Memory record to avoid orphan data
+        if doc.embedding_id:
+            from neuromem.models.memory import Memory
+
+            mem = await self.db.get(Memory, doc.embedding_id)
+            if mem:
+                await self.db.delete(mem)
 
         await self.db.delete(doc)
         await self.db.flush()

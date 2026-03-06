@@ -587,7 +587,9 @@ class TemporalExtractor:
             day = min(ref.day, 28)  # Safe for all months
             result = ref.replace(year=year, month=month, day=day)
         elif unit == "year":
-            result = ref.replace(year=ref.year - n)
+            target_year = ref.year - n
+            day = min(ref.day, 28)  # Safe for leap year edge case
+            result = ref.replace(year=target_year, day=day)
         else:
             return ref
 

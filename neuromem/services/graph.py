@@ -29,7 +29,7 @@ class GraphService:
         self,
         node_type: NodeType,
         node_id: str,
-        properties: dict[str, Any] = None,
+        properties: dict[str, Any] | None = None,
         user_id: Optional[str] = None,
     ) -> GraphNode:
         """Create a node in the graph."""
@@ -63,7 +63,7 @@ class GraphService:
         edge_type: EdgeType,
         target_type: NodeType,
         target_id: str,
-        properties: dict[str, Any] = None,
+        properties: dict[str, Any] | None = None,
         user_id: Optional[str] = None,
     ) -> GraphEdge:
         """Create an edge between two nodes."""

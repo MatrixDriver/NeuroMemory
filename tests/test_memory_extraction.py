@@ -320,7 +320,7 @@ async def test_language_detection_and_persistence(db_session, mock_embedding):
     )
 
     # Verify language was saved as "en"
-    lang_kv = await kv_svc.get("profile", "lang_user_en", "language")
+    lang_kv = await kv_svc.get("settings", "lang_user_en", "language")
     assert lang_kv is not None
     assert lang_kv.value == "en"
 
@@ -332,7 +332,7 @@ async def test_language_preference_reused(db_session, mock_embedding):
     conv_svc = ConversationService(db_session)
 
     # Manually set language preference to Chinese
-    await kv_svc.set("profile", "lang_user_zh", "language", "zh")
+    await kv_svc.set("settings", "lang_user_zh", "language", "zh")
 
     # Add Chinese conversation (prefer zh stays zh)
     _, _ = await conv_svc.add_messages_batch(
@@ -371,7 +371,7 @@ async def test_language_switch_with_high_confidence(db_session, mock_embedding):
     conv_svc = ConversationService(db_session)
 
     # Set initial preference to zh
-    await kv_svc.set("profile", "lang_switch_user", "language", "zh")
+    await kv_svc.set("settings", "lang_switch_user", "language", "zh")
 
     # Add pure English conversation (high confidence)
     _, _ = await conv_svc.add_messages_batch(
@@ -397,7 +397,7 @@ async def test_language_switch_with_high_confidence(db_session, mock_embedding):
     )
 
     # Verify language was updated to "en"
-    lang_kv = await kv_svc.get("profile", "lang_switch_user", "language")
+    lang_kv = await kv_svc.get("settings", "lang_switch_user", "language")
     assert lang_kv.value == "en"
 
 
@@ -408,7 +408,7 @@ async def test_language_switch_low_confidence_no_update(db_session, mock_embeddi
     conv_svc = ConversationService(db_session)
 
     # Set initial preference to zh
-    await kv_svc.set("profile", "lang_mixed_user", "language", "zh")
+    await kv_svc.set("settings", "lang_mixed_user", "language", "zh")
 
     # Add mixed-language conversation (low confidence)
     _, _ = await conv_svc.add_messages_batch(
@@ -434,7 +434,7 @@ async def test_language_switch_low_confidence_no_update(db_session, mock_embeddi
     )
 
     # Verify language stayed as "zh" (not enough confidence to switch)
-    lang_kv = await kv_svc.get("profile", "lang_mixed_user", "language")
+    lang_kv = await kv_svc.get("settings", "lang_mixed_user", "language")
     assert lang_kv.value == "zh"
 
 

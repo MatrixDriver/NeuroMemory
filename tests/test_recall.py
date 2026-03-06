@@ -343,12 +343,12 @@ class TestRecallCombinedScoring:
     async def test_importance_can_outweigh_recency(self, db_session, mock_embedding):
         """A very important old memory can outrank a trivial fresh one."""
         svc = SearchService(db_session, mock_embedding)
-        # Old but very important
+        # Old but very important (30 days old, max importance)
         old_important = await _add_memory(
             svc, db_session, "combo_u3", "important query text version A",
-            metadata={"importance": 10}, age_days=7,
+            metadata={"importance": 10}, age_days=30,
         )
-        # Fresh but trivial
+        # Fresh but trivial (min importance)
         fresh_trivial = await _add_memory(
             svc, db_session, "combo_u3", "important query text version B",
             metadata={"importance": 1}, age_days=0,

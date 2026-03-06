@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import math
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -17,6 +18,7 @@ from neuromem.models.memory_history import MemoryHistory
 from neuromem.models.trait_evidence import TraitEvidence
 from neuromem.providers.embedding import EmbeddingProvider
 from neuromem.providers.llm import LLMProvider
+from neuromem.services.sensitive_filter import is_sensitive_trait
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +80,6 @@ class TraitEngine:
         cycle_id: str,
     ) -> Memory | None:
         """Create a trend-stage trait. Returns None if content is sensitive."""
-        from neuromem.services.reflection import is_sensitive_trait
-
         context = context or "unspecified"
 
         if is_sensitive_trait(content):
@@ -88,21 +88,21 @@ class TraitEngine:
 
         content_hash = hashlib.md5(content.encode()).hexdigest()
 
-        # Dedup check
-        existing = await self._find_similar_trait(user_id, content, content_hash)
+        # Dedup check (also returns pre-computed embedding vector)
+        existing, cached_vector = await self._find_similar_trait(user_id, content, content_hash)
         if existing:
             logger.info("Trait dedup hit for trend: reinforcing %s", existing.id)
             valid_ids = await self._validate_evidence_ids(evidence_ids)
             if valid_ids:
                 await self._write_evidence(existing.id, valid_ids, "supporting", "D", cycle_id)
-            existing.trait_reinforcement_count = (existing.trait_reinforcement_count or 0) + len(valid_ids)
-            existing.trait_last_reinforced = datetime.now(timezone.utc)
-            self._bump_version(existing)
-            await self.db.flush()
+                existing.trait_reinforcement_count = (existing.trait_reinforcement_count or 0) + len(valid_ids)
+                existing.trait_last_reinforced = datetime.now(timezone.utc)
+                self._bump_version(existing)
+                await self.db.flush()
             return existing
 
         now = datetime.now(timezone.utc)
-        embedding_vector = await self._embedding.embed(content)
+        embedding_vector = cached_vector or await self._embedding.embed(content)
 
         trait = Memory(
             user_id=user_id,
@@ -139,8 +139,6 @@ class TraitEngine:
         behavior_kind: str = "pattern",
     ) -> Memory | None:
         """Create a candidate-stage behavior trait. Returns None if content is sensitive."""
-        from neuromem.services.reflection import is_sensitive_trait
-
         context = context or "unspecified"
 
         if is_sensitive_trait(content):
@@ -149,21 +147,21 @@ class TraitEngine:
 
         content_hash = hashlib.md5(content.encode()).hexdigest()
 
-        # Dedup check
-        existing = await self._find_similar_trait(user_id, content, content_hash)
+        # Dedup check (also returns pre-computed embedding vector)
+        existing, cached_vector = await self._find_similar_trait(user_id, content, content_hash)
         if existing:
             logger.info("Trait dedup hit for behavior: reinforcing %s", existing.id)
             valid_ids = await self._validate_evidence_ids(evidence_ids)
             if valid_ids:
                 await self._write_evidence(existing.id, valid_ids, "supporting", "C", cycle_id)
-            existing.trait_reinforcement_count = (existing.trait_reinforcement_count or 0) + len(valid_ids)
-            existing.trait_last_reinforced = datetime.now(timezone.utc)
-            self._bump_version(existing)
-            await self.db.flush()
+                existing.trait_reinforcement_count = (existing.trait_reinforcement_count or 0) + len(valid_ids)
+                existing.trait_last_reinforced = datetime.now(timezone.utc)
+                self._bump_version(existing)
+                await self.db.flush()
             return existing
 
         now = datetime.now(timezone.utc)
-        embedding_vector = await self._embedding.embed(content)
+        embedding_vector = cached_vector or await self._embedding.embed(content)
 
         # Find earliest evidence time
         first_observed = now
@@ -212,10 +210,14 @@ class TraitEngine:
         evidence_ids: list[str],
         quality_grade: str,
         cycle_id: str,
+        user_id: str | None = None,
     ) -> None:
         """Reinforce a trait with new evidence."""
+        conditions = [Memory.id == trait_id, Memory.memory_type == "trait"]
+        if user_id:
+            conditions.append(Memory.user_id == user_id)
         result = await self.db.execute(
-            select(Memory).where(Memory.id == trait_id, Memory.memory_type == "trait"),
+            select(Memory).where(*conditions),
         )
         trait = result.scalar_one_or_none()
         if not trait:
@@ -245,10 +247,14 @@ class TraitEngine:
         trait_id: str,
         evidence_ids: list[str],
         cycle_id: str,
+        user_id: str | None = None,
     ) -> dict:
         """Apply contradicting evidence to a trait."""
+        conditions = [Memory.id == trait_id, Memory.memory_type == "trait"]
+        if user_id:
+            conditions.append(Memory.user_id == user_id)
         result = await self.db.execute(
-            select(Memory).where(Memory.id == trait_id, Memory.memory_type == "trait"),
+            select(Memory).where(*conditions),
         )
         trait = result.scalar_one_or_none()
         if not trait:
@@ -296,15 +302,16 @@ class TraitEngine:
         cycle_id: str,
     ) -> Memory | None:
         """Try to upgrade traits to a higher subtype."""
-        # Load source traits
-        source_traits: list[Memory] = []
-        for tid in from_trait_ids:
-            result = await self.db.execute(
-                select(Memory).where(Memory.id == tid, Memory.memory_type == "trait"),
-            )
-            trait = result.scalar_one_or_none()
-            if trait:
-                source_traits.append(trait)
+        # Load source traits (batch query)
+        if not from_trait_ids:
+            return None
+        result = await self.db.execute(
+            select(Memory).where(
+                Memory.id.in_(from_trait_ids),
+                Memory.memory_type == "trait",
+            ),
+        )
+        source_traits: list[Memory] = list(result.scalars().all())
 
         if not source_traits:
             logger.warning("try_upgrade: no valid source traits found")
@@ -602,8 +609,13 @@ class TraitEngine:
         user_id: str,
         content: str,
         content_hash: str,
-    ) -> Memory | None:
-        """Find an existing similar trait by hash or vector similarity."""
+    ) -> tuple[Memory | None, list[float] | None]:
+        """Find an existing similar trait by hash or vector similarity.
+
+        Returns (existing_trait, embedding_vector). The vector is computed
+        during similarity search and returned so callers can reuse it,
+        avoiding a redundant embedding API call.
+        """
         # 1. Check content_hash exact match
         result = await self.db.execute(
             select(Memory).where(
@@ -615,7 +627,7 @@ class TraitEngine:
         )
         existing = result.scalar_one_or_none()
         if existing:
-            return existing
+            return existing, None
 
         # 2. Check vector similarity > 0.95
         embedding_vector = await self._embedding.embed(content)
@@ -625,36 +637,45 @@ class TraitEngine:
                 "SELECT id FROM memories "
                 "WHERE user_id = :uid AND memory_type = 'trait' "
                 "AND trait_stage != 'dissolved' "
-                f"AND 1 - (embedding <=> '{vector_str}') > 0.95 "
-                f"ORDER BY embedding <=> '{vector_str}' LIMIT 1"
+                "AND 1 - (embedding <=> CAST(:query_vec AS vector)) > 0.95 "
+                "ORDER BY embedding <=> CAST(:query_vec AS vector) LIMIT 1"
             ),
-            {"uid": user_id},
+            {"uid": user_id, "query_vec": vector_str},
         )
         row = result.first()
         if row:
             result2 = await self.db.execute(
                 select(Memory).where(Memory.id == row.id),
             )
-            return result2.scalar_one_or_none()
+            return result2.scalar_one_or_none(), embedding_vector
 
-        return None
+        return None, embedding_vector
 
     async def _validate_evidence_ids(self, evidence_ids: list[str]) -> list:
         """Validate that evidence IDs exist in the memories table."""
         if not evidence_ids:
             return []
-        valid = []
+        # Batch validate: single query instead of N+1
+        valid_ids: list[str] = []
+        safe_ids: list[str] = []
         for eid in evidence_ids:
             try:
-                result = await self.db.execute(
-                    text("SELECT 1 FROM memories WHERE id = :id"),
-                    {"id": eid},
-                )
-                if result.first():
-                    valid.append(eid)
-            except Exception:
-                logger.debug("Invalid evidence_id: %s", eid)
-        return valid
+                uuid.UUID(eid)
+                safe_ids.append(eid)
+            except (ValueError, AttributeError):
+                logger.debug("Invalid evidence_id format: %s", eid)
+        if not safe_ids:
+            return []
+        try:
+            result = await self.db.execute(
+                text("SELECT id FROM memories WHERE id = ANY(:ids)"),
+                {"ids": safe_ids},
+            )
+            existing = {str(row.id) for row in result.fetchall()}
+            valid_ids = [eid for eid in safe_ids if eid in existing]
+        except Exception as e:
+            logger.debug("Failed to validate evidence_ids: %s", e)
+        return valid_ids
 
     async def _write_evidence(
         self,
@@ -679,13 +700,15 @@ class TraitEngine:
         """Format evidence records into a readable list for LLM prompt."""
         if not evidence_records:
             return "(无)"
+        # Batch load all memory contents in a single query
+        memory_ids = [ev.memory_id for ev in evidence_records]
+        result = await self.db.execute(
+            select(Memory.id, Memory.content).where(Memory.id.in_(memory_ids)),
+        )
+        content_map = {row.id: row.content for row in result.fetchall()}
         lines = []
         for ev in evidence_records:
-            result = await self.db.execute(
-                select(Memory.content).where(Memory.id == ev.memory_id),
-            )
-            row = result.first()
-            content = row.content if row else "(已删除)"
+            content = content_map.get(ev.memory_id, "(已删除)")
             lines.append(f"- [{ev.quality}] {content}")
         return "\n".join(lines)
 

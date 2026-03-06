@@ -74,10 +74,10 @@ async def _insert_trait_with_metadata(
 
     if first_observed:
         sql += ", trait_first_observed = :fo"
-        params["fo"] = first_observed
+        params["fo"] = datetime.fromisoformat(first_observed) if isinstance(first_observed, str) else first_observed
     if last_reinforced:
         sql += ", trait_last_reinforced = :lr"
-        params["lr"] = last_reinforced
+        params["lr"] = datetime.fromisoformat(last_reinforced) if isinstance(last_reinforced, str) else last_reinforced
 
     sql += " WHERE id = :mid"
 

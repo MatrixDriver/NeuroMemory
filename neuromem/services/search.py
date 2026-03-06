@@ -90,6 +90,103 @@ class SearchService:
         await self.db.flush()
         return record
 
+    async def _prepare_query_vector(
+        self, query: str, query_embedding: list[float] | None = None,
+    ) -> tuple[list[float], str]:
+        """Compute/validate query vector and return (vector, vector_str)."""
+        if query_embedding is not None:
+            query_vector = query_embedding
+        else:
+            query_vector = await self._embedding.embed(query)
+
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in query_vector):
+            raise ValueError("Invalid vector data: must contain only numeric values")
+
+        vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
+        return query_vector, vector_str
+
+    @staticmethod
+    def _build_base_filters(
+        params: dict,
+        *,
+        user_id: str,
+        memory_type: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        event_after: datetime | None = None,
+        event_before: datetime | None = None,
+        as_of: datetime | None = None,
+        exclude_types: list[str] | None = None,
+    ) -> str:
+        """Build common WHERE clause filters, mutating params dict."""
+        filters = "user_id = :user_id"
+        params["user_id"] = user_id
+
+        if memory_type:
+            filters += " AND memory_type = :memory_type"
+            params["memory_type"] = memory_type
+
+        if exclude_types:
+            placeholders = ", ".join(f":excl_{i}" for i in range(len(exclude_types)))
+            filters += f" AND memory_type NOT IN ({placeholders})"
+            for i, t in enumerate(exclude_types):
+                params[f"excl_{i}"] = t
+
+        if created_after:
+            filters += " AND created_at >= :created_after"
+            params["created_after"] = created_after
+
+        if created_before:
+            filters += " AND created_at <= :created_before"
+            params["created_before"] = created_before
+
+        if event_after:
+            filters += " AND extracted_timestamp >= :event_after"
+            params["event_after"] = event_after
+
+        if event_before:
+            filters += " AND extracted_timestamp <= :event_before"
+            params["event_before"] = event_before
+
+        if as_of is not None:
+            filters += (
+                " AND (valid_from IS NULL OR valid_from <= :as_of)"
+                " AND (valid_until IS NULL OR valid_until > :as_of)"
+            )
+            params["as_of"] = as_of
+        else:
+            filters += " AND valid_until IS NULL"
+
+        return filters
+
+    def _build_bm25_cte(self, filters: str, candidate_limit: int) -> str:
+        """Build BM25 CTE SQL fragment (pg_search or tsvector fallback)."""
+        if self._pg_search:
+            return f"""
+            bm25_ranked AS (
+                SELECT id,
+                       paradedb.score(id) AS bm25_score,
+                       ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
+                FROM memories
+                WHERE {filters}
+                  AND id @@@ paradedb.parse(:query_text)
+                ORDER BY bm25_score DESC
+                LIMIT {candidate_limit}
+            )"""
+        return f"""
+            bm25_ranked AS (
+                SELECT id,
+                       ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) AS bm25_score,
+                       ROW_NUMBER() OVER (
+                           ORDER BY ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) DESC
+                       ) AS bm25_rank
+                FROM memories
+                WHERE {filters}
+                  AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
+                ORDER BY bm25_score DESC
+                LIMIT {candidate_limit}
+            )"""
+
     async def search(
         self,
         user_id: str,
@@ -112,89 +209,29 @@ class SearchService:
             as_of: Time-travel query — return memories valid at this point in time.
                 When None, only returns currently valid memories (valid_until IS NULL).
         """
-        if query_embedding is not None:
-            query_vector = query_embedding
-        else:
-            query_vector = await self._embedding.embed(query)
+        _, vector_str = await self._prepare_query_vector(query, query_embedding)
 
-        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in query_vector):
-            raise ValueError("Invalid vector data: must contain only numeric values")
-
-        vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
-
-        filters = "user_id = :user_id"
         bm25_query = _sanitize_bm25_query(query) if self._pg_search else query
-        params: dict = {"user_id": user_id, "limit": limit, "query_text": bm25_query}
+        params: dict = {"limit": limit, "query_text": bm25_query, "query_vec": vector_str}
 
-        if memory_type:
-            filters += " AND memory_type = :memory_type"
-            params["memory_type"] = memory_type
+        filters = self._build_base_filters(
+            params, user_id=user_id, memory_type=memory_type,
+            created_after=created_after, created_before=created_before,
+            event_after=event_after, event_before=event_before, as_of=as_of,
+        )
 
-        if created_after:
-            filters += " AND created_at >= :created_after"
-            params["created_after"] = created_after
-
-        if created_before:
-            filters += " AND created_at < :created_before"
-            params["created_before"] = created_before
-
-        if event_after:
-            filters += " AND extracted_timestamp >= :event_after"
-            params["event_after"] = event_after
-
-        if event_before:
-            filters += " AND extracted_timestamp <= :event_before"
-            params["event_before"] = event_before
-
-        # Time-travel filter
-        if as_of is not None:
-            filters += (
-                " AND (valid_from IS NULL OR valid_from <= :as_of)"
-                " AND (valid_until IS NULL OR valid_until > :as_of)"
-            )
-            params["as_of"] = as_of
-        else:
-            filters += " AND valid_until IS NULL"
-
-        # Hybrid search: RRF fusion of vector and BM25 results
         candidate_limit = limit * 2 if self._pg_search else limit * 4
-
-        if self._pg_search:
-            bm25_cte = f"""
-            bm25_ranked AS (
-                SELECT id,
-                       paradedb.score(id) AS bm25_score,
-                       ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
-                FROM memories
-                WHERE {filters}
-                  AND id @@@ paradedb.parse(:query_text)
-                ORDER BY bm25_score DESC
-                LIMIT {candidate_limit}
-            )"""
-        else:
-            bm25_cte = f"""
-            bm25_ranked AS (
-                SELECT id,
-                       ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) AS bm25_score,
-                       ROW_NUMBER() OVER (
-                           ORDER BY ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) DESC
-                       ) AS bm25_rank
-                FROM memories
-                WHERE {filters}
-                  AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
-                ORDER BY bm25_score DESC
-                LIMIT {candidate_limit}
-            )"""
+        bm25_cte = self._build_bm25_cte(filters, candidate_limit)
 
         sql = text(
             f"""
             WITH vector_ranked AS (
                 SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
-                       1 - (embedding <=> '{vector_str}') AS vector_score,
-                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}') AS vector_rank
+                       1 - (embedding <=> CAST(:query_vec AS vector)) AS vector_score,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:query_vec AS vector)) AS vector_rank
                 FROM memories
                 WHERE {filters}
-                ORDER BY embedding <=> '{vector_str}'
+                ORDER BY embedding <=> CAST(:query_vec AS vector)
                 LIMIT {candidate_limit}
             ),
             {bm25_cte}
@@ -279,55 +316,17 @@ class SearchService:
             created_after: Filter by created_at >= this datetime.
             created_before: Filter by created_at <= this datetime.
         """
-        if query_embedding is not None:
-            query_vector = query_embedding
-        else:
-            query_vector = await self._embedding.embed(query)
+        _, vector_str = await self._prepare_query_vector(query, query_embedding)
 
-        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in query_vector):
-            raise ValueError("Invalid vector data: must contain only numeric values")
-
-        vector_str = f"[{','.join(str(float(v)) for v in query_vector)}]"
-
-        filters = "user_id = :user_id"
         bm25_query = _sanitize_bm25_query(query) if self._pg_search else query
-        params: dict = {"user_id": user_id, "limit": limit, "decay_rate": decay_rate, "query_text": bm25_query}
+        params: dict = {"limit": limit, "decay_rate": decay_rate, "query_text": bm25_query, "query_vec": vector_str}
 
-        if memory_type:
-            filters += " AND memory_type = :memory_type"
-            params["memory_type"] = memory_type
-
-        if exclude_types:
-            placeholders = ", ".join(f":excl_{i}" for i in range(len(exclude_types)))
-            filters += f" AND memory_type NOT IN ({placeholders})"
-            for i, t in enumerate(exclude_types):
-                params[f"excl_{i}"] = t
-
-        if event_after:
-            filters += " AND extracted_timestamp >= :event_after"
-            params["event_after"] = event_after
-
-        if event_before:
-            filters += " AND extracted_timestamp <= :event_before"
-            params["event_before"] = event_before
-
-        if created_after:
-            filters += " AND created_at >= :created_after"
-            params["created_after"] = created_after
-
-        if created_before:
-            filters += " AND created_at <= :created_before"
-            params["created_before"] = created_before
-
-        # Time-travel filter
-        if as_of is not None:
-            filters += (
-                " AND (valid_from IS NULL OR valid_from <= :as_of)"
-                " AND (valid_until IS NULL OR valid_until > :as_of)"
-            )
-            params["as_of"] = as_of
-        else:
-            filters += " AND valid_until IS NULL"
+        filters = self._build_base_filters(
+            params, user_id=user_id, memory_type=memory_type,
+            created_after=created_after, created_before=created_before,
+            event_after=event_after, event_before=event_before,
+            as_of=as_of, exclude_types=exclude_types,
+        )
 
         # Exclude inactive trait stages from search results
         filters += " AND NOT (memory_type = 'trait' AND trait_stage IN ('trend', 'candidate', 'dissolved'))"
@@ -336,12 +335,11 @@ class SearchService:
         if current_emotion and isinstance(current_emotion, dict):
             q_valence = float(current_emotion.get("valence", 0))
             q_arousal = float(current_emotion.get("arousal", 0))
-            # Bonus: 0~0.10, based on 1 - normalized distance in valence-arousal space
             emotion_bonus_sql = (
                 f"0.10 * GREATEST(0, 1.0 - SQRT("
                 f"  POWER(COALESCE((metadata->'emotion'->>'valence')::float, 0) - {q_valence}, 2)"
                 f"  + POWER(COALESCE((metadata->'emotion'->>'arousal')::float, 0) - {q_arousal}, 2)"
-                f") / 2.83)"  # 2.83 = sqrt(2^2 + 1^2), max possible distance
+                f") / 2.83)"
             )
         else:
             emotion_bonus_sql = "0"
@@ -355,55 +353,30 @@ class SearchService:
             general_context_boost = ContextService.GENERAL_CONTEXT_BOOST
             context_bonus_sql = (
                 f"CASE"
-                f"  WHEN trait_context = '{query_context}'"
+                f"  WHEN trait_context = :query_context"
                 f"  THEN {max_context_boost * context_confidence:.4f}"
                 f"  WHEN trait_context = 'general'"
                 f"  THEN {general_context_boost * context_confidence:.4f}"
                 f"  ELSE 0"
                 f" END"
             )
+            params["query_context"] = query_context
         else:
             context_bonus_sql = "0"
 
         candidate_limit = limit * 2 if self._pg_search else limit * 4
-
-        if self._pg_search:
-            bm25_cte = f"""
-            bm25_ranked AS (
-                SELECT id,
-                       paradedb.score(id) AS bm25_score,
-                       ROW_NUMBER() OVER (ORDER BY paradedb.score(id) DESC) AS bm25_rank
-                FROM memories
-                WHERE {filters}
-                  AND id @@@ paradedb.parse(:query_text)
-                ORDER BY bm25_score DESC
-                LIMIT {candidate_limit}
-            ),"""
-        else:
-            bm25_cte = f"""
-            bm25_ranked AS (
-                SELECT id,
-                       ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) AS bm25_score,
-                       ROW_NUMBER() OVER (
-                           ORDER BY ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', :query_text)) DESC
-                       ) AS bm25_rank
-                FROM memories
-                WHERE {filters}
-                  AND to_tsvector('simple', content) @@ plainto_tsquery('simple', :query_text)
-                ORDER BY bm25_score DESC
-                LIMIT {candidate_limit}
-            ),"""
+        bm25_cte = self._build_bm25_cte(filters, candidate_limit) + ","
 
         sql = text(
             f"""
             WITH vector_ranked AS (
                 SELECT id, content, memory_type, metadata, created_at, extracted_timestamp,
                        access_count, last_accessed_at, trait_stage, trait_context,
-                       1 - (embedding <=> '{vector_str}') AS vector_score,
-                       ROW_NUMBER() OVER (ORDER BY embedding <=> '{vector_str}') AS vector_rank
+                       1 - (embedding <=> CAST(:query_vec AS vector)) AS vector_score,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:query_vec AS vector)) AS vector_rank
                 FROM memories
                 WHERE {filters}
-                ORDER BY embedding <=> '{vector_str}'
+                ORDER BY embedding <=> CAST(:query_vec AS vector)
                 LIMIT {candidate_limit}
             ),
             {bm25_cte}
@@ -512,6 +485,6 @@ class SearchService:
                   AND user_id = :user_id
             """)
             await self.db.execute(sql, params)
-            await self.db.commit()
+            await self.db.flush()
         except Exception as e:
             logger.warning("Failed to update access tracking: %s", e)

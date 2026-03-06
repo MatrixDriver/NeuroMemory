@@ -44,7 +44,7 @@ class ConversationService:
 
         await self._update_session_metadata(user_id=user_id, session_id=session_id)
 
-        await self.db.commit()
+        await self.db.flush()
         await self.db.refresh(message)
         return message
 
@@ -74,7 +74,7 @@ class ConversationService:
         message_ids = [msg.id for msg in message_objects]
 
         await self._update_session_metadata(user_id=user_id, session_id=session_id)
-        await self.db.commit()
+        await self.db.flush()
 
         return session_id, message_ids
 
@@ -157,11 +157,15 @@ class ConversationService:
         self,
         message_ids: list[UUID],
         task_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> int:
         """Mark messages as successfully extracted."""
+        conditions = [Conversation.id.in_(message_ids)]
+        if user_id:
+            conditions.append(Conversation.user_id == user_id)
         stmt = (
             update(Conversation)
-            .where(Conversation.id.in_(message_ids))
+            .where(*conditions)
             .values(
                 extracted=True,
                 extraction_task_id=task_id,
@@ -171,18 +175,22 @@ class ConversationService:
         )
 
         result = await self.db.execute(stmt)
-        await self.db.commit()
+        await self.db.flush()
         return result.rowcount
 
     async def mark_messages_failed(
         self,
         message_ids: list[UUID],
         error: str,
+        user_id: Optional[str] = None,
     ) -> int:
         """Mark messages as failed extraction, incrementing retry count."""
+        conditions = [Conversation.id.in_(message_ids)]
+        if user_id:
+            conditions.append(Conversation.user_id == user_id)
         stmt = (
             update(Conversation)
-            .where(Conversation.id.in_(message_ids))
+            .where(*conditions)
             .values(
                 extraction_status="failed",
                 extraction_error=error,
@@ -191,7 +199,7 @@ class ConversationService:
         )
 
         result = await self.db.execute(stmt)
-        await self.db.commit()
+        await self.db.flush()
         return result.rowcount
 
     async def get_failed_messages(
@@ -232,8 +240,12 @@ class ConversationService:
         )
         existing = (await self.db.execute(existing_stmt)).scalar_one_or_none()
 
-        count_stmt = (
-            select(func.count())
+        # Single query for both count and last message time
+        stats_stmt = (
+            select(
+                func.count().label("cnt"),
+                func.max(Conversation.created_at).label("last_at"),
+            )
             .select_from(Conversation)
             .where(
                 and_(
@@ -242,21 +254,9 @@ class ConversationService:
                 )
             )
         )
-        message_count = await self.db.scalar(count_stmt) or 0
-
-        last_msg_stmt = (
-            select(Conversation.created_at)
-            .where(
-                and_(
-                    Conversation.user_id == user_id,
-                    Conversation.session_id == session_id,
-                )
-            )
-            .order_by(desc(Conversation.created_at))
-            .limit(1)
-        )
-        result = await self.db.execute(last_msg_stmt)
-        last_message_at = result.scalar_one_or_none()
+        stats_row = (await self.db.execute(stats_stmt)).one()
+        message_count = stats_row.cnt or 0
+        last_message_at = stats_row.last_at
 
         if existing:
             existing.message_count = message_count

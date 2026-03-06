@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -14,46 +15,10 @@ from neuromem.models.memory import Memory
 from neuromem.models.reflection_cycle import ReflectionCycle
 from neuromem.providers.embedding import EmbeddingProvider
 from neuromem.providers.llm import LLMProvider
+from neuromem.services.sensitive_filter import is_sensitive_trait  # noqa: F401
 from neuromem.services.trait_engine import TraitEngine
 
 logger = logging.getLogger(__name__)
-
-# Sensitive categories that should never be inferred as traits
-SENSITIVE_TRAIT_CATEGORIES = frozenset({
-    "mental_health",       # 心理健康、精神状态
-    "medical",             # 医疗历史、诊断
-    "political",           # 政治倾向
-    "religious",           # 宗教信仰
-    "sexual_orientation",  # 性取向、性别认同
-    "financial_details",   # 收入、债务、资产
-    "criminal_history",    # 犯罪记录
-    "addiction",           # 成瘾行为
-    "abuse_trauma",        # 虐待、创伤
-})
-
-_SENSITIVE_KEYWORDS = {
-    # 心理健康
-    "抑郁", "焦虑", "双相", "精神分裂", "自杀", "ptsd", "心理疾病", "恐惧症",
-    "depression", "anxiety", "bipolar", "schizophrenia", "suicide",
-    # 医疗
-    "诊断", "处方药", "病症", "癌症", "hiv",
-    "diagnosis", "prescription", "disease",
-    # 政治宗教
-    "政党", "共和党", "民主党", "信仰", "基督", "佛教", "伊斯兰", "无神论",
-    "republican", "democrat", "religion", "christian", "muslim", "atheist",
-    # 财务
-    "年收入", "年薪", "工资", "债务", "贷款", "负债",
-    "salary", "income", "debt",
-    # 成瘾与创伤
-    "吸毒", "酗酒", "赌博成瘾", "虐待", "性侵", "家暴",
-    "drug abuse", "alcoholism", "gambling", "assault",
-}
-
-
-def is_sensitive_trait(content: str) -> bool:
-    """Check if trait content touches a sensitive category."""
-    lower = content.lower()
-    return any(kw in lower for kw in _SENSITIVE_KEYWORDS)
 
 
 REFLECTION_PROMPT_TEMPLATE = """## 已有特质
@@ -186,13 +151,8 @@ class ReflectionService:
         self._llm = llm
         self._trait_engine = TraitEngine(db, embedding)
 
-    async def should_reflect(self, user_id: str) -> tuple[bool, str | None, float | None]:
-        """Check whether reflection should be triggered.
-
-        Returns:
-            (should_trigger, trigger_type, trigger_value)
-        """
-        # Query watermark from reflection_cycles
+    async def _get_watermark(self, user_id: str) -> datetime | None:
+        """Get the last completed reflection timestamp for a user."""
         result = await self.db.execute(
             sql_text(
                 "SELECT completed_at FROM reflection_cycles "
@@ -202,8 +162,17 @@ class ReflectionService:
             {"uid": user_id},
         )
         row = result.first()
+        return row.completed_at if row else None
 
-        if not row or row.completed_at is None:
+    async def should_reflect(self, user_id: str) -> tuple[bool, str | None, float | None]:
+        """Check whether reflection should be triggered.
+
+        Returns:
+            (should_trigger, trigger_type, trigger_value)
+        """
+        last_reflected = await self._get_watermark(user_id)
+
+        if last_reflected is None:
             # Check if user has any memories at all
             mem_result = await self.db.execute(
                 sql_text(
@@ -217,7 +186,6 @@ class ReflectionService:
                 return (False, None, None)
             return (True, "first_time", None)
 
-        last_reflected = row.completed_at
         now = datetime.now(timezone.utc)
 
         # Idempotency check: if last reflected within 60s, skip
@@ -300,6 +268,9 @@ class ReflectionService:
             trigger_type = ttype
             trigger_value = tvalue
 
+        # Get watermark once, pass it down to avoid redundant queries
+        watermark = await self._get_watermark(user_id)
+
         # Step 1: Create reflection cycle record
         cycle = ReflectionCycle(
             user_id=user_id,
@@ -313,7 +284,7 @@ class ReflectionService:
 
         # Step 2: Run reflection steps
         try:
-            stats = await self._run_reflection_steps(user_id, trigger_type, trigger_value, cycle_id)
+            stats = await self._run_reflection_steps(user_id, trigger_type, trigger_value, cycle_id, watermark)
 
             # Update cycle record
             cycle.status = "completed"
@@ -322,7 +293,7 @@ class ReflectionService:
             cycle.traits_created = stats["traits_created"]
             cycle.traits_updated = stats["traits_updated"]
             cycle.traits_dissolved = stats["traits_dissolved"]
-            await self.db.commit()
+            await self.db.flush()
 
             return {
                 "triggered": True,
@@ -333,10 +304,13 @@ class ReflectionService:
 
         except Exception as e:
             logger.error("Reflection failed for user=%s: %s", user_id, e, exc_info=True)
-            cycle.status = "failed"
-            cycle.completed_at = datetime.now(timezone.utc)
-            cycle.error_message = str(e)[:500]
-            await self.db.commit()
+            try:
+                cycle.status = "failed"
+                cycle.completed_at = datetime.now(timezone.utc)
+                cycle.error_message = str(e)[:500]
+                await self.db.flush()
+            except Exception:
+                pass
 
             return {
                 "triggered": True,
@@ -355,12 +329,13 @@ class ReflectionService:
         trigger_type: str | None,
         trigger_value: float | None,
         cycle_id: str,
+        watermark: datetime | None = ...,
     ) -> dict:
         """Core 9-step reflection pipeline."""
         stats = {"memories_scanned": 0, "traits_created": 0, "traits_updated": 0, "traits_dissolved": 0}
 
-        # Step 1: Scan new memories
-        new_memories = await self._scan_new_memories(user_id)
+        # Step 1: Scan new memories (reuse watermark to avoid redundant query)
+        new_memories = await self._scan_new_memories(user_id, watermark)
         stats["memories_scanned"] = len(new_memories)
 
         # Step 3 (before LLM): trend expiry/promotion (pure code)
@@ -424,18 +399,28 @@ class ReflectionService:
 
         # Step 5: Process reinforcements
         for reinforcement in llm_result.get("reinforcements", []):
+            trait_id = reinforcement.get("trait_id", "")
+            if not self._is_valid_uuid(trait_id):
+                logger.warning("Skipping reinforcement with invalid trait_id: %s", trait_id)
+                continue
             await self._trait_engine.reinforce_trait(
-                trait_id=reinforcement["trait_id"],
+                trait_id=trait_id,
                 evidence_ids=reinforcement.get("new_evidence_ids", []),
                 quality_grade=reinforcement.get("quality_grade", "C"),
                 cycle_id=cycle_id,
+                user_id=user_id,
             )
             stats["traits_updated"] += 1
 
         # Step 6: Process upgrades
         for upgrade in llm_result.get("upgrades", []):
+            from_ids = upgrade.get("from_trait_ids", [])
+            from_ids = [tid for tid in from_ids if self._is_valid_uuid(tid)]
+            if not from_ids:
+                logger.warning("Skipping upgrade with no valid from_trait_ids")
+                continue
             result = await self._trait_engine.try_upgrade(
-                from_trait_ids=upgrade["from_trait_ids"],
+                from_trait_ids=from_ids,
                 new_content=upgrade["new_content"],
                 new_subtype=upgrade["new_subtype"],
                 reasoning=upgrade.get("reasoning", ""),
@@ -446,10 +431,15 @@ class ReflectionService:
 
         # Step 7: Process contradictions + possible special reflection
         for contradiction in llm_result.get("contradictions", []):
+            trait_id = contradiction.get("trait_id", "")
+            if not self._is_valid_uuid(trait_id):
+                logger.warning("Skipping contradiction with invalid trait_id: %s", trait_id)
+                continue
             result = await self._trait_engine.apply_contradiction(
-                trait_id=contradiction["trait_id"],
+                trait_id=trait_id,
                 evidence_ids=contradiction.get("contradicting_evidence_ids", []),
                 cycle_id=cycle_id,
+                user_id=user_id,
             )
             if result.get("needs_special_reflection"):
                 resolved = await self._trait_engine.resolve_contradiction(
@@ -532,19 +522,27 @@ class ReflectionService:
             logger.info("Expired %d prospective facts to historical for user=%s", len(rows), user_id)
         return len(rows)
 
-    async def _scan_new_memories(self, user_id: str) -> list[dict]:
-        """Scan memories created after last reflection watermark."""
-        # Get watermark from reflection_cycles
-        result = await self.db.execute(
-            sql_text(
-                "SELECT completed_at FROM reflection_cycles "
-                "WHERE user_id = :uid AND status = 'completed' "
-                "ORDER BY completed_at DESC LIMIT 1"
-            ),
-            {"uid": user_id},
-        )
-        row = result.first()
-        watermark = row.completed_at if row else None
+    async def _scan_new_memories(
+        self, user_id: str, watermark: datetime | None = ...,
+    ) -> list[dict]:
+        """Scan memories created after last reflection watermark.
+
+        Args:
+            watermark: If provided, use as the watermark timestamp.
+                If ... (sentinel), query from reflection_cycles.
+        """
+        if watermark is ...:
+            # Query watermark from reflection_cycles
+            result = await self.db.execute(
+                sql_text(
+                    "SELECT completed_at FROM reflection_cycles "
+                    "WHERE user_id = :uid AND status = 'completed' "
+                    "ORDER BY completed_at DESC LIMIT 1"
+                ),
+                {"uid": user_id},
+            )
+            row = result.first()
+            watermark = row.completed_at if row else None
 
         # Build query
         where = "user_id = :uid AND memory_type IN ('fact', 'episodic')"
@@ -635,20 +633,25 @@ class ReflectionService:
         if not questions:
             return await self._call_reflection_llm(new_memories, existing_traits)
 
-        # Stage 2: Retrieve evidence for each question
+        # Stage 2: Retrieve evidence for each question (parallel)
+        import asyncio
         from neuromem.services.search import SearchService
         search_svc = SearchService(self.db, self._embedding)
+
+        async def _search_question(q: str) -> list[dict]:
+            try:
+                return await search_svc.scored_search(user_id=user_id, query=q, limit=3)
+            except Exception:
+                return []
+
+        all_hits = await asyncio.gather(*[_search_question(q) for q in questions[:5]])
         evidence: list[dict] = []
         seen_ids: set[str] = set()
-        for q in questions[:5]:
-            try:
-                hits = await search_svc.scored_search(user_id=user_id, query=q, limit=3)
-                for h in hits:
-                    if h["id"] not in seen_ids:
-                        seen_ids.add(h["id"])
-                        evidence.append({"id": h["id"], "content": h["content"], "score": h["score"]})
-            except Exception:
-                pass
+        for hits in all_hits:
+            for h in hits:
+                if h["id"] not in seen_ids:
+                    seen_ids.add(h["id"])
+                    evidence.append({"id": h["id"], "content": h["content"], "score": h["score"]})
 
         # Build enriched prompt with evidence
         enriched_memories = new_memories + [
@@ -797,17 +800,16 @@ class ReflectionService:
         if not valid_insights:
             return []
 
-        # Embed all insights in parallel
-        import asyncio
+        # Embed all insights in batch
         contents = [ins["content"] for ins in valid_insights]
-        embed_tasks = [self._embedding.embed(c) for c in contents]
-        vectors = await asyncio.gather(*embed_tasks, return_exceptions=True)
+        try:
+            vectors = await self._embedding.embed_batch(contents)
+        except Exception as e:
+            logger.error("Failed to embed insights batch: %s", e)
+            return []
 
         stored = []
         for insight, vector in zip(valid_insights, vectors):
-            if isinstance(vector, Exception):
-                logger.error("Failed to embed insight: %s", vector)
-                continue
             embedding_obj = Memory(
                 user_id=user_id,
                 content=insight["content"],
@@ -824,7 +826,7 @@ class ReflectionService:
             stored.append(insight)
 
         if stored:
-            await self.db.commit()
+            await self.db.flush()
 
         return stored
 
@@ -916,6 +918,7 @@ class ReflectionService:
                     valid.append({
                         "content": ins["content"],
                         "category": ins.get("category", "pattern"),
+                        "importance": ins.get("importance", 8),
                         "source_ids": ins.get("source_ids", []),
                     })
             return valid
@@ -926,4 +929,13 @@ class ReflectionService:
         except Exception as e:
             logger.error("Error parsing insight result: %s", e)
             return []
+
+    @staticmethod
+    def _is_valid_uuid(val: str) -> bool:
+        """Check if a string is a valid UUID."""
+        try:
+            _uuid.UUID(val)
+            return True
+        except (ValueError, AttributeError):
+            return False
 

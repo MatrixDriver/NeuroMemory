@@ -241,9 +241,8 @@ async def test_no_intermediate_commits_during_extraction(db_session, mock_embedd
         messages=messages,
     )
 
-    # Verify: should have exactly 1 commit (at the end)
-    # Not 2 commits (one for facts, one for episodes)
-    assert commit_count == 1, "Should have exactly 1 commit, not multiple intermediate commits"
+    # Verify: Service layer should NOT commit — Facade context manager handles it
+    assert commit_count == 0, "Service layer should use flush(), not commit()"
 
 
 @pytest.mark.asyncio
