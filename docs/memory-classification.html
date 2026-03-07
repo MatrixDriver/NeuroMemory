@@ -1,0 +1,1415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeuroMem 记忆分类体系 V2</title>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #131a2e;
+    --surface2: #1a2340;
+    --border: #2a3555;
+    --text: #e0e6f0;
+    --text-dim: #8892a8;
+    --accent: #6c5ce7;
+    --accent-glow: rgba(108, 92, 231, 0.3);
+    --fact: #00b894;
+    --episodic: #fdcb6e;
+    --trait: #e17055;
+    --document: #74b9ff;
+    --behavior: #55efc4;
+    --preference: #ffeaa7;
+    --core: #ff7675;
+    --trend: #a29bfe;
+    --candidate: #81ecec;
+    --emerging: #fab1a0;
+    --established: #f8a5c2;
+    --dissolved: #636e72;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ===== Scrollbar ===== */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ===== Hero ===== */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    position: relative;
+    padding: 2rem;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 50% 50%, rgba(108, 92, 231, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 20% 80%, rgba(0, 184, 148, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 80% 20%, rgba(225, 112, 85, 0.05) 0%, transparent 40%);
+    animation: bgPulse 8s ease-in-out infinite alternate;
+  }
+
+  @keyframes bgPulse {
+    0% { transform: scale(1) rotate(0deg); }
+    100% { transform: scale(1.05) rotate(2deg); }
+  }
+
+  .hero-content { position: relative; z-index: 1; }
+
+  .hero-badge {
+    display: inline-block;
+    padding: 6px 18px;
+    background: rgba(108, 92, 231, 0.15);
+    border: 1px solid rgba(108, 92, 231, 0.3);
+    border-radius: 20px;
+    font-size: 0.85rem;
+    color: #a29bfe;
+    margin-bottom: 1.5rem;
+    letter-spacing: 1px;
+  }
+
+  .hero h1 {
+    font-size: clamp(2.5rem, 6vw, 4.5rem);
+    font-weight: 800;
+    background: linear-gradient(135deg, #e0e6f0, #6c5ce7, #e17055);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 1rem;
+  }
+
+  .hero p {
+    font-size: 1.2rem;
+    color: var(--text-dim);
+    max-width: 600px;
+    margin-bottom: 2.5rem;
+  }
+
+  .scroll-hint {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    animation: bounce 2s ease-in-out infinite;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .scroll-hint svg { width: 24px; height: 24px; }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50% { transform: translateX(-50%) translateY(8px); }
+  }
+
+  /* ===== Sections ===== */
+  section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 6rem 2rem;
+  }
+
+  .section-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+
+  .section-title {
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 700;
+    margin-bottom: 1rem;
+  }
+
+  .section-desc {
+    color: var(--text-dim);
+    font-size: 1.05rem;
+    max-width: 700px;
+    margin-bottom: 3rem;
+  }
+
+  /* ===== 4 Memory Type Cards ===== */
+  .type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .type-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s, box-shadow 0.3s;
+    cursor: default;
+  }
+
+  .type-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+  }
+
+  .type-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+  }
+
+  .type-card[data-type="fact"]::before { background: var(--fact); }
+  .type-card[data-type="episodic"]::before { background: var(--episodic); }
+  .type-card[data-type="trait"]::before { background: var(--trait); }
+  .type-card[data-type="document"]::before { background: var(--document); }
+
+  .type-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+    margin-bottom: 1.2rem;
+  }
+
+  .type-card[data-type="fact"] .type-icon { background: rgba(0, 184, 148, 0.15); }
+  .type-card[data-type="episodic"] .type-icon { background: rgba(253, 203, 110, 0.15); }
+  .type-card[data-type="trait"] .type-icon { background: rgba(225, 112, 85, 0.15); }
+  .type-card[data-type="document"] .type-icon { background: rgba(116, 185, 255, 0.15); }
+
+  .type-card h3 {
+    font-size: 1.2rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .type-card .en-name {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+  }
+
+  .type-card p {
+    color: var(--text-dim);
+    font-size: 0.92rem;
+    margin-bottom: 1rem;
+  }
+
+  .type-example {
+    background: rgba(255,255,255,0.03);
+    border-left: 2px solid var(--border);
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    border-radius: 0 8px 8px 0;
+    font-style: italic;
+  }
+
+  .type-card .source-tag {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .type-card[data-type="fact"] .source-tag { background: rgba(0,184,148,0.12); color: var(--fact); }
+  .type-card[data-type="episodic"] .source-tag { background: rgba(253,203,110,0.12); color: var(--episodic); }
+  .type-card[data-type="trait"] .source-tag { background: rgba(225,112,85,0.12); color: var(--trait); }
+  .type-card[data-type="document"] .source-tag { background: rgba(116,185,255,0.12); color: var(--document); }
+
+  /* ===== Flow Path ===== */
+  .flow-section {
+    text-align: center;
+    padding: 6rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .flow-visual {
+    margin: 3rem auto 0;
+    max-width: 900px;
+  }
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .flow-node {
+    padding: 0.8rem 1.5rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    position: relative;
+    white-space: nowrap;
+    transition: transform 0.3s;
+  }
+
+  .flow-node:hover { transform: scale(1.05); }
+
+  .flow-node.conv { background: rgba(108,92,231,0.15); border: 1px solid rgba(108,92,231,0.3); color: #a29bfe; }
+  .flow-node.llm { background: rgba(255,255,255,0.05); border: 1px dashed var(--border); color: var(--text-dim); }
+  .flow-node.fact-n { background: rgba(0,184,148,0.12); border: 1px solid rgba(0,184,148,0.3); color: var(--fact); }
+  .flow-node.epi-n { background: rgba(253,203,110,0.12); border: 1px solid rgba(253,203,110,0.3); color: var(--episodic); }
+  .flow-node.refl { background: rgba(225,112,85,0.12); border: 1px solid rgba(225,112,85,0.3); color: var(--trait); }
+
+  .flow-arrow {
+    font-size: 1.4rem;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  .flow-arrow.down {
+    display: block;
+    text-align: center;
+    margin: 0.5rem 0;
+    font-size: 1.6rem;
+  }
+
+  .flow-desc {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-top: 0.3rem;
+  }
+
+  /* ===== Trait Upgrade Chain ===== */
+  .upgrade-section {
+    padding: 6rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .upgrade-chain {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 3rem 0;
+    position: relative;
+  }
+
+  .upgrade-step {
+    flex: 1;
+    position: relative;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    min-height: 260px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .upgrade-step::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -1px;
+    width: 2px;
+    height: 60%;
+    transform: translateY(-50%);
+    background: linear-gradient(to bottom, transparent, var(--border), transparent);
+  }
+
+  .upgrade-step:last-child::after { display: none; }
+
+  .upgrade-circle {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+    margin-bottom: 1rem;
+    position: relative;
+  }
+
+  .upgrade-step:nth-child(1) .upgrade-circle { background: rgba(85, 239, 196, 0.12); box-shadow: 0 0 30px rgba(85,239,196,0.1); }
+  .upgrade-step:nth-child(2) .upgrade-circle { background: rgba(255, 234, 167, 0.12); box-shadow: 0 0 30px rgba(255,234,167,0.1); }
+  .upgrade-step:nth-child(3) .upgrade-circle { background: rgba(255, 118, 117, 0.12); box-shadow: 0 0 30px rgba(255,118,117,0.1); }
+
+  .upgrade-arrow {
+    position: absolute;
+    top: 50%;
+    right: -20px;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: 40px;
+    height: 40px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    font-size: 1.1rem;
+  }
+
+  .upgrade-step:last-child .upgrade-arrow { display: none; }
+
+  .upgrade-step h4 {
+    font-size: 1.15rem;
+    margin-bottom: 0.2rem;
+  }
+
+  .upgrade-step .sub-en {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+  }
+
+  .upgrade-step .obs {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    padding: 4px 12px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 8px;
+    margin-bottom: 0.8rem;
+  }
+
+  .upgrade-examples {
+    text-align: left;
+    width: 100%;
+  }
+
+  .upgrade-examples li {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 0.3rem;
+    list-style: none;
+    padding-left: 1.2rem;
+    position: relative;
+  }
+
+  .upgrade-examples li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    font-weight: bold;
+  }
+
+  /* animated upgrade demo */
+  .demo-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-top: 2rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .demo-box h4 {
+    margin-bottom: 1.5rem;
+    font-size: 1rem;
+    color: var(--text-dim);
+  }
+
+  .demo-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    position: relative;
+    padding-left: 2rem;
+  }
+
+  .demo-timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--behavior), var(--preference), var(--core));
+  }
+
+  .demo-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    opacity: 0;
+    transform: translateX(-20px);
+    transition: all 0.5s ease;
+    position: relative;
+  }
+
+  .demo-item.visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .demo-dot {
+    position: absolute;
+    left: -2rem;
+    top: 6px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid;
+    background: var(--bg);
+    flex-shrink: 0;
+    z-index: 1;
+  }
+
+  .demo-item[data-level="behavior"] .demo-dot { border-color: var(--behavior); }
+  .demo-item[data-level="preference"] .demo-dot { border-color: var(--preference); background: var(--preference); }
+  .demo-item[data-level="core"] .demo-dot { border-color: var(--core); background: var(--core); }
+
+  .demo-tag {
+    padding: 2px 10px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: center;
+  }
+
+  .demo-item[data-level="behavior"] .demo-tag { background: rgba(85,239,196,0.12); color: var(--behavior); }
+  .demo-item[data-level="preference"] .demo-tag { background: rgba(255,234,167,0.12); color: #e6c800; }
+  .demo-item[data-level="core"] .demo-tag { background: rgba(255,118,117,0.12); color: var(--core); }
+
+  .demo-text { font-size: 0.9rem; color: var(--text); }
+  .demo-merge { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.2rem; }
+
+  .demo-arrow-label {
+    font-size: 0.78rem;
+    color: var(--accent);
+    padding-left: 0.5rem;
+    margin: 0.3rem 0;
+    font-style: italic;
+  }
+
+  /* ===== Lifecycle ===== */
+  .lifecycle-section {
+    padding: 6rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .lifecycle-track {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 3rem 0 1.5rem;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+  }
+
+  .lc-stage {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    padding: 1.5rem 0.5rem;
+    position: relative;
+    cursor: default;
+  }
+
+  .lc-stage::after {
+    content: '';
+    position: absolute;
+    top: 38px;
+    right: 0;
+    width: 50%;
+    height: 3px;
+  }
+
+  .lc-stage::before {
+    content: '';
+    position: absolute;
+    top: 38px;
+    left: 0;
+    width: 50%;
+    height: 3px;
+  }
+
+  .lc-stage:nth-child(1)::after,
+  .lc-stage:nth-child(2)::before,
+  .lc-stage:nth-child(2)::after,
+  .lc-stage:nth-child(3)::before,
+  .lc-stage:nth-child(3)::after,
+  .lc-stage:nth-child(4)::before,
+  .lc-stage:nth-child(4)::after,
+  .lc-stage:nth-child(5)::before {
+    background: linear-gradient(90deg, var(--trend), var(--core));
+    opacity: 0.3;
+  }
+
+  .lc-pip {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    margin: 0 auto 0.8rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .lc-stage:nth-child(1) .lc-pip { background: var(--trend); box-shadow: 0 0 12px rgba(162,155,254,0.4); }
+  .lc-stage:nth-child(2) .lc-pip { background: var(--candidate); box-shadow: 0 0 12px rgba(129,236,236,0.4); }
+  .lc-stage:nth-child(3) .lc-pip { background: var(--emerging); box-shadow: 0 0 12px rgba(250,177,160,0.4); }
+  .lc-stage:nth-child(4) .lc-pip { background: var(--established); box-shadow: 0 0 12px rgba(248,165,194,0.4); }
+  .lc-stage:nth-child(5) .lc-pip { background: var(--core); box-shadow: 0 0 12px rgba(255,118,117,0.4); }
+  .lc-stage:nth-child(6) .lc-pip { background: var(--dissolved); box-shadow: 0 0 12px rgba(99,110,114,0.4); }
+
+  .lc-stage h5 { font-size: 0.95rem; margin-bottom: 0.2rem; }
+  .lc-stage .lc-conf { font-size: 0.78rem; color: var(--text-dim); margin-bottom: 0.5rem; }
+  .lc-stage .lc-desc { font-size: 0.8rem; color: var(--text-dim); }
+
+  .lc-recall-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    margin-top: 0.5rem;
+  }
+
+  .badge-no { background: rgba(99,110,114,0.2); color: var(--dissolved); }
+  .badge-low { background: rgba(250,177,160,0.15); color: var(--emerging); }
+  .badge-normal { background: rgba(248,165,194,0.15); color: var(--established); }
+  .badge-high { background: rgba(255,118,117,0.15); color: var(--core); }
+
+  /* dissolved branch */
+  .dissolved-branch {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    padding: 1rem 2rem;
+    background: rgba(99,110,114,0.08);
+    border: 1px dashed rgba(99,110,114,0.3);
+    border-radius: 12px;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+  }
+
+  .dissolved-branch span { font-size: 1.2rem; }
+
+  /* ===== Forget Mechanism ===== */
+  .forget-section {
+    padding: 6rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .forget-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+
+  .forget-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.8rem;
+    transition: transform 0.3s;
+  }
+
+  .forget-card:hover { transform: translateY(-3px); }
+
+  .forget-icon {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+  }
+
+  .forget-card h4 {
+    font-size: 1.05rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .forget-card p {
+    font-size: 0.88rem;
+    color: var(--text-dim);
+  }
+
+  /* ===== Advantages ===== */
+  .adv-section {
+    padding: 6rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .adv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+
+  .adv-card {
+    background: linear-gradient(135deg, var(--surface), var(--surface2));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s;
+  }
+
+  .adv-card:hover { transform: translateY(-4px); }
+
+  .adv-card .adv-num {
+    position: absolute;
+    top: -10px;
+    right: 10px;
+    font-size: 5rem;
+    font-weight: 900;
+    opacity: 0.04;
+    line-height: 1;
+  }
+
+  .adv-card h4 {
+    font-size: 1.1rem;
+    margin-bottom: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .adv-card p {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+  }
+
+  /* ===== Theory ===== */
+  .theory-section {
+    padding: 6rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .theory-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin-top: 3rem;
+    background: var(--surface);
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .theory-table th {
+    background: var(--surface2);
+    padding: 1rem 1.5rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .theory-table td {
+    padding: 0.9rem 1.5rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+
+  .theory-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .theory-table .design-col { color: var(--text); }
+  .theory-table .theory-col { color: var(--text-dim); }
+
+  /* ===== Comparison ===== */
+  .compare-section {
+    padding: 6rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .compare-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 3rem;
+  }
+
+  .compare-item {
+    text-align: center;
+    padding: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .compare-item .comp-name {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 0.5rem;
+  }
+
+  .compare-item .comp-check {
+    font-size: 1.4rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .compare-item .comp-detail {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+
+  /* ===== Context ===== */
+  .ctx-section {
+    padding: 6rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .ctx-visual {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 3rem;
+  }
+
+  .ctx-tag {
+    padding: 0.8rem 1.5rem;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border: 1px solid;
+    position: relative;
+    transition: transform 0.3s;
+  }
+
+  .ctx-tag:hover { transform: scale(1.05); }
+
+  .ctx-tag[data-ctx="work"] { background: rgba(108,92,231,0.1); border-color: rgba(108,92,231,0.3); color: #a29bfe; }
+  .ctx-tag[data-ctx="personal"] { background: rgba(0,184,148,0.1); border-color: rgba(0,184,148,0.3); color: var(--fact); }
+  .ctx-tag[data-ctx="social"] { background: rgba(253,203,110,0.1); border-color: rgba(253,203,110,0.3); color: var(--episodic); }
+  .ctx-tag[data-ctx="learning"] { background: rgba(116,185,255,0.1); border-color: rgba(116,185,255,0.3); color: var(--document); }
+  .ctx-tag[data-ctx="general"] { background: rgba(255,255,255,0.04); border-color: var(--border); color: var(--text-dim); }
+
+  .ctx-example {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-top: 2rem;
+  }
+
+  .ctx-example h4 {
+    font-size: 1rem;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+  }
+
+  .ctx-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .ctx-item {
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    font-size: 0.88rem;
+  }
+
+  .ctx-item.work-item { border-left: 3px solid #a29bfe; }
+  .ctx-item.personal-item { border-left: 3px solid var(--fact); }
+
+  .ctx-item .ctx-item-label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .ctx-result {
+    text-align: center;
+    padding: 1rem;
+    background: rgba(225,112,85,0.08);
+    border: 1px dashed rgba(225,112,85,0.3);
+    border-radius: 10px;
+    font-size: 0.9rem;
+    color: var(--trait);
+  }
+
+  /* ===== Footer ===== */
+  .footer {
+    text-align: center;
+    padding: 4rem 2rem;
+    border-top: 1px solid var(--border);
+    margin-top: 4rem;
+  }
+
+  .footer p { color: var(--text-dim); font-size: 0.85rem; }
+
+  .footer .stats {
+    display: flex;
+    justify-content: center;
+    gap: 3rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .footer .stat-item {
+    text-align: center;
+  }
+
+  .footer .stat-num {
+    font-size: 2.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--trait));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .footer .stat-label {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 768px) {
+    .upgrade-chain {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .upgrade-step::after {
+      top: auto;
+      bottom: -1px;
+      left: 50%;
+      right: auto;
+      width: 60%;
+      height: 2px;
+      transform: translateX(-50%);
+    }
+    .upgrade-arrow {
+      top: auto;
+      bottom: -20px;
+      right: 50%;
+      transform: translateX(50%) rotate(90deg);
+    }
+    .ctx-pair { grid-template-columns: 1fr; }
+    .lifecycle-track { justify-content: flex-start; }
+  }
+
+  /* ===== Scroll Reveal ===== */
+  .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-content">
+    <div class="hero-badge">NEUROMEM MEMORY SYSTEM V2</div>
+    <h1>记忆分类体系</h1>
+    <p>让 AI 像人一样记忆 —— 从碎片事实到深层人格的自动演化系统</p>
+  </div>
+  <div class="scroll-hint">
+    <span>向下探索</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+  </div>
+</div>
+
+<!-- 四大分类 -->
+<section class="reveal">
+  <div class="section-label">Memory Types</div>
+  <div class="section-title">四种记忆类型</div>
+  <div class="section-desc">模拟人类长期记忆的分类方式，每种记忆有不同的产生机制、生命周期和召回策略。</div>
+
+  <div class="type-grid">
+    <div class="type-card" data-type="fact">
+      <div class="type-icon">📌</div>
+      <h3>事实记忆</h3>
+      <div class="en-name">Fact</div>
+      <div class="source-tag">对话提取</div>
+      <p>离散客观信息，可验证。新事实自动覆盖旧版本。</p>
+      <div class="type-example">"用户在 Google 工作"<br>"养了一只猫叫 Mimi"</div>
+    </div>
+    <div class="type-card" data-type="episodic">
+      <div class="type-icon">🎬</div>
+      <h3>情景记忆</h3>
+      <div class="en-name">Episodic</div>
+      <div class="source-tag">对话提取</div>
+      <p>一次性事件，绑定时间、地点、人物。只增不改。</p>
+      <div class="type-example">"2024-02-15 参加了 Python meetup"<br>"上周和团队争论了技术选型"</div>
+    </div>
+    <div class="type-card" data-type="trait">
+      <div class="type-icon">🧬</div>
+      <h3>特质记忆</h3>
+      <div class="en-name">Trait</div>
+      <div class="source-tag">反思引擎归纳</div>
+      <p>从多次交互中归纳的行为模式与人格特征。<strong>永远不从单次对话提取</strong>。</p>
+      <div class="type-example">"偏好数据驱动决策"<br>"高尽责性"</div>
+    </div>
+    <div class="type-card" data-type="document">
+      <div class="type-icon">📄</div>
+      <h3>文档记忆</h3>
+      <div class="en-name">Document</div>
+      <div class="source-tag">文件上传</div>
+      <p>用户上传的文件，用于 RAG 检索。内容不变、不衰减。</p>
+      <div class="type-example">PDF 文档、Markdown 笔记<br>技术规格书</div>
+    </div>
+  </div>
+</section>
+
+<!-- 流转路径 -->
+<div class="flow-section reveal">
+  <div class="section-label">Memory Flow</div>
+  <div class="section-title">记忆如何诞生与演化</div>
+  <div class="section-desc" style="margin: 0 auto 2rem;">对话产生事实和情景，反思引擎周期性扫描并归纳出特质。</div>
+
+  <div class="flow-visual">
+    <div class="flow-row">
+      <div class="flow-node conv">💬 用户对话</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node llm">🤖 LLM 提取</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node fact-n">📌 Fact</div>
+      <div class="flow-node epi-n">🎬 Episodic</div>
+    </div>
+    <div class="flow-arrow down">⬇</div>
+    <div class="flow-desc">反思引擎定期扫描 fact / episodic，发现行为模式</div>
+    <div class="flow-arrow down">⬇</div>
+    <div class="flow-row">
+      <div class="flow-node refl">🔬 Reflection 引擎</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node" style="background:rgba(225,112,85,0.12);border:1px solid rgba(225,112,85,0.3);color:var(--trait);">🧬 Trait (behavior → preference → core)</div>
+    </div>
+  </div>
+</div>
+
+<!-- Trait 三层升级链 -->
+<section class="upgrade-section reveal">
+  <div class="section-label">Trait Upgrade Chain</div>
+  <div class="section-title">特质三层升级链 <span style="font-size:0.6em;color:var(--accent);font-weight:400;">— 全球独创</span></div>
+  <div class="section-desc">从可观测的行为模式，逐步抽象为深层人格特征。每一层升级都需要多条证据累积验证。</div>
+
+  <div class="upgrade-chain">
+    <div class="upgrade-step">
+      <div class="upgrade-circle">👁️</div>
+      <h4 style="color:var(--behavior)">行为</h4>
+      <div class="sub-en">Behavior</div>
+      <div class="obs">直接可观测</div>
+      <ul class="upgrade-examples">
+        <li>"深夜活跃"</li>
+        <li>"每次讨论都要看数据"</li>
+        <li>"决策前必查资料"</li>
+      </ul>
+      <div class="upgrade-arrow">→</div>
+    </div>
+    <div class="upgrade-step">
+      <div class="upgrade-circle">💡</div>
+      <h4 style="color:var(--preference)">偏好</h4>
+      <div class="sub-en">Preference</div>
+      <div class="obs">通过选择行为推断</div>
+      <ul class="upgrade-examples">
+        <li>"偏好数据驱动决策"</li>
+        <li>"喜欢极简设计"</li>
+        <li>"注重流程规范"</li>
+      </ul>
+      <div class="upgrade-arrow">→</div>
+    </div>
+    <div class="upgrade-step">
+      <div class="upgrade-circle">💎</div>
+      <h4 style="color:var(--core)">核心人格</h4>
+      <div class="sub-en">Core</div>
+      <div class="obs">从多个偏好抽象</div>
+      <ul class="upgrade-examples">
+        <li>"高尽责性"</li>
+        <li>"重视自由与自主"</li>
+        <li>"内向型人格"</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Demo -->
+  <div class="demo-box">
+    <h4>🎯 升级演示：从行为到核心人格</h4>
+    <div class="demo-timeline" id="demoTimeline">
+      <div class="demo-item" data-level="behavior">
+        <div class="demo-dot"></div>
+        <div>
+          <div class="demo-tag">behavior</div>
+        </div>
+        <div class="demo-text">"每次讨论方案时都会要求看数据"</div>
+      </div>
+      <div class="demo-item" data-level="behavior">
+        <div class="demo-dot"></div>
+        <div>
+          <div class="demo-tag">behavior</div>
+        </div>
+        <div class="demo-text">"写代码前总是先画架构图"</div>
+      </div>
+      <div class="demo-item" data-level="behavior">
+        <div class="demo-dot"></div>
+        <div>
+          <div class="demo-tag">behavior</div>
+        </div>
+        <div class="demo-text">"拒绝了未经测试就上线的请求"</div>
+      </div>
+      <div class="demo-item" data-level="preference">
+        <div class="demo-dot"></div>
+        <div>
+          <div class="demo-tag">preference</div>
+          <div class="demo-merge">↑ 归纳自 3 条 behavior</div>
+        </div>
+        <div class="demo-text">"偏好数据驱动的决策方式"</div>
+      </div>
+      <div class="demo-item" data-level="preference">
+        <div class="demo-dot"></div>
+        <div>
+          <div class="demo-tag">preference</div>
+        </div>
+        <div class="demo-text">"注重流程规范和质量把控"</div>
+      </div>
+      <div class="demo-item" data-level="core">
+        <div class="demo-dot"></div>
+        <div>
+          <div class="demo-tag">core</div>
+          <div class="demo-merge">↑ 抽象自 2 条 preference</div>
+        </div>
+        <div class="demo-text">"高尽责性（Conscientiousness）"</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 生命周期 -->
+<section class="lifecycle-section reveal">
+  <div class="section-label">Lifecycle</div>
+  <div class="section-title">特质的 6 阶段生命周期</div>
+  <div class="section-desc">每条特质从趋势萌芽到核心确立（或被淘汰），经历完整的验证过程。</div>
+
+  <div class="lifecycle-track">
+    <div class="lc-stage">
+      <div class="lc-pip"></div>
+      <h5>Trend</h5>
+      <div class="lc-conf">时间窗口管理</div>
+      <div class="lc-desc">近期趋势<br>可能只是一时兴起</div>
+      <div class="lc-recall-badge badge-no">不参与召回</div>
+    </div>
+    <div class="lc-stage">
+      <div class="lc-pip"></div>
+      <h5>Candidate</h5>
+      <div class="lc-conf">置信度 &lt; 0.3</div>
+      <div class="lc-desc">初步模式<br>证据尚不充分</div>
+      <div class="lc-recall-badge badge-no">不参与召回</div>
+    </div>
+    <div class="lc-stage">
+      <div class="lc-pip"></div>
+      <h5>Emerging</h5>
+      <div class="lc-conf">置信度 0.3 - 0.6</div>
+      <div class="lc-desc">有一定可信度<br>但仍需更多验证</div>
+      <div class="lc-recall-badge badge-low">低权重召回</div>
+    </div>
+    <div class="lc-stage">
+      <div class="lc-pip"></div>
+      <h5>Established</h5>
+      <div class="lc-conf">置信度 0.6 - 0.85</div>
+      <div class="lc-desc">经过验证的<br>可信特质</div>
+      <div class="lc-recall-badge badge-normal">正常权重召回</div>
+    </div>
+    <div class="lc-stage">
+      <div class="lc-pip"></div>
+      <h5>Core</h5>
+      <div class="lc-conf">置信度 &gt; 0.85</div>
+      <div class="lc-desc">高度稳定的<br>核心人格</div>
+      <div class="lc-recall-badge badge-high">高权重优先召回</div>
+    </div>
+    <div class="lc-stage">
+      <div class="lc-pip"></div>
+      <h5>Dissolved</h5>
+      <div class="lc-conf">已失效</div>
+      <div class="lc-desc">被推翻或过期<br>归档保存</div>
+      <div class="lc-recall-badge badge-no">不参与召回</div>
+    </div>
+  </div>
+
+  <div class="dissolved-branch">
+    <span>⚠️</span>
+    任何阶段的特质都可能因矛盾证据、长期无强化或时间窗口过期而进入 Dissolved 状态
+  </div>
+</section>
+
+<!-- 遗忘机制 -->
+<section class="forget-section reveal">
+  <div class="section-label">Forgetting</div>
+  <div class="section-title">会遗忘的记忆系统</div>
+  <div class="section-desc">只增不减会导致信息过载。neuromem 拥有四重遗忘机制，让记忆保持高信噪比。</div>
+
+  <div class="forget-grid">
+    <div class="forget-card">
+      <div class="forget-icon">⏳</div>
+      <h4>时间衰减</h4>
+      <p>基于 Ebbinghaus 遗忘曲线。长期无强化的特质置信度自然下降。behavior 衰减快，core 衰减慢。</p>
+    </div>
+    <div class="forget-card">
+      <div class="forget-icon">🔄</div>
+      <h4>间隔效应</h4>
+      <p>被反复验证的记忆更抗衰减。强化 10 次后衰减速度减半，模拟人类间隔重复学习。</p>
+    </div>
+    <div class="forget-card">
+      <div class="forget-icon">⚡</div>
+      <h4>矛盾反思</h4>
+      <p>新证据与已有特质矛盾时，触发专项审查。LLM 综合判断：修正 / 情境化分裂 / 废弃。</p>
+    </div>
+    <div class="forget-card">
+      <div class="forget-icon">🪟</div>
+      <h4>趋势过期</h4>
+      <p>trend 阶段用时间窗口管理。观察期内未被强化的趋势自动清除，不留垃圾。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 情境感知 -->
+<section class="ctx-section reveal">
+  <div class="section-label">Context Awareness</div>
+  <div class="section-title">情境感知：同一个人的不同面</div>
+  <div class="section-desc">人在不同场景下展现不同特质，这不是矛盾，而是完整的人格画像。</div>
+
+  <div class="ctx-visual">
+    <div class="ctx-tag" data-ctx="work">💼 工作</div>
+    <div class="ctx-tag" data-ctx="personal">🏠 生活</div>
+    <div class="ctx-tag" data-ctx="social">🤝 社交</div>
+    <div class="ctx-tag" data-ctx="learning">📚 学习</div>
+    <div class="ctx-tag" data-ctx="general">🌐 跨情境通用</div>
+  </div>
+
+  <div class="ctx-example">
+    <h4>示例：看似矛盾的特质如何共存</h4>
+    <div class="ctx-pair">
+      <div class="ctx-item work-item">
+        <div class="ctx-item-label">💼 工作场景</div>
+        反复检查细节，要求代码 review 必须通过
+      </div>
+      <div class="ctx-item personal-item">
+        <div class="ctx-item-label">🏠 生活场景</div>
+        随手放东西，不拘小节
+      </div>
+    </div>
+    <div class="ctx-result">
+      → 核心特质：<strong>"工作中严谨细致（置信度 0.8），生活中追求轻松随性（置信度 0.65）"</strong><br>
+      <span style="font-size:0.82rem;opacity:0.7;">两面共存，各有独立置信度，都是真实的「这个人」</span>
+    </div>
+  </div>
+</section>
+
+<!-- 优势 -->
+<section class="adv-section reveal">
+  <div class="section-label">Advantages</div>
+  <div class="section-title">核心优势</div>
+
+  <div class="adv-grid">
+    <div class="adv-card">
+      <div class="adv-num">01</div>
+      <h4>🛡️ 防表演污染</h4>
+      <p>用户可能在 AI 面前"表演人设"。neuromem 要求特质经多次跨对话验证才能确立。研究显示 LLM 单次推断人格准确度仅 r=0.27 —— 所以我们不这么做。</p>
+    </div>
+    <div class="adv-card">
+      <div class="adv-num">02</div>
+      <h4>🔗 全链路可追溯</h4>
+      <p>每条特质保留完整证据链。哪些事实支持、哪些矛盾，一目了然。升级后底层记忆不删除，随时可回溯到原始证据重新评估。</p>
+    </div>
+    <div class="adv-card">
+      <div class="adv-num">03</div>
+      <h4>🧠 认知科学驱动</h4>
+      <p>不是拍脑袋设计。每个核心决策都有认知心理学理论支撑：Tulving 记忆分类、Conway 自我记忆系统、Ebbinghaus 遗忘曲线、Mischel 情境人格理论。</p>
+    </div>
+    <div class="adv-card">
+      <div class="adv-num">04</div>
+      <h4>🌍 全球独创架构</h4>
+      <p>覆盖 Stanford Generative Agents、MemGPT、Mem0、Zep 等全球主流系统的调研中，trait 三层自动升级链和四重遗忘机制均为独一无二。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 理论基础 -->
+<section class="theory-section reveal">
+  <div class="section-label">Theoretical Foundation</div>
+  <div class="section-title">认知心理学理论支撑</div>
+  <div class="section-desc">每一个设计决策都有经过验证的理论基础。</div>
+
+  <table class="theory-table">
+    <thead>
+      <tr>
+        <th>设计</th>
+        <th>理论来源</th>
+        <th>要点</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="design-col">Fact / Episodic 分类</td>
+        <td class="theory-col">Tulving 语义/情景记忆</td>
+        <td class="theory-col">知识性事实 vs 亲历事件的本质区分</td>
+      </tr>
+      <tr>
+        <td class="design-col">Behavior → Preference → Core</td>
+        <td class="theory-col">Conway SMS + Allport 特质理论</td>
+        <td class="theory-col">自我记忆的层级抽象 + 人格特质的三层结构</td>
+      </tr>
+      <tr>
+        <td class="design-col">情境化特质</td>
+        <td class="theory-col">Mischel CAPS 理论</td>
+        <td class="theory-col">行为是 if-then 情境模式，非跨情境一致</td>
+      </tr>
+      <tr>
+        <td class="design-col">时间衰减</td>
+        <td class="theory-col">Ebbinghaus 遗忘曲线</td>
+        <td class="theory-col">未被巩固的记忆随时间指数衰减</td>
+      </tr>
+      <tr>
+        <td class="design-col">间隔效应</td>
+        <td class="theory-col">RGMem 快慢变量分离</td>
+        <td class="theory-col">反复验证的记忆衰减更慢</td>
+      </tr>
+      <tr>
+        <td class="design-col">反思触发</td>
+        <td class="theory-col">Stanford Generative Agents</td>
+        <td class="theory-col">重要度累积阈值 + 定时 + 会话结束三重触发</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 全球对比 -->
+<section class="compare-section reveal">
+  <div class="section-label">Global Comparison</div>
+  <div class="section-title">与全球主流系统对比</div>
+  <div class="section-desc">经过 5 个方向的独立调研验证（认知心理学、学术研究、MemGPT/Letta、商业系统、Personal AI）。</div>
+
+  <div class="compare-grid">
+    <div class="compare-item">
+      <div class="comp-name">Generative Agents</div>
+      <div class="comp-check">❌</div>
+      <div class="comp-detail">有反思但无特质升级链</div>
+    </div>
+    <div class="compare-item">
+      <div class="comp-name">MemGPT / Letta</div>
+      <div class="comp-check">❌</div>
+      <div class="comp-detail">内存分页模型，无人格建模</div>
+    </div>
+    <div class="compare-item">
+      <div class="comp-name">Mem0</div>
+      <div class="comp-check">❌</div>
+      <div class="comp-detail">向量+图混合，无层级特质</div>
+    </div>
+    <div class="compare-item">
+      <div class="comp-name">Zep / Graphiti</div>
+      <div class="comp-check">❌</div>
+      <div class="comp-detail">知识图谱，无特质生命周期</div>
+    </div>
+    <div class="compare-item">
+      <div class="comp-name">Memoria (Amazon)</div>
+      <div class="comp-check">⚠️</div>
+      <div class="comp-detail">有 traits 概念，但无升级链</div>
+    </div>
+    <div class="compare-item" style="border-color: var(--accent); background: rgba(108,92,231,0.05);">
+      <div class="comp-name" style="color:var(--accent);font-weight:600;">NeuroMem V2</div>
+      <div class="comp-check">✅</div>
+      <div class="comp-detail" style="color:var(--text);">三层升级链 + 四重遗忘 + 情境感知</div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<div class="footer reveal">
+  <div class="stats">
+    <div class="stat-item">
+      <div class="stat-num">4</div>
+      <div class="stat-label">记忆类型</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">3</div>
+      <div class="stat-label">特质层级</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">6</div>
+      <div class="stat-label">生命阶段</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">5</div>
+      <div class="stat-label">情境标签</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">4</div>
+      <div class="stat-label">遗忘机制</div>
+    </div>
+  </div>
+  <p>NeuroMem Memory Classification V2 — 让 AI 真正理解「你是谁」</p>
+</div>
+
+<script>
+// Scroll reveal
+const reveals = document.querySelectorAll('.reveal');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1 });
+
+reveals.forEach(el => observer.observe(el));
+
+// Demo timeline animation
+const demoItems = document.querySelectorAll('#demoTimeline .demo-item');
+const demoObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      demoItems.forEach((item, i) => {
+        setTimeout(() => item.classList.add('visible'), i * 400);
+      });
+      demoObserver.disconnect();
+    }
+  });
+}, { threshold: 0.3 });
+
+demoObserver.observe(document.getElementById('demoTimeline'));
+</script>
+
+</body>
+</html>
