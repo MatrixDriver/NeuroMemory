@@ -48,8 +48,14 @@ class Database:
                 await s.rollback()
                 raise
 
-    async def init(self) -> None:
-        """Create pgvector extension and all tables, run idempotent migrations."""
+    async def init(self, schema: str | None = None) -> None:
+        """Create pgvector extension and all tables, run idempotent migrations.
+
+        Args:
+            schema: Target schema for table creation. When set (e.g. multi-tenant),
+                Base.metadata.create_all uses this schema so tables are created there
+                instead of falling through to ``public`` via search_path.
+        """
         from pgvector.sqlalchemy import HALFVEC, Vector
 
         import neuromem.models as _models
@@ -75,20 +81,53 @@ class Database:
                     if getattr(col.type, 'dim', None) != dims:
                         col.type = HALFVEC(dims)
 
+        # When schema is specified, temporarily set it on all tables so
+        # create_all targets the correct schema (not public via search_path).
+        if schema:
+            for table in Base.metadata.tables.values():
+                table.schema = schema
+
+        try:
+            await self._run_init(schema)
+        finally:
+            # Always restore schema to None so normal operations use search_path
+            if schema:
+                for table in Base.metadata.tables.values():
+                    table.schema = None
+
+    async def _run_init(self, schema: str | None) -> None:
+        from neuromem.models.base import Base
+
         async with self.engine.begin() as conn:
             # Step 1: Create extension
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
             # Step 2: Detect table state + rename embeddings -> memories
-            has_embeddings = (await conn.execute(
-                text("SELECT to_regclass('embeddings') IS NOT NULL")
-            )).scalar()
-            has_memories = (await conn.execute(
-                text("SELECT to_regclass('memories') IS NOT NULL")
-            )).scalar()
+            # Use schema-qualified check when schema is specified
+            if schema:
+                has_embeddings = (await conn.execute(text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = :s AND table_name = 'embeddings'"
+                ), {"s": schema})).first() is not None
+                has_memories = (await conn.execute(text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = :s AND table_name = 'memories'"
+                ), {"s": schema})).first() is not None
+            else:
+                has_embeddings = (await conn.execute(
+                    text("SELECT to_regclass('embeddings') IS NOT NULL")
+                )).scalar()
+                has_memories = (await conn.execute(
+                    text("SELECT to_regclass('memories') IS NOT NULL")
+                )).scalar()
 
             if has_embeddings and not has_memories:
-                await conn.execute(text("ALTER TABLE embeddings RENAME TO memories"))
+                if schema:
+                    await conn.execute(text(
+                        f'ALTER TABLE "{schema}".embeddings RENAME TO memories'
+                    ))
+                else:
+                    await conn.execute(text("ALTER TABLE embeddings RENAME TO memories"))
                 logger.info("Renamed table 'embeddings' to 'memories'")
             elif has_embeddings and has_memories:
                 raise RuntimeError("Both 'embeddings' and 'memories' tables exist")
@@ -240,6 +279,7 @@ class Database:
                 old_indexes = (await conn.execute(text("""
                     SELECT indexname FROM pg_indexes
                     WHERE tablename = 'memories'
+                      AND schemaname = current_schema()
                       AND indexdef LIKE '%vector_cosine_ops%'
                 """))).fetchall()
                 for idx in old_indexes:
@@ -284,7 +324,9 @@ class Database:
             try:
                 async with self.engine.begin() as conn:
                     result = await conn.execute(text(
-                        "SELECT 1 FROM pg_indexes WHERE indexname = 'idx_memories_bm25'"
+                        "SELECT 1 FROM pg_indexes"
+                        " WHERE indexname = 'idx_memories_bm25'"
+                        " AND schemaname = current_schema()"
                     ))
                     if result.first() is None:
                         await conn.execute(text("""

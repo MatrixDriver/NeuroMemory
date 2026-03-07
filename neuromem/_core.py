@@ -648,9 +648,13 @@ class NeuroMemory:
         logger.info("cancel_user_tasks[%s]: cancelled %d tasks", user_id, cancelled)
         return cancelled
 
-    async def init(self) -> None:
-        """Initialize database tables and optional storage."""
-        await self._db.init()
+    async def init(self, schema: str | None = None) -> None:
+        """Initialize database tables and optional storage.
+
+        Args:
+            schema: Target schema for table creation (multi-tenant use).
+        """
+        await self._db.init(schema=schema)
         if self._storage:
             await self._storage.init()
 
